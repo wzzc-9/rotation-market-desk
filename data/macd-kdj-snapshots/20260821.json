@@ -1,0 +1,30 @@
+{
+  "signals": [
+    {
+      "code": "002456",
+      "close": 7.09,
+      "change": 3.81,
+      "dif": -0.2772,
+      "dea": -0.2846,
+      "histogram": 0.0148,
+      "k": 23.17,
+      "d": 22.65,
+      "j": 24.23,
+      "kdjCrossDaysAgo": 0,
+      "divergence": true,
+      "score": 98.4,
+      "signal": "底背离共振",
+      "name": "欧菲光"
+    }
+  ],
+  "storageDate": "20260821",
+  "provider": "Tushare 日线 + 腾讯证券公开行情",
+  "fetchedAt": "2026-08-22T09:01:22.083Z",
+  "lastTradingDate": "20260821",
+  "cached": false,
+  "scannedCount": 3177,
+  "excludedCount": 2362,
+  "lowCrossCount": 0,
+  "divergenceCount": 1,
+  "version": "macd-12-26-9-kdj-9-3-3-resonance-v1"
+}

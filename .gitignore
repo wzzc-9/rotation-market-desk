@@ -5,3 +5,5 @@ vite.config.js
 vite.config.d.ts
 vite.log
 vite-error.log
+.env.local
+/.idea
