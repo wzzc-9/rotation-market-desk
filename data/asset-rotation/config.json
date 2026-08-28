@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "updatedAt": "2026-08-28T11:31:44.048Z",
+  "version": 6,
+  "updatedAt": "2026-08-28T11:33:18.649Z",
   "symbols": [
     {
       "marketCode": "sh510300",
@@ -37,6 +37,12 @@
       "code": "511260",
       "name": "十年国债ETF",
       "category": "债券"
+    },
+    {
+      "marketCode": "sh515180",
+      "code": "515180",
+      "name": "红利ETF易方达",
+      "category": "A股宽基"
     }
   ]
 }

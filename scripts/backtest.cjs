@@ -2,12 +2,27 @@ const fs = require('fs');
 const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
-const history = JSON.parse(fs.readFileSync(path.join(projectRoot, 'data', 'history-consolidated.json'), 'utf8'));
-const codes = Object.keys(history);
-const names = Object.fromEntries(codes.map(code => [code, history[code].name]));
+const strategyDirectory = path.join(projectRoot, 'data', 'rotation');
+const historyDirectory = path.join(strategyDirectory, 'history');
+const config = JSON.parse(fs.readFileSync(path.join(strategyDirectory, 'config.json'), 'utf8'));
+const codes = config.symbols.map((item) => item.code);
+const names = Object.fromEntries(config.symbols.map((item) => [item.code, item.name]));
+const history = {};
+const missingCodes = [];
+for (const code of codes) {
+  const inputPath = path.join(historyDirectory, `${code}.json`);
+  if (!fs.existsSync(inputPath)) {
+    missingCodes.push(code);
+    continue;
+  }
+  const record = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+  if (record.code !== code || !Array.isArray(record.rows) || record.rows.length === 0) throw new Error(`${inputPath} 历史行情格式无效`);
+  history[code] = record;
+}
+if (missingCodes.length > 0) throw new Error(`缺少 ETF 历史行情：${missingCodes.join(', ')}`);
+
 const series = {};
 const allDates = new Set();
-
 for (const code of codes) {
   const rows = history[code].rows;
   const closes = new Map();
@@ -30,35 +45,23 @@ let value = 1;
 let position = null;
 let previousDate = null;
 const years = {};
-
 for (const date of dates) {
   const year = Number(date.slice(0, 4));
   if (year < 2015 || year > 2025) continue;
-  years[year] ??= {
-    startValue: value,
-    endValue: value,
-    peak: value,
-    maxDrawdown: 0,
-    trades: 0,
-    lastPosition: null,
-    available: 0,
-  };
-
+  years[year] ??= { startValue: value, endValue: value, peak: value, maxDrawdown: 0, trades: 0, lastPosition: null, available: 0 };
   if (position && previousDate) {
     const previousClose = series[position].closes.get(previousDate);
     const currentClose = series[position].closes.get(date);
     if (previousClose && currentClose) value *= currentClose / previousClose;
   }
-
   const state = years[year];
   state.endValue = value;
   state.peak = Math.max(state.peak, value);
   state.maxDrawdown = Math.min(state.maxDrawdown, value / state.peak - 1);
-
   const ranked = codes
-    .map(code => ({ code, ...series[code].indicators.get(date) }))
-    .filter(item => Number.isFinite(item.momentum))
-    .sort((a, b) => b.momentum - a.momentum);
+    .map((code) => ({ code, ...series[code].indicators.get(date) }))
+    .filter((item) => Number.isFinite(item.momentum))
+    .sort((left, right) => right.momentum - left.momentum);
   state.available = Math.max(state.available, ranked.length);
   const leader = ranked[0];
   const nextPosition = leader && leader.close > leader.ma20 ? leader.code : null;
@@ -79,7 +82,6 @@ const result = Object.entries(years)
     yearEndHolding: item.lastPosition ? names[item.lastPosition] : '空仓',
     endValue: item.endValue,
   }));
-
 const cumulative = (result.at(-1).endValue / result[0].endValue) * (1 + result[0].return / 100) - 1;
 const annualReturns = result.map((item) => ({
   year: item.year,
@@ -93,6 +95,8 @@ const backtestDates = dates.filter((date) => date >= '2016-01-01' && date <= '20
 const backtest = {
   version: 'rotation-ma20-daily-v1',
   strategy: 'rotation',
+  configVersion: config.version,
+  symbols: config.symbols,
   generatedAt: new Date().toISOString(),
   period: { start: backtestDates[0], end: backtestDates.at(-1) },
   annualReturns,
@@ -103,7 +107,7 @@ const backtest = {
     worstDrawdown: Math.min(...annualReturns.map((item) => item.maxDrawdown)),
   },
 };
-const outputPath = path.join(projectRoot, 'data', 'rotation-backtest.json');
+const outputPath = path.join(strategyDirectory, 'backtest.json');
 const temporaryPath = `${outputPath}.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(backtest, null, 2)}\n`, 'utf8');
 fs.renameSync(temporaryPath, outputPath);

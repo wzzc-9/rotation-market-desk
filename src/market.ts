@@ -7,9 +7,9 @@ export type EtfSearchResult = {
   category: MarketCategory;
 };
 
-export type AssetRotationBacktestResponse = {
+export type RotationBacktestResponse = {
   version: string;
-  strategy: 'asset-rotation';
+  strategy: 'rotation' | 'asset-rotation';
   configVersion: number;
   generatedAt: string;
   period: { start: string; end: string };
@@ -29,6 +29,8 @@ export type AssetRotationBacktestResponse = {
     worstDrawdown: number;
   };
 };
+
+export type AssetRotationBacktestResponse = RotationBacktestResponse;
 
 export type Candle = {
   date: string;
@@ -62,7 +64,7 @@ export type RotationResponse = {
   fetchedAt: string;
   lastTradingDate: string;
   cached: boolean;
-  backtest?: AssetRotationBacktestResponse;
+  backtest?: RotationBacktestResponse;
 };
 
 export type RotationTradeNode = {

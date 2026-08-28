@@ -1,5 +1,5 @@
-import assetRotationBacktest from '../data/asset-rotation-backtest.json';
-import rotationBacktest from '../data/rotation-backtest.json';
+import assetRotationBacktest from '../data/asset-rotation/backtest.json';
+import rotationBacktest from '../data/rotation/backtest.json';
 
 export type AnnualReturn = {
   year: number;

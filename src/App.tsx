@@ -33,7 +33,7 @@ import {
 import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, type AnnualReturn } from './backtest';
-import { formatPct, formatVolume, movingAverage, type AssetRotationBacktestResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
+import { formatPct, formatVolume, movingAverage, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
@@ -916,14 +916,14 @@ function Screener({
   );
 }
 
-function StrategyCenter({ markets, yearPerformance, assetBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; assetBacktest?: AssetRotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset'; refreshing?: boolean; onRefresh?: () => void }) {
+function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset'; refreshing?: boolean; onRefresh?: () => void }) {
   const isAssetRotation = variant === 'asset';
   const leader = markets[0];
   const second = markets[1];
   const holding = markets.find((market) => market.name === yearPerformance.currentHolding) ?? null;
   const trendPeriod = isAssetRotation ? 28 : 20;
   const poolSize = markets.length;
-  const performanceReturns = isAssetRotation ? (assetBacktest?.annualReturns ?? assetRotationAnnualReturns) : annualReturns;
+  const performanceReturns = strategyBacktest?.annualReturns ?? (isAssetRotation ? assetRotationAnnualReturns : annualReturns);
   const [backtestStartYear, setBacktestStartYear] = useState(performanceReturns[0].year);
   const filteredPerformanceReturns = useMemo(
     () => performanceReturns.filter((item) => item.year >= backtestStartYear),
@@ -959,7 +959,7 @@ function StrategyCenter({ markets, yearPerformance, assetBacktest, poolEditor, p
     { title: '卖出避险', copy: '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
   ] : [
     { title: '计算动量', copy: '每日收盘后计算：收盘价 ÷ 20日均线 - 1。', icon: Activity },
-    { title: '执行买入', copy: '收盘价有效站上 MA20，且动量在 8 个标的中排名第 1。', icon: TrendingUp },
+    { title: '执行买入', copy: `收盘价有效站上 MA20，且动量在标的池内 ${poolSize} 只 ETF 中排名第 1。`, icon: TrendingUp },
     { title: '持续持有', copy: '持仓标的保持在 MA20 上方，同时维持动量排名第 1。', icon: Check },
     { title: '立即卖出', copy: '跌破 MA20，或动量排名滑落至第 2 名及以下，任一触发即清仓。', icon: TrendingDown },
   ];
@@ -969,7 +969,7 @@ function StrategyCenter({ markets, yearPerformance, assetBacktest, poolEditor, p
         <div>
           <span className="eyebrow">STRATEGY / {isAssetRotation ? 'GLOBAL ASSET ROTATION' : 'ACTIVE'}</span>
           <h1>{isAssetRotation ? '全球大类资产 ETF 轮动' : '宽基 20 日动量轮动'}</h1>
-          <p>{isAssetRotation ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。` : '八类宽基与跨市场 ETF 每日单标的轮动，弱市允许空仓。'}</p>
+          <p>{isAssetRotation ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。` : `当前 ${poolSize} 只宽基与跨市场 ETF 每日单标的轮动，可按名称或代码调整标的池。`}</p>
         </div>
         <div className="strategy-heading-actions">
           {onRefresh && <button className={`text-button ${refreshing ? 'is-spinning' : ''}`} type="button" disabled={refreshing} onClick={onRefresh}><RefreshCw size={14} />刷新行情</button>}
@@ -1118,7 +1118,7 @@ function StrategyCenter({ markets, yearPerformance, assetBacktest, poolEditor, p
   );
 }
 
-function PoolRemovalDialog({ market, onCancel, onConfirm }: { market: RankedMarket; onCancel: () => void; onConfirm: () => void }) {
+function PoolRemovalDialog({ market, strategyName, onCancel, onConfirm }: { market: RankedMarket; strategyName: string; onCancel: () => void; onConfirm: () => void }) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     confirmButtonRef.current?.focus();
@@ -1140,7 +1140,7 @@ function PoolRemovalDialog({ market, onCancel, onConfirm }: { market: RankedMark
           <button type="button" className="icon-button pool-dialog-close" title="关闭" aria-label="关闭移除确认框" onClick={onCancel}><X size={16} /></button>
         </div>
         <div className="pool-dialog-body">
-          <p id="pool-dialog-description">确认不再让下面这只 ETF 参与全球大类资产轮动排名？</p>
+          <p id="pool-dialog-description">确认不再让下面这只 ETF 参与{strategyName}排名？</p>
           <div className="pool-dialog-target">
             <div><strong>{market.name}</strong><span>{market.category}</span></div>
             <code>{market.code}</code>
@@ -1217,8 +1217,8 @@ function AssetRotationStrategy() {
   return snapshot ? <>
     {error && <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>}
     {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
-    <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} assetBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="asset" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
-    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
+    <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} strategyBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="asset" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
+    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="全球大类资产轮动" onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
   </> : null;
 }
 
@@ -2323,6 +2323,9 @@ export default function App() {
   const [selectedCode, setSelectedCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [rotationPoolUpdating, setRotationPoolUpdating] = useState(false);
+  const [rotationPoolError, setRotationPoolError] = useState('');
+  const [pendingRotationRemoval, setPendingRotationRemoval] = useState<RankedMarket | null>(null);
   const [watchlist, setWatchlist] = useState(new Set(['512100', '518880', '513100']));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedStrategyGroups, setExpandedStrategyGroups] = useState<Set<StrategyGroupId>>(() => new Set(['index', 'stock']));
@@ -2336,7 +2339,7 @@ export default function App() {
       const response = await fetch(`/api/strategy/rotation${forceRefresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
       const payload = await response.json() as RotationResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message || `行情代理返回 HTTP ${response.status}`);
-      if (!Array.isArray(payload.markets) || payload.markets.length !== 8) throw new Error('行情代理返回的数据不完整');
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('行情代理返回的数据不完整');
       setMarkets(payload.markets);
       setMarketMeta(payload);
       setSelectedCode((current) => payload.markets.some(item => item.code === current) ? current : payload.markets[0].code);
@@ -2346,6 +2349,37 @@ export default function App() {
       setLoading(false);
     }
   }, []);
+
+  const updateRotationPool = useCallback(async (action: 'add' | 'remove', item: Pick<RankedMarket, 'code' | 'name'> | EtfSearchResult) => {
+    setRotationPoolUpdating(true);
+    setRotationPoolError('');
+    try {
+      const response = await fetch(action === 'add' ? '/api/strategy/rotation/symbols' : `/api/strategy/rotation/symbols/${encodeURIComponent(item.code)}`, {
+        method: action === 'add' ? 'POST' : 'DELETE',
+        headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
+        body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
+      });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移除'} ETF 失败`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('重算完成，但返回的数据不完整');
+      setMarkets(payload.markets);
+      setMarketMeta(payload);
+      setSelectedCode((current) => payload.markets.some((market) => market.code === current) ? current : payload.markets[0].code);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setRotationPoolError(message);
+      throw reason;
+    } finally {
+      setRotationPoolUpdating(false);
+    }
+  }, []);
+
+  const confirmRotationRemoval = useCallback(() => {
+    if (!pendingRotationRemoval) return;
+    const market = pendingRotationRemoval;
+    setPendingRotationRemoval(null);
+    void updateRotationPool('remove', market).catch(() => undefined);
+  }, [pendingRotationRemoval, updateRotationPool]);
 
   useEffect(() => {
     if (didLoad.current) return;
@@ -2452,7 +2486,7 @@ export default function App() {
             <div id="index-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('index')}>
               <button className={view === 'strategy' && strategyId === 'rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('rotation')}>
                 <span className="strategy-icon"><Activity size={16} /></span>
-                <span><strong>宽基动量轮动</strong><small>MA20 · 8标的</small></span>
+                <span><strong>宽基动量轮动</strong><small>MA20 · 动态标的池</small></span>
                 <span className="live-dot" />
               </button>
               <button className={view === 'strategy' && strategyId === 'asset-rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('asset-rotation')}>
@@ -2512,15 +2546,18 @@ export default function App() {
         {error && markets.length > 0 && (
           <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>
         )}
+        {view === 'strategy' && strategyId === 'rotation' && rotationPoolError && (
+          <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{rotationPoolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setRotationPoolError('')}><X size={14} /></button></div>
+        )}
         {loading && !selected && (
-          <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在获取真实行情</strong><span>代理服务正在读取 8 个 ETF 的最新前复权日线并计算动量排名。</span></section>
+          <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在获取真实行情</strong><span>代理服务正在读取标的池 ETF 的最新前复权日线并计算动量排名。</span></section>
         )}
         {!loading && error && !selected && (
           <section className="data-state error-state"><AlertTriangle size={26} /><strong>真实行情加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadMarkets(true)}><RefreshCw size={15} />重新加载</button></section>
         )}
         {selected && view === 'dashboard' && <Dashboard markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
         {selected && view === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
-        {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter markets={markets} yearPerformance={marketMeta.yearPerformance} />}
+        {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter markets={markets} yearPerformance={marketMeta.yearPerformance} strategyBacktest={marketMeta.backtest} poolEditor={<AssetPoolEditor markets={markets} updating={rotationPoolUpdating} onAdd={(item) => updateRotationPool('add', item)} />} poolUpdating={rotationPoolUpdating} onRemoveMarket={setPendingRotationRemoval} refreshing={loading || rotationPoolUpdating} onRefresh={() => void loadMarkets(true)} />}
         {view === 'strategy' && strategyId === 'asset-rotation' && <AssetRotationStrategy />}
         {view === 'strategy' && strategyId === 'macd' && <MacdConfluenceStrategy />}
         {view === 'strategy' && strategyId === 'macd-pullback' && <MacdPullbackStrategy />}
@@ -2529,6 +2566,8 @@ export default function App() {
         {view === 'strategy' && strategyId === 'bull-points' && <BullPointStrategy />}
         {view === 'strategy' && strategyId === 'intersection' && <StrategyIntersection latestTradingDate={marketMeta?.lastTradingDate} />}
       </main>
+
+      {pendingRotationRemoval && <PoolRemovalDialog market={pendingRotationRemoval} strategyName="宽基 20 日动量轮动" onCancel={() => setPendingRotationRemoval(null)} onConfirm={confirmRotationRemoval} />}
 
       <nav className="mobile-nav" aria-label="移动端导航">
         {menuItems.map((item) => {

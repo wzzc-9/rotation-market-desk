@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationSnapshot, getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationSnapshot, getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, updateRotationPool, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
 
@@ -41,6 +41,30 @@ app.get<{ Querystring: { q?: string } }>('/api/etfs/search', async (request, rep
   } catch (error) {
     request.log.error(error);
     return reply.code(502).send({ error: 'ETF_SEARCH_ERROR', message: error instanceof Error ? error.message : 'ETF 搜索暂时不可用' });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/rotation/symbols', async (request, reply) => {
+  try {
+    const snapshot = await updateRotationPool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ROTATION_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/rotation/symbols/:code', async (request, reply) => {
+  try {
+    const snapshot = await updateRotationPool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移除失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ROTATION_POOL_UPDATE_ERROR', message });
   }
 });
 

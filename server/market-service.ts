@@ -22,7 +22,7 @@ export type AssetRotationConfig = {
 
 export type AssetRotationBacktest = {
   version: string;
-  strategy: 'asset-rotation';
+  strategy: 'rotation' | 'asset-rotation';
   configVersion: number;
   generatedAt: string;
   period: { start: string; end: string };
@@ -264,22 +264,19 @@ export type BullPointSnapshot = {
   excludedCount: number;
 };
 
-const symbols: SymbolConfig[] = [
-  { marketCode: 'sh512100', code: '512100', name: '中证1000', category: 'A股宽基' },
-  { marketCode: 'sz159949', code: '159949', name: '创业板50', category: 'A股宽基' },
-  { marketCode: 'sh518880', code: '518880', name: '黄金ETF', category: '商品' },
-  { marketCode: 'sh513100', code: '513100', name: '纳指ETF', category: '海外指数' },
-  { marketCode: 'sz159920', code: '159920', name: '恒生ETF', category: '海外指数' },
-  { marketCode: 'sz159628', code: '159628', name: '国证2000', category: 'A股宽基' },
-  { marketCode: 'sh510300', code: '510300', name: '沪深300', category: 'A股宽基' },
-  { marketCode: 'sh588120', code: '588120', name: '科创100', category: 'A股宽基' },
-];
-
 const cacheTtlMs = 30_000;
 const execFileAsync = promisify(execFile);
-const assetRotationConfigPath = resolve(process.cwd(), 'data', 'asset-rotation-config.json');
-const assetRotationHistoryPath = resolve(process.cwd(), 'data', 'asset-rotation-history.json');
-const assetRotationBacktestPath = resolve(process.cwd(), 'data', 'asset-rotation-backtest.json');
+const rotationDirectory = resolve(process.cwd(), 'data', 'rotation');
+const rotationHistoryDirectory = resolve(rotationDirectory, 'history');
+const rotationConfigPath = resolve(rotationDirectory, 'config.json');
+const rotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'history-consolidated.json');
+const rotationBacktestPath = resolve(rotationDirectory, 'backtest.json');
+const rotationYearPerformanceDirectory = resolve(rotationDirectory, 'year-performance');
+const assetRotationDirectory = resolve(process.cwd(), 'data', 'asset-rotation');
+const assetRotationHistoryDirectory = resolve(assetRotationDirectory, 'history');
+const assetRotationConfigPath = resolve(assetRotationDirectory, 'config.json');
+const assetRotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'asset-rotation-history.json');
+const assetRotationBacktestPath = resolve(assetRotationDirectory, 'backtest.json');
 const macdSnapshotVersion = 'macd-10-20-7-first-cross-full-v1';
 const macdSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-snapshots');
 const macdPullbackSnapshotVersion = 'macd-5-34-5-zero-axis-pullback-v1';
@@ -290,12 +287,12 @@ const volumeSnapshotVersion = 'volume-ma25-volume-ma5-60-three-signals-v2';
 const volumeSnapshotDirectory = resolve(process.cwd(), 'data', 'volume-snapshots');
 const bullPointSnapshotVersion = 'bull-point-hhv21-hhv6-ma34-ma6-v1';
 const bullPointSnapshotDirectory = resolve(process.cwd(), 'data', 'bull-point-snapshots');
-const rotationYearPerformanceDirectory = resolve(process.cwd(), 'data', 'rotation-year-performance');
-const assetRotationYearPerformanceDirectory = resolve(process.cwd(), 'data', 'asset-rotation-year-performance');
+const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'year-performance');
 let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
 let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
+let rotationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
 const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
@@ -324,14 +321,22 @@ function isSymbolConfig(value: unknown): value is SymbolConfig {
     && isMarketCategory(item.category);
 }
 
-function readAssetRotationConfig(): AssetRotationConfig {
-  const config = JSON.parse(readFileSync(assetRotationConfigPath, 'utf8')) as Partial<AssetRotationConfig>;
+function readStrategyConfig(path: string, label: string): AssetRotationConfig {
+  const config = JSON.parse(readFileSync(path, 'utf8')) as Partial<AssetRotationConfig>;
   if (!Number.isInteger(config.version) || !Array.isArray(config.symbols) || !config.symbols.every(isSymbolConfig)) {
-    throw new Error('大类资产轮动标的池配置无效');
+    throw new Error(`${label}标的池配置无效`);
   }
-  if (config.symbols.length < 2 || config.symbols.length > 20) throw new Error('大类资产轮动标的池数量必须为 2—20 只');
-  if (new Set(config.symbols.map((item) => item.code)).size !== config.symbols.length) throw new Error('大类资产轮动标的池存在重复代码');
+  if (config.symbols.length < 2 || config.symbols.length > 20) throw new Error(`${label}标的池数量必须为 2—20 只`);
+  if (new Set(config.symbols.map((item) => item.code)).size !== config.symbols.length) throw new Error(`${label}标的池存在重复代码`);
   return config as AssetRotationConfig;
+}
+
+function readRotationConfig() {
+  return readStrategyConfig(rotationConfigPath, '宽基轮动');
+}
+
+function readAssetRotationConfig() {
+  return readStrategyConfig(assetRotationConfigPath, '大类资产轮动');
 }
 
 function writeTextAtomic(path: string, content: string) {
@@ -340,20 +345,36 @@ function writeTextAtomic(path: string, content: string) {
   renameSync(temporaryPath, path);
 }
 
-function writeAssetRotationConfig(config: AssetRotationConfig) {
-  writeTextAtomic(assetRotationConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+function writeStrategyConfig(path: string, config: AssetRotationConfig) {
+  writeTextAtomic(path, `${JSON.stringify(config, null, 2)}\n`);
 }
 
-function readAssetRotationBacktest(config = readAssetRotationConfig()): AssetRotationBacktest {
-  const backtest = JSON.parse(readFileSync(assetRotationBacktestPath, 'utf8')) as AssetRotationBacktest;
+function writeRotationConfig(config: AssetRotationConfig) {
+  writeStrategyConfig(rotationConfigPath, config);
+}
+
+function writeAssetRotationConfig(config: AssetRotationConfig) {
+  writeStrategyConfig(assetRotationConfigPath, config);
+}
+
+function readStrategyBacktest(path: string, strategy: 'rotation' | 'asset-rotation', config: AssetRotationConfig, label: string): AssetRotationBacktest {
+  const backtest = JSON.parse(readFileSync(path, 'utf8')) as AssetRotationBacktest;
   if (
-    backtest.strategy !== 'asset-rotation'
+    backtest.strategy !== strategy
     || backtest.configVersion !== config.version
     || !Array.isArray(backtest.symbols)
     || backtest.symbols.map((item) => item.code).join(',') !== config.symbols.map((item) => item.code).join(',')
     || !Array.isArray(backtest.annualReturns)
-  ) throw new Error('大类资产轮动近 10 年回测与当前标的池不一致，请重新计算');
+  ) throw new Error(`${label}近 10 年回测与当前标的池不一致，请重新计算`);
   return backtest;
+}
+
+function readRotationBacktest(config = readRotationConfig()) {
+  return readStrategyBacktest(rotationBacktestPath, 'rotation', config, '宽基轮动');
+}
+
+function readAssetRotationBacktest(config = readAssetRotationConfig()) {
+  return readStrategyBacktest(assetRotationBacktestPath, 'asset-rotation', config, '大类资产轮动');
 }
 
 function restoreFile(path: string, content: string | null) {
@@ -364,6 +385,21 @@ function restoreFile(path: string, content: string | null) {
   writeTextAtomic(path, content);
 }
 
+function snapshotRotationHistory(directory: string) {
+  if (!existsSync(directory)) return new Map<string, string>();
+  return new Map(readdirSync(directory)
+    .filter((name) => /^\d{6}\.json$/.test(name))
+    .map((name) => [name, readFileSync(resolve(directory, name), 'utf8')]));
+}
+
+function restoreRotationHistory(directory: string, snapshot: Map<string, string>) {
+  mkdirSync(directory, { recursive: true });
+  for (const name of readdirSync(directory)) {
+    if (/^\d{6}\.json$/.test(name) && !snapshot.has(name)) unlinkSync(resolve(directory, name));
+  }
+  for (const [name, content] of snapshot) writeTextAtomic(resolve(directory, name), content);
+}
+
 function writeRotationYearPerformance(
   strategy: 'rotation' | 'asset-rotation',
   performance: RotationYearPerformance,
@@ -371,14 +407,15 @@ function writeRotationYearPerformance(
   calculatedAt: string,
 ) {
   const directory = strategy === 'asset-rotation' ? assetRotationYearPerformanceDirectory : rotationYearPerformanceDirectory;
-  const assetConfig = strategy === 'asset-rotation' ? readAssetRotationConfig() : null;
+  const strategyConfig = strategy === 'asset-rotation' ? readAssetRotationConfig() : readRotationConfig();
   mkdirSync(directory, { recursive: true });
   const path = resolve(directory, `${performance.year}.json`);
   const temporaryPath = `${path}.tmp`;
   const record = {
-    version: strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v3',
+    version: strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v4',
     strategy,
-    ...(assetConfig ? { configVersion: assetConfig.version, symbols: assetConfig.symbols } : {}),
+    configVersion: strategyConfig.version,
+    symbols: strategyConfig.symbols,
     provider,
     calculatedAt,
     ...performance,
@@ -393,12 +430,12 @@ function readRotationYearPerformance(strategy: 'rotation' | 'asset-rotation', ye
   if (!existsSync(path)) return null;
   try {
     const record = JSON.parse(readFileSync(path, 'utf8')) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
-    const expectedVersion = strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v3';
-    const expectedConfigVersion = strategy === 'asset-rotation' ? readAssetRotationConfig().version : null;
+    const expectedVersion = strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v4';
+    const expectedConfigVersion = strategy === 'asset-rotation' ? readAssetRotationConfig().version : readRotationConfig().version;
     if (
       record.version !== expectedVersion
       || record.strategy !== strategy
-      || (expectedConfigVersion !== null && record.configVersion !== expectedConfigVersion)
+      || record.configVersion !== expectedConfigVersion
       || record.year !== year
       || !Array.isArray(record.nodes)
       || typeof record.lastTradingDate !== 'string'
@@ -1074,7 +1111,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
 }
 
 function getSymbol(code: string) {
-  const symbol = [...symbols, ...readAssetRotationConfig().symbols].find((item) => item.code === code);
+  const symbol = [...readRotationConfig().symbols, ...readAssetRotationConfig().symbols].find((item) => item.code === code);
   if (symbol) return symbol;
   if (/^[03]\d{5}$/.test(code)) return { marketCode: `sz${code}`, code, name: code, category: 'A股宽基' as const };
   if (/^6\d{5}$/.test(code)) return { marketCode: `sh${code}`, code, name: code, category: 'A股宽基' as const };
@@ -1183,34 +1220,80 @@ export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
   return [...new Map(results.map((item) => [item.code, item])).values()].slice(0, 12);
 }
 
-async function rebuildAssetRotationPool(config: AssetRotationConfig): Promise<RotationSnapshot> {
+async function rebuildRotationPool(strategy: 'rotation' | 'asset-rotation', config: AssetRotationConfig): Promise<RotationSnapshot> {
+  const isAsset = strategy === 'asset-rotation';
+  const configPath = isAsset ? assetRotationConfigPath : rotationConfigPath;
+  const legacyHistoryPath = isAsset ? assetRotationLegacyHistoryPath : rotationLegacyHistoryPath;
+  const backtestPath = isAsset ? assetRotationBacktestPath : rotationBacktestPath;
+  const historyDirectory = isAsset ? assetRotationHistoryDirectory : rotationHistoryDirectory;
   const previousFiles = new Map([
-    [assetRotationConfigPath, existsSync(assetRotationConfigPath) ? readFileSync(assetRotationConfigPath, 'utf8') : null],
-    [assetRotationHistoryPath, existsSync(assetRotationHistoryPath) ? readFileSync(assetRotationHistoryPath, 'utf8') : null],
-    [assetRotationBacktestPath, existsSync(assetRotationBacktestPath) ? readFileSync(assetRotationBacktestPath, 'utf8') : null],
+    [configPath, existsSync(configPath) ? readFileSync(configPath, 'utf8') : null],
+    [legacyHistoryPath, existsSync(legacyHistoryPath) ? readFileSync(legacyHistoryPath, 'utf8') : null],
+    [backtestPath, existsSync(backtestPath) ? readFileSync(backtestPath, 'utf8') : null],
   ]);
-  writeAssetRotationConfig(config);
+  const previousHistory = snapshotRotationHistory(historyDirectory);
+  if (isAsset) writeAssetRotationConfig(config); else writeRotationConfig(config);
   try {
-    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-asset-rotation-history.cjs')], {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', isAsset ? 'download-asset-rotation-history.cjs' : 'download-history.cjs')], {
       cwd: process.cwd(),
-      env: { ...process.env, ASSET_ROTATION_ONLY_MISSING: '1' },
+      env: { ...process.env, [isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : 'ROTATION_ONLY_MISSING']: '1' },
       timeout: 180_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'backtest-asset-rotation.cjs')], {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', isAsset ? 'backtest-asset-rotation.cjs' : 'backtest.cjs')], {
       cwd: process.cwd(),
       timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    readAssetRotationBacktest(config);
-    cachedAssetRotationSnapshot = null;
-    cachedAssetRotationAt = 0;
-    return await getAssetRotationSnapshot(true);
+    if (isAsset) {
+      readAssetRotationBacktest(config);
+      cachedAssetRotationSnapshot = null;
+      cachedAssetRotationAt = 0;
+      return await getAssetRotationSnapshot(true);
+    }
+    readRotationBacktest(config);
+    cachedSnapshot = null;
+    cachedAt = 0;
+    return await getRotationSnapshot(true);
   } catch (error) {
     for (const [path, content] of previousFiles) restoreFile(path, content);
-    cachedAssetRotationSnapshot = null;
-    cachedAssetRotationAt = 0;
+    restoreRotationHistory(historyDirectory, previousHistory);
+    if (isAsset) {
+      cachedAssetRotationSnapshot = null;
+      cachedAssetRotationAt = 0;
+    } else {
+      cachedSnapshot = null;
+      cachedAt = 0;
+    }
     throw new Error(`标的池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
+  }
+}
+
+async function nextRotationConfig(current: AssetRotationConfig, action: 'add' | 'remove', normalizedCode: string) {
+  let symbols = [...current.symbols];
+  if (action === 'add') {
+    if (symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 已在标的池中');
+    if (symbols.length >= 20) throw new Error('标的池最多支持 20 只 ETF');
+    const candidate = (await searchEtfs(normalizedCode)).find((item) => item.code === normalizedCode);
+    if (!candidate) throw new Error('未找到对应的沪深 ETF');
+    symbols.push(candidate);
+  } else {
+    if (!symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 不在标的池中');
+    if (symbols.length <= 2) throw new Error('标的池至少保留 2 只 ETF');
+    symbols = symbols.filter((item) => item.code !== normalizedCode);
+  }
+  return { version: current.version + 1, updatedAt: new Date().toISOString(), symbols };
+}
+
+export async function updateRotationPool(action: 'add' | 'remove', code: string) {
+  if (rotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  rotationPoolUpdateInFlight = true;
+  try {
+    return await rebuildRotationPool('rotation', await nextRotationConfig(readRotationConfig(), action, normalizedCode));
+  } finally {
+    rotationPoolUpdateInFlight = false;
   }
 }
 
@@ -1220,25 +1303,7 @@ export async function updateAssetRotationPool(action: 'add' | 'remove', code: st
   if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
   assetRotationPoolUpdateInFlight = true;
   try {
-    const current = readAssetRotationConfig();
-    let symbols = [...current.symbols];
-    if (action === 'add') {
-      if (symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 已在标的池中');
-      if (symbols.length >= 20) throw new Error('标的池最多支持 20 只 ETF');
-      const candidate = (await searchEtfs(normalizedCode)).find((item) => item.code === normalizedCode);
-      if (!candidate) throw new Error('未找到对应的沪深 ETF');
-      symbols.push(candidate);
-    } else {
-      if (!symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 不在标的池中');
-      if (symbols.length <= 2) throw new Error('标的池至少保留 2 只 ETF');
-      symbols = symbols.filter((item) => item.code !== normalizedCode);
-    }
-    const config: AssetRotationConfig = {
-      version: current.version + 1,
-      updatedAt: new Date().toISOString(),
-      symbols,
-    };
-    return await rebuildAssetRotationPool(config);
+    return await rebuildRotationPool('asset-rotation', await nextRotationConfig(readAssetRotationConfig(), action, normalizedCode));
   } finally {
     assetRotationPoolUpdateInFlight = false;
   }
@@ -1249,8 +1314,9 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
     return { ...cachedSnapshot, cached: true };
   }
 
+  const config = readRotationConfig();
   const fetched = [];
-  for (const symbol of symbols) fetched.push(await fetchSymbol(symbol));
+  for (const symbol of config.symbols) fetched.push(await fetchSymbol(symbol));
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
   const year = Number(lastTradingDate.slice(0, 4));
   const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('rotation', year);
@@ -1295,6 +1361,7 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
     fetchedAt,
     lastTradingDate,
     cached: false,
+    backtest: readRotationBacktest(config),
   };
   if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('rotation', yearPerformance, provider, fetchedAt);
   cachedSnapshot = snapshot;

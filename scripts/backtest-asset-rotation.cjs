@@ -2,10 +2,24 @@ const fs = require('fs');
 const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
-const history = JSON.parse(fs.readFileSync(path.join(projectRoot, 'data', 'asset-rotation-history.json'), 'utf8'));
-const config = JSON.parse(fs.readFileSync(path.join(projectRoot, 'data', 'asset-rotation-config.json'), 'utf8'));
+const strategyDirectory = path.join(projectRoot, 'data', 'asset-rotation');
+const historyDirectory = path.join(strategyDirectory, 'history');
+const config = JSON.parse(fs.readFileSync(path.join(strategyDirectory, 'config.json'), 'utf8'));
 const codes = config.symbols.map((item) => item.code);
-const missingCodes = codes.filter((code) => !Array.isArray(history[code]?.rows) || history[code].rows.length === 0);
+const history = {};
+const missingCodes = [];
+for (const code of codes) {
+  const inputPath = path.join(historyDirectory, `${code}.json`);
+  if (!fs.existsSync(inputPath)) {
+    missingCodes.push(code);
+    continue;
+  }
+  const record = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+  if (record.code !== code || !Array.isArray(record.rows) || record.rows.length === 0) {
+    throw new Error(`${inputPath} 历史行情格式无效`);
+  }
+  history[code] = record;
+}
 if (missingCodes.length > 0) throw new Error(`缺少 ETF 历史行情：${missingCodes.join(', ')}`);
 const names = Object.fromEntries(config.symbols.map((item) => [item.code, item.name]));
 
@@ -105,7 +119,7 @@ const backtest = {
     worstDrawdown: selected.maxDrawdown,
   },
 };
-const outputPath = path.join(projectRoot, 'data', 'asset-rotation-backtest.json');
+const outputPath = path.join(strategyDirectory, 'backtest.json');
 const temporaryPath = `${outputPath}.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(backtest, null, 2)}\n`, 'utf8');
 fs.renameSync(temporaryPath, outputPath);
