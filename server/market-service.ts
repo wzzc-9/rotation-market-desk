@@ -1,13 +1,46 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 
-export type MarketCategory = 'A股宽基' | '海外指数' | '商品';
+export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 
 type SymbolConfig = {
   marketCode: string;
   code: string;
   name: string;
   category: MarketCategory;
+};
+
+export type EtfSearchResult = SymbolConfig;
+
+export type AssetRotationConfig = {
+  version: number;
+  updatedAt: string;
+  symbols: SymbolConfig[];
+};
+
+export type AssetRotationBacktest = {
+  version: string;
+  strategy: 'asset-rotation';
+  configVersion: number;
+  generatedAt: string;
+  period: { start: string; end: string };
+  symbols: SymbolConfig[];
+  annualReturns: Array<{
+    year: number;
+    returnRate: number;
+    maxDrawdown: number;
+    trades: number;
+    availableAssets: number;
+    yearEndHolding: string;
+  }>;
+  summary: {
+    cumulativeReturn: number;
+    annualizedReturn: number;
+    positiveYears: number;
+    worstDrawdown: number;
+  };
 };
 
 type TencentRow = [string, string, string, string, string, string, ...string[]];
@@ -44,6 +77,7 @@ export type RotationSnapshot = {
   fetchedAt: string;
   lastTradingDate: string;
   cached: boolean;
+  backtest?: AssetRotationBacktest;
 };
 
 export type RotationTradeNode = {
@@ -54,6 +88,7 @@ export type RotationTradeNode = {
   toCode: string | null;
   toName: string | null;
   reason: string;
+  tradeReturn: number | null;
   cumulativeReturn: number;
 };
 
@@ -64,6 +99,7 @@ export type RotationYearPerformance = {
   cumulativeReturn: number;
   nodeCount: number;
   currentHolding: string | null;
+  currentTradeReturn: number | null;
   nodes: RotationTradeNode[];
 };
 
@@ -240,6 +276,10 @@ const symbols: SymbolConfig[] = [
 ];
 
 const cacheTtlMs = 30_000;
+const execFileAsync = promisify(execFile);
+const assetRotationConfigPath = resolve(process.cwd(), 'data', 'asset-rotation-config.json');
+const assetRotationHistoryPath = resolve(process.cwd(), 'data', 'asset-rotation-history.json');
+const assetRotationBacktestPath = resolve(process.cwd(), 'data', 'asset-rotation-backtest.json');
 const macdSnapshotVersion = 'macd-10-20-7-first-cross-full-v1';
 const macdSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-snapshots');
 const macdPullbackSnapshotVersion = 'macd-5-34-5-zero-axis-pullback-v1';
@@ -250,8 +290,13 @@ const volumeSnapshotVersion = 'volume-ma25-volume-ma5-60-three-signals-v2';
 const volumeSnapshotDirectory = resolve(process.cwd(), 'data', 'volume-snapshots');
 const bullPointSnapshotVersion = 'bull-point-hhv21-hhv6-ma34-ma6-v1';
 const bullPointSnapshotDirectory = resolve(process.cwd(), 'data', 'bull-point-snapshots');
+const rotationYearPerformanceDirectory = resolve(process.cwd(), 'data', 'rotation-year-performance');
+const assetRotationYearPerformanceDirectory = resolve(process.cwd(), 'data', 'asset-rotation-year-performance');
 let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
+let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
+let cachedAssetRotationAt = 0;
+let assetRotationPoolUpdateInFlight = false;
 const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
 const macdKdjScansInFlight = new Map<string, Promise<MacdKdjSnapshot>>();
@@ -261,6 +306,111 @@ const historyCache = new Map<string, { value: MarketHistory; cachedAt: number }>
 const tradingDateCache = new Map<string, string>();
 
 const round = (value: number, digits = 3) => Number(value.toFixed(digits));
+
+function isMarketCategory(value: unknown): value is MarketCategory {
+  return value === 'A股宽基' || value === '海外指数' || value === '商品' || value === '债券';
+}
+
+function isSymbolConfig(value: unknown): value is SymbolConfig {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<SymbolConfig>;
+  return typeof item.marketCode === 'string'
+    && /^(sh|sz)\d{6}$/.test(item.marketCode)
+    && typeof item.code === 'string'
+    && /^\d{6}$/.test(item.code)
+    && item.marketCode.endsWith(item.code)
+    && typeof item.name === 'string'
+    && item.name.length > 0
+    && isMarketCategory(item.category);
+}
+
+function readAssetRotationConfig(): AssetRotationConfig {
+  const config = JSON.parse(readFileSync(assetRotationConfigPath, 'utf8')) as Partial<AssetRotationConfig>;
+  if (!Number.isInteger(config.version) || !Array.isArray(config.symbols) || !config.symbols.every(isSymbolConfig)) {
+    throw new Error('大类资产轮动标的池配置无效');
+  }
+  if (config.symbols.length < 2 || config.symbols.length > 20) throw new Error('大类资产轮动标的池数量必须为 2—20 只');
+  if (new Set(config.symbols.map((item) => item.code)).size !== config.symbols.length) throw new Error('大类资产轮动标的池存在重复代码');
+  return config as AssetRotationConfig;
+}
+
+function writeTextAtomic(path: string, content: string) {
+  const temporaryPath = `${path}.tmp`;
+  writeFileSync(temporaryPath, content, 'utf8');
+  renameSync(temporaryPath, path);
+}
+
+function writeAssetRotationConfig(config: AssetRotationConfig) {
+  writeTextAtomic(assetRotationConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function readAssetRotationBacktest(config = readAssetRotationConfig()): AssetRotationBacktest {
+  const backtest = JSON.parse(readFileSync(assetRotationBacktestPath, 'utf8')) as AssetRotationBacktest;
+  if (
+    backtest.strategy !== 'asset-rotation'
+    || backtest.configVersion !== config.version
+    || !Array.isArray(backtest.symbols)
+    || backtest.symbols.map((item) => item.code).join(',') !== config.symbols.map((item) => item.code).join(',')
+    || !Array.isArray(backtest.annualReturns)
+  ) throw new Error('大类资产轮动近 10 年回测与当前标的池不一致，请重新计算');
+  return backtest;
+}
+
+function restoreFile(path: string, content: string | null) {
+  if (content === null) {
+    if (existsSync(path)) unlinkSync(path);
+    return;
+  }
+  writeTextAtomic(path, content);
+}
+
+function writeRotationYearPerformance(
+  strategy: 'rotation' | 'asset-rotation',
+  performance: RotationYearPerformance,
+  provider: string,
+  calculatedAt: string,
+) {
+  const directory = strategy === 'asset-rotation' ? assetRotationYearPerformanceDirectory : rotationYearPerformanceDirectory;
+  const assetConfig = strategy === 'asset-rotation' ? readAssetRotationConfig() : null;
+  mkdirSync(directory, { recursive: true });
+  const path = resolve(directory, `${performance.year}.json`);
+  const temporaryPath = `${path}.tmp`;
+  const record = {
+    version: strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v3',
+    strategy,
+    ...(assetConfig ? { configVersion: assetConfig.version, symbols: assetConfig.symbols } : {}),
+    provider,
+    calculatedAt,
+    ...performance,
+  };
+  writeFileSync(temporaryPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  renameSync(temporaryPath, path);
+}
+
+function readRotationYearPerformance(strategy: 'rotation' | 'asset-rotation', year: number) {
+  const directory = strategy === 'asset-rotation' ? assetRotationYearPerformanceDirectory : rotationYearPerformanceDirectory;
+  const path = resolve(directory, `${year}.json`);
+  if (!existsSync(path)) return null;
+  try {
+    const record = JSON.parse(readFileSync(path, 'utf8')) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
+    const expectedVersion = strategy === 'asset-rotation' ? 'asset-rotation-year-performance-v4' : 'rotation-year-performance-v3';
+    const expectedConfigVersion = strategy === 'asset-rotation' ? readAssetRotationConfig().version : null;
+    if (
+      record.version !== expectedVersion
+      || record.strategy !== strategy
+      || (expectedConfigVersion !== null && record.configVersion !== expectedConfigVersion)
+      || record.year !== year
+      || !Array.isArray(record.nodes)
+      || typeof record.lastTradingDate !== 'string'
+      || record.nodeCount !== record.nodes.length
+      || (record.currentTradeReturn !== null && typeof record.currentTradeReturn !== 'number')
+      || record.nodes.some((node) => node.tradeReturn !== null && typeof node.tradeReturn !== 'number')
+    ) return null;
+    return record;
+  } catch {
+    return null;
+  }
+}
 
 type TushareResponse = {
   code: number;
@@ -779,6 +929,7 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
   let previousDate = previousYearDate;
   let position = previousYearDate ? positionFor(previousYearDate) : null;
   let value = 1;
+  let operationStartValue = value;
   const nodes: RotationTradeNode[] = [];
 
   for (const date of yearDates) {
@@ -799,8 +950,10 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
         toCode: nextPosition,
         toName: nextPosition ? names.get(nextPosition) ?? nextPosition : null,
         reason: nextPosition ? `${names.get(nextPosition) ?? nextPosition} 动量排名第 1 且站上 MA20` : '领先标的未站上 MA20，转为空仓',
+        tradeReturn: action === '买入' ? null : round((value / operationStartValue - 1) * 100, 2),
         cumulativeReturn: round((value - 1) * 100, 2),
       });
+      operationStartValue = value;
     }
     position = nextPosition;
     previousDate = date;
@@ -813,12 +966,115 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
     cumulativeReturn: round((value - 1) * 100, 2),
     nodeCount: nodes.length,
     currentHolding: position ? names.get(position) ?? position : null,
+    currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
+    nodes,
+  };
+}
+
+function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[]): RotationYearPerformance {
+  const names = new Map(markets.map((market) => [market.code, market.name]));
+  const closes = new Map(markets.map((market) => [
+    market.code,
+    new Map(market.history.map((candle) => [candle.date, candle.close])),
+  ]));
+  const indicators = new Map(markets.map((market) => {
+    const byDate = new Map<string, { close: number; ma28: number; momentum: number }>();
+    market.history.forEach((candle, index) => {
+      if (index < 27) return;
+      const ma28 = market.history.slice(index - 27, index + 1)
+        .reduce((sum, item) => sum + item.close, 0) / 28;
+      byDate.set(candle.date, {
+        close: candle.close,
+        ma28,
+        momentum: candle.close / market.history[index - 20].close - 1,
+      });
+    });
+    return [market.code, byDate] as const;
+  }));
+  const dates = [...new Set(markets.flatMap((market) => market.history.map((candle) => candle.date)))].sort();
+  const lastTradingDate = dates.at(-1)!;
+  const year = Number(lastTradingDate.slice(0, 4));
+  const yearStart = `${year}-01-01`;
+  const yearDates = dates.filter((date) => date >= yearStart);
+  const reviewDates = new Set(dates.filter((date, index) => {
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (day === 5) return true;
+    const nextDate = dates[index + 1];
+    if (!nextDate) return false;
+    return new Date(`${nextDate}T00:00:00Z`).getUTCDay() < day;
+  }));
+  const rankingFor = (date: string) => markets
+    .map((market) => ({ code: market.code, ...indicators.get(market.code)?.get(date) }))
+    .filter((item): item is { code: string; close: number; ma28: number; momentum: number } => Number.isFinite(item.momentum))
+    .sort((left, right) => right.momentum - left.momentum);
+  const positionFor = (date: string, current: string | null) => {
+    const ranked = rankingFor(date);
+    if (current) {
+      const holdingRank = ranked.findIndex((item) => item.code === current);
+      if (holdingRank >= 0 && holdingRank < 2 && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
+    }
+    const leader = ranked[0];
+    return leader && leader.close >= leader.ma28 ? leader.code : null;
+  };
+
+  let position: string | null = null;
+  for (const date of dates) {
+    if (date >= yearStart) break;
+    if (reviewDates.has(date)) position = positionFor(date, position);
+  }
+
+  let previousDate = dates.filter((date) => date < yearStart).at(-1) ?? null;
+  let value = 1;
+  let operationStartValue = value;
+  const nodes: RotationTradeNode[] = [];
+  for (const date of yearDates) {
+    if (position && previousDate) {
+      const previousClose = closes.get(position)?.get(previousDate);
+      const currentClose = closes.get(position)?.get(date);
+      if (previousClose && currentClose) value *= currentClose / previousClose;
+    }
+    if (reviewDates.has(date)) {
+      const nextPosition = positionFor(date, position);
+      if (nextPosition !== position) {
+        const action = position ? (nextPosition ? '轮换' : '清仓') : '买入';
+        const fromName = position ? names.get(position) ?? position : null;
+        const toName = nextPosition ? names.get(nextPosition) ?? nextPosition : null;
+        nodes.push({
+          date,
+          action,
+          fromCode: position,
+          fromName,
+          toCode: nextPosition,
+          toName,
+          reason: nextPosition
+            ? position
+              ? `${fromName} 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 ${toName}`
+              : `${toName} 20日涨幅排名第 1 且站上 MA28`
+            : '持仓跌出涨幅前 2 或跌破 MA28，且领先标的不满足入场条件',
+          tradeReturn: action === '买入' ? null : round((value / operationStartValue - 1) * 100, 2),
+          cumulativeReturn: round((value - 1) * 100, 2),
+        });
+        operationStartValue = value;
+      }
+      position = nextPosition;
+    }
+    previousDate = date;
+  }
+
+  return {
+    year,
+    startDate: yearDates[0] ?? lastTradingDate,
+    lastTradingDate,
+    cumulativeReturn: round((value - 1) * 100, 2),
+    nodeCount: nodes.length,
+    currentHolding: position ? names.get(position) ?? position : null,
+    currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
     nodes,
   };
 }
 
 function getSymbol(code: string) {
-  const symbol = symbols.find((item) => item.code === code);
+  const symbol = [...symbols, ...readAssetRotationConfig().symbols].find((item) => item.code === code);
   if (symbol) return symbol;
   if (/^[03]\d{5}$/.test(code)) return { marketCode: `sz${code}`, code, name: code, category: 'A股宽基' as const };
   if (/^6\d{5}$/.test(code)) return { marketCode: `sh${code}`, code, name: code, category: 'A股宽基' as const };
@@ -896,6 +1152,98 @@ export async function getMarketHistory(code: string, period: HistoryPeriod, forc
   return history;
 }
 
+function inferEtfCategory(name: string): MarketCategory {
+  if (/黄金|白银|有色|能源|豆粕|商品|原油|化工|煤炭/i.test(name)) return '商品';
+  if (/国债|债券|信用债|城投债|可转债|短融|政金债/i.test(name)) return '债券';
+  if (/纳指|标普|恒生|中概|港股|日经|德国|法国|东南亚|沙特|海外|QDII/i.test(name)) return '海外指数';
+  return 'A股宽基';
+}
+
+export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
+  const normalized = query.trim();
+  if (normalized.length < 2 || normalized.length > 30) return [];
+  const response = await fetch(`https://smartbox.gtimg.cn/s3/?q=${encodeURIComponent(normalized)}&t=all`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`ETF 搜索接口返回 HTTP ${response.status}`);
+  const text = await response.text();
+  const rawHint = /v_hint="([\s\S]*)"/.exec(text)?.[1] ?? '';
+  const decodedHint = rawHint.replace(/\\u([0-9a-f]{4})/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16)));
+  const results = decodedHint
+    .split('^')
+    .map((item) => item.split('~'))
+    .filter((fields) => (fields[0] === 'sh' || fields[0] === 'sz') && /^\d{6}$/.test(fields[1] ?? '') && (fields[4] ?? '').toUpperCase() === 'ETF')
+    .map(([market, code, name]) => ({
+      marketCode: `${market}${code}`,
+      code,
+      name,
+      category: inferEtfCategory(name),
+    }));
+  return [...new Map(results.map((item) => [item.code, item])).values()].slice(0, 12);
+}
+
+async function rebuildAssetRotationPool(config: AssetRotationConfig): Promise<RotationSnapshot> {
+  const previousFiles = new Map([
+    [assetRotationConfigPath, existsSync(assetRotationConfigPath) ? readFileSync(assetRotationConfigPath, 'utf8') : null],
+    [assetRotationHistoryPath, existsSync(assetRotationHistoryPath) ? readFileSync(assetRotationHistoryPath, 'utf8') : null],
+    [assetRotationBacktestPath, existsSync(assetRotationBacktestPath) ? readFileSync(assetRotationBacktestPath, 'utf8') : null],
+  ]);
+  writeAssetRotationConfig(config);
+  try {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-asset-rotation-history.cjs')], {
+      cwd: process.cwd(),
+      env: { ...process.env, ASSET_ROTATION_ONLY_MISSING: '1' },
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'backtest-asset-rotation.cjs')], {
+      cwd: process.cwd(),
+      timeout: 60_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    readAssetRotationBacktest(config);
+    cachedAssetRotationSnapshot = null;
+    cachedAssetRotationAt = 0;
+    return await getAssetRotationSnapshot(true);
+  } catch (error) {
+    for (const [path, content] of previousFiles) restoreFile(path, content);
+    cachedAssetRotationSnapshot = null;
+    cachedAssetRotationAt = 0;
+    throw new Error(`标的池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
+  }
+}
+
+export async function updateAssetRotationPool(action: 'add' | 'remove', code: string) {
+  if (assetRotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  assetRotationPoolUpdateInFlight = true;
+  try {
+    const current = readAssetRotationConfig();
+    let symbols = [...current.symbols];
+    if (action === 'add') {
+      if (symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 已在标的池中');
+      if (symbols.length >= 20) throw new Error('标的池最多支持 20 只 ETF');
+      const candidate = (await searchEtfs(normalizedCode)).find((item) => item.code === normalizedCode);
+      if (!candidate) throw new Error('未找到对应的沪深 ETF');
+      symbols.push(candidate);
+    } else {
+      if (!symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 不在标的池中');
+      if (symbols.length <= 2) throw new Error('标的池至少保留 2 只 ETF');
+      symbols = symbols.filter((item) => item.code !== normalizedCode);
+    }
+    const config: AssetRotationConfig = {
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+      symbols,
+    };
+    return await rebuildAssetRotationPool(config);
+  } finally {
+    assetRotationPoolUpdateInFlight = false;
+  }
+}
+
 export async function getRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
   if (!forceRefresh && cachedSnapshot && Date.now() - cachedAt < cacheTtlMs) {
     return { ...cachedSnapshot, cached: true };
@@ -903,6 +1251,12 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
 
   const fetched = [];
   for (const symbol of symbols) fetched.push(await fetchSymbol(symbol));
+  const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
+  const year = Number(lastTradingDate.slice(0, 4));
+  const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('rotation', year);
+  const yearPerformance = storedYearPerformance?.lastTradingDate === lastTradingDate
+    ? storedYearPerformance
+    : calculateRotationYearPerformance(fetched);
 
   const calculated = fetched.map((market) => {
     const last = market.candles.at(-1)!;
@@ -932,16 +1286,78 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
       signal: market.aboveMa ? (index === 0 ? '持有' : '观察') : '规避',
     }));
 
+  const provider = '腾讯证券公开行情';
+  const fetchedAt = new Date().toISOString();
   const snapshot: RotationSnapshot = {
     markets,
-    yearPerformance: calculateRotationYearPerformance(fetched),
-    provider: '腾讯证券公开行情',
-    fetchedAt: new Date().toISOString(),
-    lastTradingDate: fetched.map(item => item.rawLastDate).sort().at(-1)!,
+    yearPerformance,
+    provider,
+    fetchedAt,
+    lastTradingDate,
     cached: false,
   };
+  if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('rotation', yearPerformance, provider, fetchedAt);
   cachedSnapshot = snapshot;
   cachedAt = Date.now();
+  return snapshot;
+}
+
+export async function getAssetRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
+  if (!forceRefresh && cachedAssetRotationSnapshot && Date.now() - cachedAssetRotationAt < cacheTtlMs) {
+    return { ...cachedAssetRotationSnapshot, cached: true };
+  }
+
+  const config = readAssetRotationConfig();
+  const fetched = [];
+  for (const symbol of config.symbols) fetched.push(await fetchSymbol(symbol));
+  const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
+  const year = Number(lastTradingDate.slice(0, 4));
+  const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('asset-rotation', year);
+  const yearPerformance = storedYearPerformance?.lastTradingDate === lastTradingDate
+    ? storedYearPerformance
+    : calculateAssetRotationYearPerformance(fetched);
+  const currentHoldingCode = fetched.find((market) => market.name === yearPerformance.currentHolding)?.code ?? null;
+  const calculated = fetched.map((market) => {
+    const last = market.history.at(-1)!;
+    const previous = market.history.at(-2)!;
+    const ma28 = market.history.slice(-28).reduce((sum, candle) => sum + candle.close, 0) / 28;
+    const previous20 = market.history.at(-21)!;
+    const averageVolume = market.history.slice(-6, -1).reduce((sum, candle) => sum + candle.volume, 0) / 5;
+    return {
+      code: market.code,
+      name: market.name,
+      category: market.category,
+      candles: market.candles,
+      price: round(last.close),
+      previousClose: round(previous.close),
+      change: ((last.close / previous.close) - 1) * 100,
+      ma20: round(ma28),
+      momentum: ((last.close / previous20.close) - 1) * 100,
+      aboveMa: last.close >= ma28,
+      volumeRatio: averageVolume > 0 ? last.volume / averageVolume : 0,
+    };
+  });
+  const markets: RankedMarket[] = calculated
+    .sort((left, right) => right.momentum - left.momentum)
+    .map((market, index) => ({
+      ...market,
+      rank: index + 1,
+      signal: market.code === currentHoldingCode ? '持有' : market.aboveMa && index < 2 ? '观察' : '规避',
+    }));
+  const provider = '腾讯证券公开行情';
+  const fetchedAt = new Date().toISOString();
+  const snapshot: RotationSnapshot = {
+    markets,
+    yearPerformance,
+    provider,
+    fetchedAt,
+    lastTradingDate,
+    cached: false,
+    backtest: readAssetRotationBacktest(config),
+  };
+  if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('asset-rotation', yearPerformance, provider, fetchedAt);
+  cachedAssetRotationSnapshot = snapshot;
+  cachedAssetRotationAt = Date.now();
   return snapshot;
 }
 

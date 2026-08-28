@@ -19,6 +19,8 @@ npm run dev
 - `GET /api/health`：代理健康检查
 - `GET /api/strategy/rotation`：读取 30 秒缓存
 - `GET /api/strategy/rotation?refresh=1`：强制重新获取上游行情
+- `GET /api/strategy/asset-rotation`：读取全球大类资产 ETF 周度轮动结果
+- `GET /api/strategy/asset-rotation?refresh=1`：强制刷新 6 只 ETF 并重算 20 日涨幅、MA28 和今年交易节点
 - `GET /api/strategy/macd-confluence`：读取全市场 MACD（10，20，7）候选，缓存 6 小时
 - `GET /api/strategy/macd-confluence?refresh=1`：强制重新扫描
 - `GET /api/strategy/macd-confluence?date=YYYYMMDD`：读取指定日期的本地 MACD 快照
@@ -38,6 +40,11 @@ npm run dev
 ## 数据说明
 
 - 当前看盘数据源：腾讯证券公开行情接口
+- 全球大类资产轮动池：沪深300、创业板ETF、中概互联网ETF、纳指ETF、黄金ETF、十年国债ETF
+- 全球大类资产轮动规则：每周按 20 日涨幅排名；第 1 名且站上 MA28 买入，持仓跌出前 2 或跌破 MA28 时卖出或切换，全部不满足时空仓
+- 全球大类资产回测数据：`data/asset-rotation-history.json`，覆盖 2016 年至今行情并固定展示 2016—2025 年近 10 年复算；可运行 `npm run history:asset:download` 更新，运行 `npm run backtest:asset` 复算
+- 指数策略近 10 年回测结果：`data/rotation-backtest.json`、`data/asset-rotation-backtest.json`；回测脚本会自动原子更新，前端直接读取这两个文件
+- 指数策略年度操作节点：`data/rotation-year-performance/YYYY.json`、`data/asset-rotation-year-performance/YYYY.json`；记录每次轮换/清仓的单次收益、当前持仓浮动收益及节点累计收益，普通加载会复用交易日一致的本地文件，文件缺失、日期落后或强制刷新时重新计算并原子更新
 - MACD 策略扫描数据源：Tushare 日线接口；需要在 `.env.local` 配置 `TUSHARE_TOKEN`
 - MACD 系列策略快照位置：`data/*-snapshots/YYYYMMDD.json`；指定历史交易日文件不存在时自动计算并保存
 - 量价三信号快照位置：`data/volume-snapshots/YYYYMMDD.json`

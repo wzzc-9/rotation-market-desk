@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationSnapshot, getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
 
@@ -16,6 +16,55 @@ app.get<{ Querystring: { refresh?: string } }>('/api/strategy/rotation', async (
       error: 'UPSTREAM_MARKET_DATA_ERROR',
       message: error instanceof Error ? error.message : '行情服务暂时不可用',
     });
+  }
+});
+
+app.get<{ Querystring: { refresh?: string } }>('/api/strategy/asset-rotation', async (request, reply) => {
+  try {
+    const snapshot = await getAssetRotationSnapshot(request.query.refresh === '1');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message: error instanceof Error ? error.message : '大类资产轮动行情暂时不可用',
+    });
+  }
+});
+
+app.get<{ Querystring: { q?: string } }>('/api/etfs/search', async (request, reply) => {
+  try {
+    const results = await searchEtfs(request.query.q ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return { results };
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({ error: 'ETF_SEARCH_ERROR', message: error instanceof Error ? error.message : 'ETF 搜索暂时不可用' });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/asset-rotation/symbols', async (request, reply) => {
+  try {
+    const snapshot = await updateAssetRotationPool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation/symbols/:code', async (request, reply) => {
+  try {
+    const snapshot = await updateAssetRotationPool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移除失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_UPDATE_ERROR', message });
   }
 });
 

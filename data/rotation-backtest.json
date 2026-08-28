@@ -1,0 +1,97 @@
+{
+  "version": "rotation-ma20-daily-v1",
+  "strategy": "rotation",
+  "generatedAt": "2026-08-26T15:14:51.924Z",
+  "period": {
+    "start": "2016-01-04",
+    "end": "2025-12-31"
+  },
+  "annualReturns": [
+    {
+      "year": 2016,
+      "returnRate": 17.093440786451318,
+      "maxDrawdown": -10.926529042918087,
+      "trades": 44,
+      "availableAssets": 6,
+      "yearEndHolding": "黄金ETF"
+    },
+    {
+      "year": 2017,
+      "returnRate": 11.680285073892493,
+      "maxDrawdown": -6.543670342193153,
+      "trades": 76,
+      "availableAssets": 6,
+      "yearEndHolding": "恒生ETF"
+    },
+    {
+      "year": 2018,
+      "returnRate": -13.232596487464942,
+      "maxDrawdown": -24.795913152745175,
+      "trades": 66,
+      "availableAssets": 6,
+      "yearEndHolding": "黄金ETF"
+    },
+    {
+      "year": 2019,
+      "returnRate": 35.16231032459434,
+      "maxDrawdown": -10.719009023896186,
+      "trades": 72,
+      "availableAssets": 6,
+      "yearEndHolding": "沪深300"
+    },
+    {
+      "year": 2020,
+      "returnRate": 40.1049443396861,
+      "maxDrawdown": -23.417050744747712,
+      "trades": 58,
+      "availableAssets": 6,
+      "yearEndHolding": "创业板50"
+    },
+    {
+      "year": 2021,
+      "returnRate": -9.714322401779684,
+      "maxDrawdown": -22.454044485520274,
+      "trades": 70,
+      "availableAssets": 6,
+      "yearEndHolding": "纳指ETF"
+    },
+    {
+      "year": 2022,
+      "returnRate": 5.701653519541927,
+      "maxDrawdown": -19.612440765835505,
+      "trades": 54,
+      "availableAssets": 7,
+      "yearEndHolding": "恒生ETF"
+    },
+    {
+      "year": 2023,
+      "returnRate": 8.048419303587773,
+      "maxDrawdown": -14.40802117758736,
+      "trades": 67,
+      "availableAssets": 8,
+      "yearEndHolding": "创业板50"
+    },
+    {
+      "year": 2024,
+      "returnRate": 20.100139831656083,
+      "maxDrawdown": -31.849284715217763,
+      "trades": 73,
+      "availableAssets": 8,
+      "yearEndHolding": "恒生ETF"
+    },
+    {
+      "year": 2025,
+      "returnRate": 89.91435932476011,
+      "maxDrawdown": -13.800007233834588,
+      "trades": 55,
+      "availableAssets": 8,
+      "yearEndHolding": "科创100"
+    }
+  ],
+  "summary": {
+    "cumulativeReturn": 405.3533258590294,
+    "annualizedReturn": 17.58705482290828,
+    "positiveYears": 8,
+    "worstDrawdown": -31.849284715217763
+  }
+}

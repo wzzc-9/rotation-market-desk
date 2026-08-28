@@ -1,4 +1,34 @@
-export type MarketCategory = 'A股宽基' | '海外指数' | '商品';
+export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
+
+export type EtfSearchResult = {
+  marketCode: string;
+  code: string;
+  name: string;
+  category: MarketCategory;
+};
+
+export type AssetRotationBacktestResponse = {
+  version: string;
+  strategy: 'asset-rotation';
+  configVersion: number;
+  generatedAt: string;
+  period: { start: string; end: string };
+  symbols: EtfSearchResult[];
+  annualReturns: Array<{
+    year: number;
+    returnRate: number;
+    maxDrawdown: number;
+    trades: number;
+    availableAssets: number;
+    yearEndHolding: string;
+  }>;
+  summary: {
+    cumulativeReturn: number;
+    annualizedReturn: number;
+    positiveYears: number;
+    worstDrawdown: number;
+  };
+};
 
 export type Candle = {
   date: string;
@@ -32,6 +62,7 @@ export type RotationResponse = {
   fetchedAt: string;
   lastTradingDate: string;
   cached: boolean;
+  backtest?: AssetRotationBacktestResponse;
 };
 
 export type RotationTradeNode = {
@@ -42,6 +73,7 @@ export type RotationTradeNode = {
   toCode: string | null;
   toName: string | null;
   reason: string;
+  tradeReturn: number | null;
   cumulativeReturn: number;
 };
 
@@ -52,6 +84,7 @@ export type RotationYearPerformance = {
   cumulativeReturn: number;
   nodeCount: number;
   currentHolding: string | null;
+  currentTradeReturn: number | null;
   nodes: RotationTradeNode[];
 };
 

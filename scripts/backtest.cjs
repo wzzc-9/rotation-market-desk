@@ -81,4 +81,30 @@ const result = Object.entries(years)
   }));
 
 const cumulative = (result.at(-1).endValue / result[0].endValue) * (1 + result[0].return / 100) - 1;
-console.log(JSON.stringify({ result, cumulative: cumulative * 100 }, null, 2));
+const annualReturns = result.map((item) => ({
+  year: item.year,
+  returnRate: item.return,
+  maxDrawdown: item.maxDrawdown,
+  trades: item.trades,
+  availableAssets: item.available,
+  yearEndHolding: item.yearEndHolding,
+}));
+const backtestDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
+const backtest = {
+  version: 'rotation-ma20-daily-v1',
+  strategy: 'rotation',
+  generatedAt: new Date().toISOString(),
+  period: { start: backtestDates[0], end: backtestDates.at(-1) },
+  annualReturns,
+  summary: {
+    cumulativeReturn: cumulative * 100,
+    annualizedReturn: ((1 + cumulative) ** (1 / annualReturns.length) - 1) * 100,
+    positiveYears: annualReturns.filter((item) => item.returnRate > 0).length,
+    worstDrawdown: Math.min(...annualReturns.map((item) => item.maxDrawdown)),
+  },
+};
+const outputPath = path.join(projectRoot, 'data', 'rotation-backtest.json');
+const temporaryPath = `${outputPath}.tmp`;
+fs.writeFileSync(temporaryPath, `${JSON.stringify(backtest, null, 2)}\n`, 'utf8');
+fs.renameSync(temporaryPath, outputPath);
+console.log(JSON.stringify(backtest, null, 2));

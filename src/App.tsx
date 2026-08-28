@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity,
@@ -18,24 +18,27 @@ import {
   Menu,
   Maximize2,
   Minimize2,
+  Plus,
   RefreshCw,
   Search,
   Settings2,
   SlidersHorizontal,
   Star,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
   X,
 } from 'lucide-react';
 import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
-import { annualReturns, backtestSummary } from './backtest';
-import { formatPct, formatVolume, movingAverage, type BullPointSnapshot, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
+import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, type AnnualReturn } from './backtest';
+import { formatPct, formatVolume, movingAverage, type AssetRotationBacktestResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
-type StrategyId = 'rotation' | 'intersection' | ScreeningStrategyId;
+type StrategyId = 'rotation' | 'asset-rotation' | 'intersection' | ScreeningStrategyId;
+type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
 
 const intersectionStrategyOptions: Array<{ id: ScreeningStrategyId; label: string; detail: string; endpoint: string }> = [
@@ -52,7 +55,6 @@ const menuItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'strategy', label: '策略中心', icon: Target },
 ];
 
-const annualReturnsDesc = [...annualReturns].reverse();
 const screenedStockHistoryCache = new Map<string, MarketHistoryResponse>();
 const screenedStockHistoryRequests = new Map<string, Promise<MarketHistoryResponse>>();
 const stockKlineOpenEvent = 'screened-stock-kline-open';
@@ -518,114 +520,113 @@ function StockKlineCell({ code, name }: { code: string; name: string }) {
   </button>;
 }
 
-function StrategyUniverse({ markets }: { markets: RankedMarket[] }) {
-  const [activeMarket, setActiveMarket] = useState<RankedMarket | null>(null);
-  const [period, setPeriod] = useState<HistoryPeriod>('day');
-  const [historyByKey, setHistoryByKey] = useState<Record<string, MarketHistoryResponse>>({});
-  const [loadingKey, setLoadingKey] = useState('');
-  const [historyError, setHistoryError] = useState('');
-  const [expanded, setExpanded] = useState(false);
-  const [popoverBounds, setPopoverBounds] = useState<CSSProperties>();
-  const closeTimer = useRef<number | null>(null);
-  const syncPopoverBounds = useCallback(() => {
-    const rulesPanel = document.querySelector<HTMLElement>('.rules-panel');
-    if (!rulesPanel) return;
-    const { top, left, width, height } = rulesPanel.getBoundingClientRect();
-    setPopoverBounds({ top, left, width, height });
-  }, []);
-  const cancelClose = () => {
-    if (closeTimer.current) window.clearTimeout(closeTimer.current);
-    closeTimer.current = null;
-  };
-  const closePopover = () => {
-    if (expanded) return;
-    cancelClose();
-    closeTimer.current = window.setTimeout(() => {
-      setActiveMarket(null);
-      setHistoryError('');
-      setPopoverBounds(undefined);
-    }, 650);
-  };
-  const loadHistory = useCallback(async (market: RankedMarket, nextPeriod: HistoryPeriod) => {
-    const key = `${market.code}:${nextPeriod}`;
-    if (historyByKey[key]) return;
-    setLoadingKey(key);
-    setHistoryError('');
-    try {
-      const response = await fetch(`/api/market/${market.code}/history?period=${nextPeriod}`, { cache: 'no-store' });
-      const payload = await response.json() as MarketHistoryResponse & { message?: string };
-      if (!response.ok) throw new Error(payload.message || `历史行情返回 HTTP ${response.status}`);
-      setHistoryByKey((current) => ({ ...current, [key]: payload }));
-    } catch (reason) {
-      setHistoryError(reason instanceof Error ? reason.message : '历史行情加载失败');
-    } finally {
-      setLoadingKey((current) => current === key ? '' : current);
-    }
-  }, [historyByKey]);
-  const showMarket = (market: RankedMarket) => {
-    cancelClose();
-    setExpanded(false);
-    syncPopoverBounds();
-    setActiveMarket(market);
-    setPeriod('day');
-    void loadHistory(market, 'day');
-  };
-  const changePeriod = (nextPeriod: HistoryPeriod) => {
-    if (!activeMarket) return;
-    setPeriod(nextPeriod);
-    setHistoryError('');
-    void loadHistory(activeMarket, nextPeriod);
-  };
-  useEffect(() => () => cancelClose(), []);
+function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]; updating: boolean; onAdd: (result: EtfSearchResult) => Promise<void> }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<EtfSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [addingCode, setAddingCode] = useState('');
+  const poolCodes = useMemo(() => new Set(markets.map((market) => market.code)), [markets]);
+
   useEffect(() => {
-    if (!activeMarket || expanded) return;
-    const rulesPanel = document.querySelector<HTMLElement>('.rules-panel');
-    if (!rulesPanel) return;
-    const observer = new ResizeObserver(syncPopoverBounds);
-    observer.observe(rulesPanel);
-    window.addEventListener('resize', syncPopoverBounds);
-    window.addEventListener('scroll', syncPopoverBounds, true);
-    syncPopoverBounds();
+    const normalized = query.trim();
+    if (normalized.length < 2) {
+      setResults([]);
+      setSearching(false);
+      setSearchError('');
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      setSearchError('');
+      try {
+        const response = await fetch(`/api/etfs/search?q=${encodeURIComponent(normalized)}`, { cache: 'no-store', signal: controller.signal });
+        const payload = await response.json() as { results?: EtfSearchResult[]; message?: string };
+        if (!response.ok) throw new Error(payload.message || `ETF 搜索返回 HTTP ${response.status}`);
+        setResults(Array.isArray(payload.results) ? payload.results : []);
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        setResults([]);
+        setSearchError(reason instanceof Error ? reason.message : 'ETF 搜索失败');
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 300);
     return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', syncPopoverBounds);
-      window.removeEventListener('scroll', syncPopoverBounds, true);
+      window.clearTimeout(timer);
+      controller.abort();
     };
-  }, [activeMarket, expanded, syncPopoverBounds]);
-  const history = activeMarket ? historyByKey[`${activeMarket.code}:${period}`] : null;
-  const isLoading = activeMarket ? loadingKey === `${activeMarket.code}:${period}` : false;
+  }, [query]);
+
+  const addResult = async (result: EtfSearchResult) => {
+    setAddingCode(result.code);
+    try {
+      await onAdd(result);
+      setQuery('');
+      setResults([]);
+    } finally {
+      setAddingCode('');
+    }
+  };
+
+  const showResults = query.trim().length >= 2;
+  return <div className="asset-pool-editor">
+    <div className="etf-search-copy"><strong>管理标的池</strong><span>按名称或 6 位代码搜索沪深 ETF</span></div>
+    <div className="etf-search-control">
+      <Search size={16} />
+      <input value={query} disabled={updating} placeholder="例如：黄金ETF / 518880" aria-label="搜索 ETF" onChange={(event) => setQuery(event.target.value)} />
+      {query && !updating && <button type="button" className="etf-search-clear" title="清空搜索" aria-label="清空搜索" onClick={() => setQuery('')}><X size={14} /></button>}
+      {showResults && <div className="etf-search-results">
+        {searching && <div className="etf-search-state"><RefreshCw className="spin-icon" size={15} />正在搜索</div>}
+        {!searching && searchError && <div className="etf-search-state error"><AlertTriangle size={15} />{searchError}</div>}
+        {!searching && !searchError && results.length === 0 && <div className="etf-search-state">未找到沪深 ETF</div>}
+        {!searching && !searchError && results.map((result) => {
+          const included = poolCodes.has(result.code);
+          const adding = addingCode === result.code;
+          return <div className="etf-search-result" key={result.code}>
+            <div><strong>{result.name}</strong><span>{result.code} · {result.category}</span></div>
+            <button type="button" disabled={included || updating || Boolean(addingCode)} onClick={() => void addResult(result).catch(() => undefined)}>
+              {adding ? <RefreshCw className="spin-icon" size={14} /> : included ? <Check size={14} /> : <Plus size={14} />}
+              {included ? '已加入' : adding ? '重算中' : '加入'}
+            </button>
+          </div>;
+        })}
+      </div>}
+    </div>
+    {updating && <div className="pool-update-state"><RefreshCw className="spin-icon" size={14} />正在补齐历史行情并重算 2016—2025 与今年以来收益</div>}
+  </div>;
+}
+
+function StrategyUniverse({ markets, trendPeriod = 20, momentumLabel = '20日动量', editor, updating = false, onRemove }: { markets: RankedMarket[]; trendPeriod?: number; momentumLabel?: string; editor?: ReactNode; updating?: boolean; onRemove?: (market: RankedMarket) => void }) {
+  const editable = Boolean(onRemove);
   return (
-    <section className="panel universe-panel" onMouseLeave={closePopover}>
+    <section className="panel universe-panel">
       <div className="panel-title-row">
         <div><span className="eyebrow">ASSET UNIVERSE</span><h3>轮动标的池</h3></div>
         <span className="count-badge">{markets.length}</span>
       </div>
+      {editor}
       <div className="table-scroll">
-        <table className="strategy-universe-table">
-          <thead><tr><th>排名</th><th>标的</th><th>类别</th><th>现价</th><th>涨跌幅</th><th>MA20</th><th>20日动量</th><th>量比</th><th>趋势</th><th>信号</th></tr></thead>
+        <table className={`strategy-universe-table${editable ? ' has-actions' : ''}`}>
+          <thead><tr><th>排名</th><th>标的</th><th>类别</th><th>现价</th><th>涨跌幅</th><th>MA{trendPeriod}</th><th>{momentumLabel}</th><th>量比</th><th>趋势</th><th>信号</th>{editable && <th>管理</th>}</tr></thead>
           <tbody>{markets.map((market) => (
-            <tr key={market.code} onMouseEnter={() => showMarket(market)} onFocus={() => showMarket(market)} tabIndex={0}>
+            <tr key={market.code}>
               <td><RankBadge rank={market.rank} /></td>
-              <td><div className="instrument-cell"><strong>{market.name}</strong><small>{market.code}</small></div></td>
+              <td><StockKlineCell name={market.name} code={market.code} /></td>
               <td>{market.category}</td>
               <td className="number">{market.price.toFixed(3)}</td>
               <td className="number"><Change value={market.change} /></td>
               <td className="number">{market.ma20.toFixed(3)}</td>
               <td className="number"><Change value={market.momentum} /></td>
               <td className="number">{market.volumeRatio.toFixed(2)}</td>
-              <td><span className={market.aboveMa ? 'trend-up' : 'trend-down'}>{market.aboveMa ? 'MA20上方' : 'MA20下方'}</span></td>
+              <td><span className={market.aboveMa ? 'trend-up' : 'trend-down'}>{market.aboveMa ? `MA${trendPeriod}上方` : `MA${trendPeriod}下方`}</span></td>
               <td><span className={`signal signal-${market.signal}`}>{market.signal}</span></td>
+              {editable && <td><button type="button" className="pool-remove-button" disabled={updating || markets.length <= 2} title={markets.length <= 2 ? '标的池至少保留 2 只 ETF' : `移除 ${market.name}`} aria-label={`从标的池移除 ${market.name}`} onClick={() => onRemove?.(market)}><Trash2 size={15} /></button></td>}
             </tr>
           ))}</tbody>
         </table>
       </div>
-      {activeMarket && <div className={`universe-kline-popover ${expanded ? 'is-expanded' : 'is-anchored'}`} style={expanded ? undefined : popoverBounds} onMouseEnter={cancelClose} onMouseLeave={closePopover}>
-        <div className="universe-kline-title"><span>{activeMarket.name} · {activeMarket.code}</span><div className="universe-kline-tools"><span>{period === 'minute' ? '分时线' : `${period === 'day' ? '日' : period === 'week' ? '周' : '月'}K · MA5 / MA10 / MA20`}</span><button className="icon-button" type="button" title={expanded ? '退出放大' : '放大图表'} aria-label={expanded ? '退出放大' : '放大图表'} onClick={() => setExpanded((current) => !current)}>{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button><button className="icon-button" type="button" title="关闭图表" aria-label="关闭图表" onClick={() => { cancelClose(); setExpanded(false); setActiveMarket(null); setPopoverBounds(undefined); }}><X size={16} /></button></div></div>
-        <div className="kline-period-tabs" role="tablist" aria-label="K线周期">{([{ id: 'minute', label: '分时' }, { id: 'day', label: '日线' }, { id: 'week', label: '周线' }, { id: 'month', label: '月线' }] as Array<{ id: HistoryPeriod; label: string }>).map((item) => <button key={item.id} type="button" role="tab" aria-selected={period === item.id} className={period === item.id ? 'active' : ''} onClick={() => changePeriod(item.id)}>{item.label}</button>)}</div>
-        {history && <HoverKlineChart history={history} />}
-        {isLoading && <div className="universe-kline-state"><RefreshCw className="spin-icon" size={18} />正在加载{period === 'minute' ? '分时' : 'K线'}行情</div>}
-        {historyError && <div className="universe-kline-state error"><AlertTriangle size={17} />{historyError}</div>}
-      </div>}
     </section>
   );
 }
@@ -676,7 +677,8 @@ function MomentumChart({ markets }: { markets: RankedMarket[] }) {
   return <EChart option={option} className="momentum-chart" />;
 }
 
-function AnnualReturnChart() {
+function AnnualReturnChart({ data }: { data: AnnualReturn[] }) {
+  const ordered = useMemo(() => [...data].reverse(), [data]);
   const option = useMemo<EChartsCoreOption>(() => ({
     animationDuration: 500,
     tooltip: {
@@ -693,7 +695,7 @@ function AnnualReturnChart() {
     grid: { left: 48, right: 14, top: 18, bottom: 34 },
     xAxis: {
       type: 'category',
-      data: annualReturnsDesc.map((item) => String(item.year)),
+      data: ordered.map((item) => String(item.year)),
       axisLabel: { color: '#6b7885', fontSize: 13, interval: 0 },
       axisLine: { lineStyle: { color: '#d8e0e7' } },
       axisTick: { show: false },
@@ -706,12 +708,12 @@ function AnnualReturnChart() {
     series: [{
       type: 'bar',
       barMaxWidth: 28,
-      data: annualReturnsDesc.map((item) => ({
+      data: ordered.map((item) => ({
         value: item.returnRate,
         itemStyle: { color: item.returnRate >= 0 ? '#d94e4e' : '#168a64', borderRadius: 1 },
       })),
     }],
-  }), []);
+  }), [ordered]);
   return <EChart option={option} className="annual-return-chart" />;
 }
 
@@ -914,10 +916,48 @@ function Screener({
   );
 }
 
-function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance }) {
+function StrategyCenter({ markets, yearPerformance, assetBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; assetBacktest?: AssetRotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset'; refreshing?: boolean; onRefresh?: () => void }) {
+  const isAssetRotation = variant === 'asset';
   const leader = markets[0];
   const second = markets[1];
-  const rules = [
+  const holding = markets.find((market) => market.name === yearPerformance.currentHolding) ?? null;
+  const trendPeriod = isAssetRotation ? 28 : 20;
+  const poolSize = markets.length;
+  const performanceReturns = isAssetRotation ? (assetBacktest?.annualReturns ?? assetRotationAnnualReturns) : annualReturns;
+  const [backtestStartYear, setBacktestStartYear] = useState(performanceReturns[0].year);
+  const filteredPerformanceReturns = useMemo(
+    () => performanceReturns.filter((item) => item.year >= backtestStartYear),
+    [backtestStartYear, performanceReturns],
+  );
+  const latestPerformanceYear = filteredPerformanceReturns.at(-1)?.year ?? backtestStartYear;
+  const performanceYearCount = filteredPerformanceReturns.length;
+  const performanceRange = performanceYearCount === 1 ? `${backtestStartYear}` : `${backtestStartYear}—${latestPerformanceYear}`;
+  const performanceTitle = performanceYearCount === 1 ? `${backtestStartYear} 年度收益` : `近 ${performanceYearCount} 年年度收益`;
+  const performanceSummary = useMemo(() => {
+    const growth = filteredPerformanceReturns.reduce((value, item) => value * (1 + item.returnRate / 100), 1);
+    const years = filteredPerformanceReturns.length;
+    const latestYear = filteredPerformanceReturns.at(-1)?.year ?? backtestStartYear;
+    const firstYear = performanceReturns[0].year;
+    const startTimestamp = Date.UTC(backtestStartYear, 0, isAssetRotation && backtestStartYear === firstYear ? 4 : 1);
+    let endTimestamp = Date.UTC(latestYear, 11, 31);
+    const latestDate = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(yearPerformance.lastTradingDate);
+    if (latestDate && Number(latestDate[1]) === latestYear) {
+      endTimestamp = Date.UTC(Number(latestDate[1]), Number(latestDate[2]) - 1, Number(latestDate[3]));
+    }
+    const elapsedYears = Math.max((endTimestamp - startTimestamp) / (365.25 * 86_400_000), 1 / 365.25);
+    return {
+      cumulativeReturn: (growth - 1) * 100,
+      annualizedReturn: years > 0 ? (growth ** (1 / elapsedYears) - 1) * 100 : 0,
+      positiveYears: filteredPerformanceReturns.filter((item) => item.returnRate > 0).length,
+      worstDrawdown: years > 0 ? Math.min(...filteredPerformanceReturns.map((item) => item.maxDrawdown)) : 0,
+    };
+  }, [backtestStartYear, filteredPerformanceReturns, isAssetRotation, performanceReturns, yearPerformance.lastTradingDate]);
+  const rules = isAssetRotation ? [
+    { title: '计算涨幅', copy: `每周收盘后计算标的池内 ${poolSize} 只 ETF 的 20 日涨幅并从高到低排名。`, icon: Activity },
+    { title: '执行买入', copy: '20 日涨幅排名第 1，且收盘价站上 MA28，两个条件同时满足才买入。', icon: TrendingUp },
+    { title: '持续持有', copy: '持仓保持在涨幅前 2 名，同时收盘价不低于 MA28，则继续持有。', icon: Check },
+    { title: '卖出避险', copy: '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
+  ] : [
     { title: '计算动量', copy: '每日收盘后计算：收盘价 ÷ 20日均线 - 1。', icon: Activity },
     { title: '执行买入', copy: '收盘价有效站上 MA20，且动量在 8 个标的中排名第 1。', icon: TrendingUp },
     { title: '持续持有', copy: '持仓标的保持在 MA20 上方，同时维持动量排名第 1。', icon: Check },
@@ -927,33 +967,36 @@ function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[];
     <div className="workspace-view strategy-view">
       <section className="view-heading strategy-heading">
         <div>
-          <span className="eyebrow">STRATEGY / ACTIVE</span>
-          <h1>宽基 20 日动量轮动</h1>
-          <p>八类宽基与跨市场 ETF 每日单标的轮动，弱市允许空仓。</p>
+          <span className="eyebrow">STRATEGY / {isAssetRotation ? 'GLOBAL ASSET ROTATION' : 'ACTIVE'}</span>
+          <h1>{isAssetRotation ? '全球大类资产 ETF 轮动' : '宽基 20 日动量轮动'}</h1>
+          <p>{isAssetRotation ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。` : '八类宽基与跨市场 ETF 每日单标的轮动，弱市允许空仓。'}</p>
         </div>
-        <div className="strategy-state"><span className="live-dot" />策略运行中</div>
+        <div className="strategy-heading-actions">
+          {onRefresh && <button className={`text-button ${refreshing ? 'is-spinning' : ''}`} type="button" disabled={refreshing} onClick={onRefresh}><RefreshCw size={14} />刷新行情</button>}
+          <div className="strategy-state"><span className="live-dot" />策略运行中</div>
+        </div>
       </section>
 
       <section className="strategy-hero">
         <div className="signal-block">
           <span>当前指令</span>
-          <strong>{leader.aboveMa ? `持有 ${leader.name}` : '空仓等待'}</strong>
-          <p>{leader.aboveMa ? `${leader.code} · 策略仓位 100%` : '当前无有效买入信号'}</p>
+          <strong>{holding ? `持有 ${holding.name}` : '空仓等待'}</strong>
+          <p>{holding ? `${holding.code} · 策略仓位 100%` : '当前无有效买入信号'}</p>
         </div>
         <div className="signal-stat">
-          <span>领先动量</span>
+          <span>{isAssetRotation ? '领先 20 日涨幅' : '领先动量'}</span>
           <strong className="up">{formatPct(leader.momentum)}</strong>
           <small>高于第二名 {(leader.momentum - second.momentum).toFixed(2)} pct</small>
         </div>
         <div className="signal-stat">
-          <span>止盈条件</span>
-          <strong>{leader.ma20.toFixed(3)}</strong>
-          <small>收盘跌破 MA20 清仓</small>
+          <span>{isAssetRotation ? '防守均线' : '止盈条件'}</span>
+          <strong>{(holding ?? leader).ma20.toFixed(3)}</strong>
+          <small>收盘跌破 MA{trendPeriod} 触发卖出</small>
         </div>
         <div className="signal-stat">
           <span>下次检查</span>
-          <strong>15:00</strong>
-          <small>下一个交易日收盘</small>
+          <strong>{isAssetRotation ? '周五 15:00' : '15:00'}</strong>
+          <small>{isAssetRotation ? '每周最后一个交易日' : '下一个交易日收盘'}</small>
         </div>
       </section>
 
@@ -976,21 +1019,22 @@ function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[];
           </div>
         </section>
 
-        <StrategyUniverse markets={markets} />
+        <StrategyUniverse markets={markets} trendPeriod={trendPeriod} momentumLabel={isAssetRotation ? '20日涨幅' : '20日动量'} editor={poolEditor} updating={poolUpdating} onRemove={onRemoveMarket} />
 
         <section className="panel year-performance-panel">
           <div className="panel-title-row">
             <div><span className="eyebrow">{yearPerformance.year} YTD EXECUTION</span><h3>{yearPerformance.year} 年交易节点</h3></div>
-            <span className="source-note">截至 {formatTradingDate(yearPerformance.lastTradingDate)} · 收盘信号</span>
+            <span className="source-note">截至 {formatTradingDate(yearPerformance.lastTradingDate)} · {isAssetRotation ? '周度' : '每日'}收盘信号</span>
           </div>
           <div className="year-performance-summary">
             <div><span>今年以来累计收益</span><strong className={yearPerformance.cumulativeReturn >= 0 ? 'up' : 'down'}>{formatPct(yearPerformance.cumulativeReturn)}</strong></div>
             <div><span>交易节点</span><strong>{yearPerformance.nodeCount}<i> 次</i></strong></div>
             <div><span>当前持仓</span><strong>{yearPerformance.currentHolding ?? '空仓'}</strong></div>
+            <div><span>当前持仓单次收益</span><strong className={yearPerformance.currentTradeReturn === null ? undefined : yearPerformance.currentTradeReturn >= 0 ? 'up' : 'down'}>{yearPerformance.currentTradeReturn === null ? '--' : formatPct(yearPerformance.currentTradeReturn)}</strong></div>
           </div>
           <div className="year-trades-wrap">
             <table className="year-trades-table">
-              <thead><tr><th>日期</th><th>操作</th><th>调整前</th><th>调整后</th><th>触发条件</th><th>节点累计收益</th></tr></thead>
+              <thead><tr><th>日期</th><th>操作</th><th>调整前</th><th>调整后</th><th>触发条件</th><th>单次收益</th><th>节点累计收益</th></tr></thead>
               <tbody>
                 {[...yearPerformance.nodes].reverse().map((node) => (
                   <tr key={`${node.date}-${node.fromCode}-${node.toCode}`}>
@@ -999,39 +1043,49 @@ function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[];
                     <td>{node.fromName ?? '空仓'}{node.fromCode && <small>{node.fromCode}</small>}</td>
                     <td>{node.toName ?? '空仓'}{node.toCode && <small>{node.toCode}</small>}</td>
                     <td>{node.reason}</td>
+                    <td>{node.tradeReturn === null ? <span className="empty-return">--</span> : <Change value={node.tradeReturn} />}</td>
                     <td><Change value={node.cumulativeReturn} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="method-note">收益口径：上一交易日收盘持仓信号，计入下一交易日的收益；调仓节点按收盘信号日记录，未计手续费、滑点与冲击成本。</div>
+          <div className="method-note">收益口径：单次收益统计上一笔持仓建立后至本次轮换或清仓的收益，买入节点显示“--”；上一交易日收盘持仓信号计入下一交易日收益，未计手续费、滑点与冲击成本。</div>
         </section>
 
         <section className="panel performance-panel">
           <div className="panel-title-row">
-            <div><span className="eyebrow">2016—2025 BACKTEST</span><h3>近 10 年年度收益</h3></div>
-            <span className="source-note">前复权日线 · 收盘信号 · 未计费用</span>
+            <div className="performance-title-group">
+              <div className="performance-toolbar">
+                <label htmlFor={`backtest-start-year-${variant}`}>起始年份</label>
+                <select id={`backtest-start-year-${variant}`} value={backtestStartYear} onChange={(event) => setBacktestStartYear(Number(event.target.value))}>
+                  {performanceReturns.map((item) => <option key={item.year} value={item.year}>{item.year} 年</option>)}
+                </select>
+              </div>
+              <div><span className="eyebrow">{performanceRange} {isAssetRotation ? 'RULE REPLAY' : 'BACKTEST'}</span><h3>{performanceTitle}</h3></div>
+            </div>
+            <span className="source-note">前复权日线 · {isAssetRotation ? '周度' : '每日'}收盘信号 · 未计费用</span>
           </div>
           <div className="backtest-summary">
-            <div><span>累计收益</span><strong className="up">+{backtestSummary.cumulativeReturn.toFixed(2)}%</strong></div>
-            <div><span>年化收益</span><strong>+{backtestSummary.annualizedReturn.toFixed(2)}%</strong></div>
-            <div><span>正收益年份</span><strong>{backtestSummary.positiveYears} / 10</strong></div>
-            <div><span>年度最大回撤</span><strong className="down">{backtestSummary.worstDrawdown.toFixed(2)}%</strong></div>
+            <div><span>{performanceRange} 年累计收益</span><strong className={performanceSummary.cumulativeReturn >= 0 ? 'up' : 'down'}>{formatPct(performanceSummary.cumulativeReturn)}</strong></div>
+            <div><span>年化收益</span><strong className={performanceSummary.annualizedReturn >= 0 ? 'up' : 'down'}>{formatPct(performanceSummary.annualizedReturn)}</strong></div>
+            <div><span>正收益年份</span><strong>{performanceSummary.positiveYears} / {filteredPerformanceReturns.length}</strong></div>
+            <div><span>最大回撤</span><strong className="down">{performanceSummary.worstDrawdown.toFixed(2)}%</strong></div>
           </div>
+          {isAssetRotation && <div className="video-benchmark-bar"><strong>视频展示口径</strong><span>累计收益 <b>+{assetRotationVideoBenchmark.cumulativeReturn.toFixed(2)}%</b></span><span>年化 <b>+{assetRotationVideoBenchmark.annualizedReturn.toFixed(2)}%</b></span><span>当前回撤 <b>{assetRotationVideoBenchmark.currentDrawdown.toFixed(2)}%</b></span><span>最大回撤 <b>{assetRotationVideoBenchmark.worstDrawdown.toFixed(2)}%</b></span><span>卡玛 <b>{assetRotationVideoBenchmark.calmarRatio.toFixed(2)}</b></span><span>夏普 <b>{assetRotationVideoBenchmark.sharpeRatio.toFixed(2)}</b></span></div>}
           <div className="performance-content">
-            <AnnualReturnChart />
+            <AnnualReturnChart data={filteredPerformanceReturns} />
             <div className="performance-table-wrap">
               <table className="performance-table">
                 <thead><tr><th>年份</th><th>收益率</th><th>最大回撤</th><th>交易次数</th><th>可用标的</th><th>年末持仓</th></tr></thead>
                 <tbody>
-                  {annualReturnsDesc.map((item) => (
+                  {[...performanceReturns].reverse().map((item) => (
                     <tr key={item.year}>
                       <td>{item.year}</td>
                       <td><Change value={item.returnRate} /></td>
                       <td className="down">{item.maxDrawdown.toFixed(2)}%</td>
                       <td>{item.trades}</td>
-                      <td>{item.availableAssets} / 8</td>
+                      <td>{item.availableAssets} / {poolSize}</td>
                       <td>{item.yearEndHolding}</td>
                     </tr>
                   ))}
@@ -1040,17 +1094,19 @@ function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[];
             </div>
           </div>
           <div className="method-note">
-            数据源：腾讯证券公开前复权日线。ETF 上市满 20 个交易日后才进入排名；T 日收盘计算信号，持有 T+1 日收益。结果未计手续费、滑点与冲击成本。
+            {isAssetRotation
+              ? '本地复算区间：2016-01-04 至 2025-12-31；ETF 上市满 28 个交易日后进入排名，每周最后一个交易日收盘计算信号，持有下一交易周收益。视频与本地复算因行情源、ETF复权和交易费用口径不同，结果会有差异。'
+              : '数据源：腾讯证券公开前复权日线。ETF 上市满 20 个交易日后才进入排名；T 日收盘计算信号，持有 T+1 日收益。结果未计手续费、滑点与冲击成本。'}
           </div>
         </section>
 
         <section className="panel notes-panel">
           <div className="panel-title-row"><div><span className="eyebrow">RISK CONTROL</span><h3>执行约束</h3></div></div>
           <div className="constraint-grid">
-            <div><span>调仓频率</span><strong>每日</strong><small>仅使用收盘数据</small></div>
+            <div><span>调仓频率</span><strong>{isAssetRotation ? '每周' : '每日'}</strong><small>仅使用收盘数据</small></div>
             <div><span>最大持仓</span><strong>1 只</strong><small>等权满仓持有</small></div>
             <div><span>空仓机制</span><strong>启用</strong><small>无标的满足条件</small></div>
-            <div><span>信号确认</span><strong>T 日收盘</strong><small>下一交易时点执行</small></div>
+            <div><span>信号确认</span><strong>{isAssetRotation ? '周末收盘' : 'T 日收盘'}</strong><small>下一交易时点执行</small></div>
           </div>
           <div className="risk-note">
             <CircleDollarSign size={18} />
@@ -1060,6 +1116,110 @@ function StrategyCenter({ markets, yearPerformance }: { markets: RankedMarket[];
       </div>
     </div>
   );
+}
+
+function PoolRemovalDialog({ market, onCancel, onConfirm }: { market: RankedMarket; onCancel: () => void; onConfirm: () => void }) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    confirmButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  return createPortal(
+    <div className="pool-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <section className="pool-dialog" role="dialog" aria-modal="true" aria-labelledby="pool-dialog-title" aria-describedby="pool-dialog-description">
+        <div className="pool-dialog-header">
+          <div className="pool-dialog-icon"><Trash2 size={19} /></div>
+          <div><span className="eyebrow">REMOVE ASSET</span><h3 id="pool-dialog-title">移出轮动标的池</h3></div>
+          <button type="button" className="icon-button pool-dialog-close" title="关闭" aria-label="关闭移除确认框" onClick={onCancel}><X size={16} /></button>
+        </div>
+        <div className="pool-dialog-body">
+          <p id="pool-dialog-description">确认不再让下面这只 ETF 参与全球大类资产轮动排名？</p>
+          <div className="pool-dialog-target">
+            <div><strong>{market.name}</strong><span>{market.category}</span></div>
+            <code>{market.code}</code>
+          </div>
+          <div className="pool-dialog-rebuild"><RefreshCw size={15} /><span>移除后将重新计算 <strong>2016—2025</strong> 回测和 <strong>今年以来</strong> 的交易节点与收益。</span></div>
+        </div>
+        <div className="pool-dialog-actions">
+          <button type="button" className="pool-dialog-cancel" onClick={onCancel}>取消</button>
+          <button ref={confirmButtonRef} type="button" className="pool-dialog-confirm" onClick={onConfirm}><Trash2 size={15} />确认移除</button>
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function AssetRotationStrategy() {
+  const [snapshot, setSnapshot] = useState<RotationResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [poolUpdating, setPoolUpdating] = useState(false);
+  const [poolError, setPoolError] = useState('');
+  const [pendingRemoval, setPendingRemoval] = useState<RankedMarket | null>(null);
+  const [error, setError] = useState('');
+  const didLoad = useRef(false);
+  const loadSnapshot = useCallback(async (refresh = false) => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/strategy/asset-rotation${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `大类资产轮动行情返回 HTTP ${response.status}`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2) throw new Error('大类资产轮动行情数据不完整');
+      setSnapshot(payload);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '大类资产轮动行情加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (didLoad.current) return;
+    didLoad.current = true;
+    void loadSnapshot();
+  }, [loadSnapshot]);
+  const updatePool = useCallback(async (action: 'add' | 'remove', item: Pick<RankedMarket, 'code' | 'name'> | EtfSearchResult) => {
+    setPoolUpdating(true);
+    setPoolError('');
+    try {
+      const response = await fetch(action === 'add' ? '/api/strategy/asset-rotation/symbols' : `/api/strategy/asset-rotation/symbols/${encodeURIComponent(item.code)}`, {
+        method: action === 'add' ? 'POST' : 'DELETE',
+        headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
+        body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
+      });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移除'} ETF 失败`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('重算完成，但返回的数据不完整');
+      setSnapshot(payload);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setPoolError(message);
+      throw reason;
+    } finally {
+      setPoolUpdating(false);
+    }
+  }, []);
+  const confirmRemoval = useCallback(() => {
+    if (!pendingRemoval) return;
+    const market = pendingRemoval;
+    setPendingRemoval(null);
+    void updatePool('remove', market).catch(() => undefined);
+  }, [pendingRemoval, updatePool]);
+  if (loading && !snapshot) return <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在计算全球大类资产轮动</strong><span>读取标的池 ETF 前复权日线，计算 20 日涨幅、MA28 与周度持仓。</span></section>;
+  if (error && !snapshot) return <section className="data-state error-state"><AlertTriangle size={26} /><strong>大类资产轮动加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadSnapshot(true)}><RefreshCw size={15} />重新加载</button></section>;
+  return snapshot ? <>
+    {error && <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>}
+    {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
+    <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} assetBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="asset" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
+    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
+  </> : null;
 }
 
 function MacdPullbackTable({ snapshot, historical = false }: { snapshot: MacdPullbackSnapshot; historical?: boolean }) {
@@ -2165,6 +2325,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [watchlist, setWatchlist] = useState(new Set(['512100', '518880', '513100']));
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedStrategyGroups, setExpandedStrategyGroups] = useState<Set<StrategyGroupId>>(() => new Set(['index', 'stock']));
   const [query, setQuery] = useState('');
   const didLoad = useRef(false);
 
@@ -2189,7 +2350,7 @@ export default function App() {
   useEffect(() => {
     if (didLoad.current) return;
     didLoad.current = true;
-    void loadMarkets(true);
+    void loadMarkets(false);
   }, [loadMarkets]);
 
   const selected = markets.find(market => market.code === selectedCode) ?? markets[0];
@@ -2213,8 +2374,18 @@ export default function App() {
   };
 
   const openStrategy = (next: StrategyId) => {
+    const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' ? 'index' : 'stock';
+    setExpandedStrategyGroups((current) => current.has(group) ? current : new Set(current).add(group));
     setStrategyId(next);
     navigate('strategy');
+  };
+
+  const toggleStrategyGroup = (group: StrategyGroupId) => {
+    setExpandedStrategyGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      return next;
+    });
   };
 
   return (
@@ -2273,41 +2444,62 @@ export default function App() {
         </nav>
         <div className="strategy-menu">
           <div className="strategy-menu-title"><span>策略菜单</span><Settings2 size={14} /></div>
-          <button className={view === 'strategy' && strategyId === 'intersection' ? 'strategy-item active intersection-entry' : 'strategy-item intersection-entry'} onClick={() => openStrategy('intersection')}>
-            <span className="strategy-icon"><GitMerge size={16} /></span>
-            <span><strong>策略交集</strong><small>多选策略 · 共同命中</small></span>
-            <ChevronRight size={14} />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('rotation')}>
-            <span className="strategy-icon"><Activity size={16} /></span>
-            <span><strong>宽基动量轮动</strong><small>MA20 · 8标的</small></span>
-            <span className="live-dot" />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'macd' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd')}>
-            <span className="strategy-icon"><TrendingUp size={16} /></span>
-            <span><strong>MACD 金叉共振</strong><small>10 / 20 / 7 · 全市场</small></span>
-            <span className="live-dot" />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'macd-pullback' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd-pullback')}>
-            <span className="strategy-icon"><Target size={16} /></span>
-            <span><strong>MACD 零轴回踩</strong><small>5 / 34 / 5 · 右侧交易</small></span>
-            <span className="live-dot" />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'macd-kdj' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd-kdj')}>
-            <span className="strategy-icon"><BarChart3 size={16} /></span>
-            <span><strong>MACD + KDJ 共振</strong><small>12 / 26 / 9 · 低位双金叉</small></span>
-            <span className="live-dot" />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'volume-signals' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('volume-signals')}>
-            <span className="strategy-icon"><Activity size={16} /></span>
-            <span><strong>量价三信号</strong><small>MA25 · 量均 5 / 60</small></span>
-            <span className="live-dot" />
-          </button>
-          <button className={view === 'strategy' && strategyId === 'bull-points' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('bull-points')}>
-            <span className="strategy-icon"><TrendingUp size={16} /></span>
-            <span><strong>多空趋势多点</strong><small>HHV 21 / 6 · MA 34 / 6</small></span>
-            <span className="live-dot" />
-          </button>
+          <section className="strategy-group">
+            <button className="strategy-group-toggle" type="button" aria-expanded={expandedStrategyGroups.has('index')} aria-controls="index-strategy-menu" onClick={() => toggleStrategyGroup('index')}>
+              <span><BarChart3 size={15} /><strong>指数策略</strong><small>2</small></span>
+              <ChevronRight className={expandedStrategyGroups.has('index') ? 'is-open' : ''} size={15} />
+            </button>
+            <div id="index-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('index')}>
+              <button className={view === 'strategy' && strategyId === 'rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('rotation')}>
+                <span className="strategy-icon"><Activity size={16} /></span>
+                <span><strong>宽基动量轮动</strong><small>MA20 · 8标的</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'asset-rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('asset-rotation')}>
+                <span className="strategy-icon"><GitMerge size={16} /></span>
+                <span><strong>全球大类资产轮动</strong><small>20日涨幅 · MA28 · 动态标的池</small></span>
+                <span className="live-dot" />
+              </button>
+            </div>
+          </section>
+          <section className="strategy-group">
+            <button className="strategy-group-toggle" type="button" aria-expanded={expandedStrategyGroups.has('stock')} aria-controls="stock-strategy-menu" onClick={() => toggleStrategyGroup('stock')}>
+              <span><TrendingUp size={15} /><strong>个股策略</strong><small>6</small></span>
+              <ChevronRight className={expandedStrategyGroups.has('stock') ? 'is-open' : ''} size={15} />
+            </button>
+            <div id="stock-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('stock')}>
+              <button className={view === 'strategy' && strategyId === 'intersection' ? 'strategy-item active intersection-entry' : 'strategy-item intersection-entry'} onClick={() => openStrategy('intersection')}>
+                <span className="strategy-icon"><GitMerge size={16} /></span>
+                <span><strong>策略交集</strong><small>多选策略 · 共同命中</small></span>
+                <ChevronRight size={14} />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'macd' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd')}>
+                <span className="strategy-icon"><TrendingUp size={16} /></span>
+                <span><strong>MACD 金叉共振</strong><small>10 / 20 / 7 · 全市场</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'macd-pullback' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd-pullback')}>
+                <span className="strategy-icon"><Target size={16} /></span>
+                <span><strong>MACD 零轴回踩</strong><small>5 / 34 / 5 · 右侧交易</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'macd-kdj' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('macd-kdj')}>
+                <span className="strategy-icon"><BarChart3 size={16} /></span>
+                <span><strong>MACD + KDJ 共振</strong><small>12 / 26 / 9 · 低位双金叉</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'volume-signals' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('volume-signals')}>
+                <span className="strategy-icon"><Activity size={16} /></span>
+                <span><strong>量价三信号</strong><small>MA25 · 量均 5 / 60</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'bull-points' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('bull-points')}>
+                <span className="strategy-icon"><TrendingUp size={16} /></span>
+                <span><strong>多空趋势多点</strong><small>HHV 21 / 6 · MA 34 / 6</small></span>
+                <span className="live-dot" />
+              </button>
+            </div>
+          </section>
         </div>
         <div className="sidebar-footer">
           <div className="avatar">R</div>
@@ -2329,6 +2521,7 @@ export default function App() {
         {selected && view === 'dashboard' && <Dashboard markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
         {selected && view === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
         {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter markets={markets} yearPerformance={marketMeta.yearPerformance} />}
+        {view === 'strategy' && strategyId === 'asset-rotation' && <AssetRotationStrategy />}
         {view === 'strategy' && strategyId === 'macd' && <MacdConfluenceStrategy />}
         {view === 'strategy' && strategyId === 'macd-pullback' && <MacdPullbackStrategy />}
         {view === 'strategy' && strategyId === 'macd-kdj' && <MacdKdjStrategy />}

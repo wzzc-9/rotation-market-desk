@@ -1,0 +1,42 @@
+{
+  "version": 5,
+  "updatedAt": "2026-08-28T11:31:44.048Z",
+  "symbols": [
+    {
+      "marketCode": "sh510300",
+      "code": "510300",
+      "name": "沪深300",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159915",
+      "code": "159915",
+      "name": "创业板ETF",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh513050",
+      "code": "513050",
+      "name": "中概互联网ETF",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sh513100",
+      "code": "513100",
+      "name": "纳指ETF",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sh518880",
+      "code": "518880",
+      "name": "黄金ETF",
+      "category": "商品"
+    },
+    {
+      "marketCode": "sh511260",
+      "code": "511260",
+      "name": "十年国债ETF",
+      "category": "债券"
+    }
+  ]
+}
