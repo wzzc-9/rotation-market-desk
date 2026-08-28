@@ -1,7 +1,7 @@
 {
   "version": "asset-rotation-year-performance-v4",
   "strategy": "asset-rotation",
-  "configVersion": 6,
+  "configVersion": 18,
   "symbols": [
     {
       "marketCode": "sh510300",
@@ -16,12 +16,6 @@
       "category": "A股宽基"
     },
     {
-      "marketCode": "sh513050",
-      "code": "513050",
-      "name": "中概互联网ETF",
-      "category": "海外指数"
-    },
-    {
       "marketCode": "sh513100",
       "code": "513100",
       "name": "纳指ETF",
@@ -34,25 +28,31 @@
       "category": "商品"
     },
     {
-      "marketCode": "sh511260",
-      "code": "511260",
-      "name": "十年国债ETF",
-      "category": "债券"
-    },
-    {
       "marketCode": "sh515180",
       "code": "515180",
       "name": "红利ETF易方达",
       "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh511260",
+      "code": "511260",
+      "name": "十年国债ETF国泰",
+      "category": "债券"
+    },
+    {
+      "marketCode": "sh588000",
+      "code": "588000",
+      "name": "科创50ETF华夏",
+      "category": "A股宽基"
     }
   ],
   "provider": "腾讯证券公开行情",
-  "calculatedAt": "2026-08-28T11:50:57.449Z",
+  "calculatedAt": "2026-08-28T15:39:03.748Z",
   "year": 2026,
   "startDate": "2026-01-05",
   "lastTradingDate": "2026-08-28",
-  "cumulativeReturn": 23.74,
-  "nodeCount": 11,
+  "cumulativeReturn": 2.58,
+  "nodeCount": 12,
   "currentHolding": "黄金ETF",
   "currentTradeReturn": 5.97,
   "nodes": [
@@ -61,11 +61,22 @@
       "action": "轮换",
       "fromCode": "159915",
       "fromName": "创业板ETF",
-      "toCode": "518880",
-      "toName": "黄金ETF",
-      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 黄金ETF",
+      "toCode": "588000",
+      "toName": "科创50ETF华夏",
+      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 科创50ETF华夏",
       "tradeReturn": 4.02,
       "cumulativeReturn": 4.02
+    },
+    {
+      "date": "2026-02-06",
+      "action": "轮换",
+      "fromCode": "588000",
+      "fromName": "科创50ETF华夏",
+      "toCode": "518880",
+      "toName": "黄金ETF",
+      "reason": "科创50ETF华夏 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 黄金ETF",
+      "tradeReturn": -3.54,
+      "cumulativeReturn": 0.34
     },
     {
       "date": "2026-03-06",
@@ -75,8 +86,8 @@
       "toCode": "515180",
       "toName": "红利ETF易方达",
       "reason": "黄金ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 红利ETF易方达",
-      "tradeReturn": 13.35,
-      "cumulativeReturn": 17.91
+      "tradeReturn": 4.98,
+      "cumulativeReturn": 5.34
     },
     {
       "date": "2026-03-20",
@@ -87,7 +98,7 @@
       "toName": "创业板ETF",
       "reason": "红利ETF易方达 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 创业板ETF",
       "tradeReturn": -1.51,
-      "cumulativeReturn": 16.13
+      "cumulativeReturn": 3.75
     },
     {
       "date": "2026-04-03",
@@ -95,87 +106,87 @@
       "fromCode": "159915",
       "fromName": "创业板ETF",
       "toCode": "511260",
-      "toName": "十年国债ETF",
-      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 十年国债ETF",
+      "toName": "十年国债ETF国泰",
+      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 十年国债ETF国泰",
       "tradeReturn": -5.99,
-      "cumulativeReturn": 9.18
+      "cumulativeReturn": -2.46
     },
     {
       "date": "2026-04-10",
       "action": "轮换",
       "fromCode": "511260",
-      "fromName": "十年国债ETF",
+      "fromName": "十年国债ETF国泰",
       "toCode": "159915",
       "toName": "创业板ETF",
-      "reason": "十年国债ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 创业板ETF",
+      "reason": "十年国债ETF国泰 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 创业板ETF",
       "tradeReturn": 0.1,
-      "cumulativeReturn": 9.29
+      "cumulativeReturn": -2.37
     },
     {
-      "date": "2026-06-12",
+      "date": "2026-05-15",
       "action": "轮换",
       "fromCode": "159915",
       "fromName": "创业板ETF",
-      "toCode": "513100",
-      "toName": "纳指ETF",
-      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 纳指ETF",
-      "tradeReturn": 11.9,
-      "cumulativeReturn": 22.29
+      "toCode": "588000",
+      "toName": "科创50ETF华夏",
+      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 科创50ETF华夏",
+      "tradeReturn": 15.51,
+      "cumulativeReturn": 12.77
     },
     {
-      "date": "2026-06-26",
+      "date": "2026-06-05",
+      "action": "轮换",
+      "fromCode": "588000",
+      "fromName": "科创50ETF华夏",
+      "toCode": "513100",
+      "toName": "纳指ETF",
+      "reason": "科创50ETF华夏 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 纳指ETF",
+      "tradeReturn": -1.34,
+      "cumulativeReturn": 11.26
+    },
+    {
+      "date": "2026-06-18",
       "action": "轮换",
       "fromCode": "513100",
       "fromName": "纳指ETF",
       "toCode": "159915",
       "toName": "创业板ETF",
       "reason": "纳指ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 创业板ETF",
-      "tradeReturn": -0.19,
-      "cumulativeReturn": 22.07
+      "tradeReturn": 2.77,
+      "cumulativeReturn": 14.34
     },
     {
       "date": "2026-07-03",
       "action": "轮换",
       "fromCode": "159915",
       "fromName": "创业板ETF",
-      "toCode": "511260",
-      "toName": "十年国债ETF",
-      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 十年国债ETF",
-      "tradeReturn": -4.22,
-      "cumulativeReturn": 16.91
-    },
-    {
-      "date": "2026-07-10",
-      "action": "清仓",
-      "fromCode": "511260",
-      "fromName": "十年国债ETF",
-      "toCode": null,
-      "toName": null,
-      "reason": "持仓跌出涨幅前 2 或跌破 MA28，且领先标的不满足入场条件",
-      "tradeReturn": 0.15,
-      "cumulativeReturn": 17.09
+      "toCode": "588000",
+      "toName": "科创50ETF华夏",
+      "reason": "创业板ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 科创50ETF华夏",
+      "tradeReturn": -5.43,
+      "cumulativeReturn": 8.12
     },
     {
       "date": "2026-07-17",
-      "action": "买入",
-      "fromCode": null,
-      "fromName": null,
-      "toCode": "513050",
-      "toName": "中概互联网ETF",
-      "reason": "中概互联网ETF 20日涨幅排名第 1 且站上 MA28",
-      "tradeReturn": null,
-      "cumulativeReturn": 17.09
+      "action": "轮换",
+      "fromCode": "588000",
+      "fromName": "科创50ETF华夏",
+      "toCode": "515180",
+      "toName": "红利ETF易方达",
+      "reason": "科创50ETF华夏 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 红利ETF易方达",
+      "tradeReturn": -14.03,
+      "cumulativeReturn": -7.05
     },
     {
       "date": "2026-08-14",
       "action": "轮换",
-      "fromCode": "513050",
-      "fromName": "中概互联网ETF",
+      "fromCode": "515180",
+      "fromName": "红利ETF易方达",
       "toCode": "518880",
       "toName": "黄金ETF",
-      "reason": "中概互联网ETF 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 黄金ETF",
-      "tradeReturn": -0.27,
-      "cumulativeReturn": 16.77
+      "reason": "红利ETF易方达 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 黄金ETF",
+      "tradeReturn": 4.14,
+      "cumulativeReturn": -3.2
     }
   ]
 }

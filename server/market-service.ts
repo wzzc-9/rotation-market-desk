@@ -1210,7 +1210,12 @@ export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
   const results = decodedHint
     .split('^')
     .map((item) => item.split('~'))
-    .filter((fields) => (fields[0] === 'sh' || fields[0] === 'sz') && /^\d{6}$/.test(fields[1] ?? '') && (fields[4] ?? '').toUpperCase() === 'ETF')
+    .filter((fields) => {
+      const isShanghaiOrShenzhen = fields[0] === 'sh' || fields[0] === 'sz';
+      const isSixDigitCode = /^\d{6}$/.test(fields[1] ?? '');
+      const isEtf = (fields[4] ?? '').toUpperCase() === 'ETF' || /ETF/i.test(fields[2] ?? '');
+      return isShanghaiOrShenzhen && isSixDigitCode && isEtf;
+    })
     .map(([market, code, name]) => ({
       marketCode: `${market}${code}`,
       code,
