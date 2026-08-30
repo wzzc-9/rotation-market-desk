@@ -1,0 +1,102 @@
+{
+  "version": 35,
+  "updatedAt": "2026-08-30T11:58:48.397Z",
+  "symbols": [
+    {
+      "marketCode": "sh588080",
+      "code": "588080",
+      "name": "科创50ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159934",
+      "code": "159934",
+      "name": "黄金ETF易方达",
+      "category": "商品"
+    },
+    {
+      "marketCode": "sz159915",
+      "code": "159915",
+      "name": "创业板ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh510310",
+      "code": "510310",
+      "name": "沪深300ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh511260",
+      "code": "511260",
+      "name": "十年国债ETF国泰",
+      "category": "债券"
+    },
+    {
+      "marketCode": "sh513050",
+      "code": "513050",
+      "name": "中概互联网ETF易方达",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sz159612",
+      "code": "159612",
+      "name": "标普500ETF国泰",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sh513100",
+      "code": "513100",
+      "name": "纳指ETF国泰",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sh513010",
+      "code": "513010",
+      "name": "恒生科技ETF易方达",
+      "category": "海外指数"
+    },
+    {
+      "marketCode": "sh588210",
+      "code": "588210",
+      "name": "科创100ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159369",
+      "code": "159369",
+      "name": "创业板50ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159325",
+      "code": "159325",
+      "name": "半导体ETF南方",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh516350",
+      "code": "516350",
+      "name": "芯片ETF易方达",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh512690",
+      "code": "512690",
+      "name": "酒ETF鹏华",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh515170",
+      "code": "515170",
+      "name": "食品饮料ETF华夏",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159881",
+      "code": "159881",
+      "name": "有色金属ETF国泰",
+      "category": "商品"
+    }
+  ]
+}

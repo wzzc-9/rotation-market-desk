@@ -32,6 +32,45 @@ export type RotationBacktestResponse = {
 
 export type AssetRotationBacktestResponse = RotationBacktestResponse;
 
+export type AssetRotationCombination = {
+  id: string;
+  size: number;
+  codes: string[];
+  assetClasses: string[];
+  tenYearReturn: number;
+  tenYearAnnualizedReturn: number;
+  tenYearMaxDrawdown: number;
+  tenYearTrades: number;
+  currentYearReturn: number;
+  currentYearMaxDrawdown: number;
+  currentYearTrades: number;
+  currentHolding: string | null;
+  tenYearRank: number;
+  currentYearRank: number;
+  compositeScore: number;
+  compositeRank: number;
+  displayRank: number;
+};
+
+export type AssetRotationCombinationsResponse = {
+  version: string;
+  generatedAt: string;
+  periods: {
+    tenYear: { start: string; end: string };
+    currentYear: { year: number; start: string; end: string };
+  };
+  universe: Array<{ code: string; name: string; assetClass: string; firstDate: string; lastDate: string }>;
+  totalCombinations: number;
+  sort: 'score' | 'ten-year' | 'current-year';
+  direction: 'asc' | 'desc';
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  best: AssetRotationCombination;
+  combinations: AssetRotationCombination[];
+  poolDraft: AssetRotationPoolDraft;
+};
+
 export type Candle = {
   date: string;
   open: number;
@@ -59,12 +98,21 @@ export type RankedMarket = {
 
 export type RotationResponse = {
   markets: RankedMarket[];
+  poolDraft?: AssetRotationPoolDraft;
   yearPerformance: RotationYearPerformance;
   provider: string;
   fetchedAt: string;
   lastTradingDate: string;
   cached: boolean;
   backtest?: RotationBacktestResponse;
+};
+
+export type AssetRotationPoolDraft = {
+  dirty: boolean;
+  activeVersion: number;
+  version: number;
+  updatedAt: string;
+  symbols: EtfSearchResult[];
 };
 
 export type RotationTradeNode = {

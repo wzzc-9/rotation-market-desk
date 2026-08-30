@@ -44,6 +44,43 @@ export type AssetRotationBacktest = {
   };
 };
 
+export type AssetRotationCombinationSort = 'score' | 'ten-year' | 'current-year';
+export type AssetRotationCombinationDirection = 'asc' | 'desc';
+
+export type AssetRotationCombination = {
+  id: string;
+  size: number;
+  codes: string[];
+  assetClasses: string[];
+  tenYearReturn: number;
+  tenYearAnnualizedReturn: number;
+  tenYearMaxDrawdown: number;
+  tenYearTrades: number;
+  currentYearReturn: number;
+  currentYearMaxDrawdown: number;
+  currentYearTrades: number;
+  currentHolding: string | null;
+  tenYearRank: number;
+  currentYearRank: number;
+  compositeScore: number;
+  compositeRank: number;
+};
+
+export type AssetRotationCombinations = {
+  version: string;
+  strategy: 'asset-rotation';
+  generatedAt: string;
+  periods: {
+    tenYear: { start: string; end: string };
+    currentYear: { year: number; start: string; end: string };
+  };
+  universe: Array<{ code: string; name: string; assetClass: string; firstDate: string; lastDate: string }>;
+  totalCombinations: number;
+  bestTenYearId: string;
+  bestCurrentYearId: string;
+  combinations: AssetRotationCombination[];
+};
+
 type TencentRow = [string, string, string, string, string, string, ...string[]];
 
 type Candle = {
@@ -73,12 +110,21 @@ export type RankedMarket = {
 
 export type RotationSnapshot = {
   markets: RankedMarket[];
+  poolDraft?: AssetRotationPoolDraft;
   yearPerformance: RotationYearPerformance;
   provider: string;
   fetchedAt: string;
   lastTradingDate: string;
   cached: boolean;
   backtest?: AssetRotationBacktest;
+};
+
+export type AssetRotationPoolDraft = {
+  dirty: boolean;
+  activeVersion: number;
+  version: number;
+  updatedAt: string;
+  symbols: SymbolConfig[];
 };
 
 export type RotationTradeNode = {
@@ -276,8 +322,12 @@ const rotationYearPerformanceDirectory = resolve(rotationDirectory, 'year-perfor
 const assetRotationDirectory = resolve(process.cwd(), 'data', 'asset-rotation');
 const assetRotationHistoryDirectory = resolve(assetRotationDirectory, 'history');
 const assetRotationConfigPath = resolve(assetRotationDirectory, 'config.json');
+const assetRotationPendingConfigPath = resolve(assetRotationDirectory, 'pending-config.json');
+const assetCombinationConfigPath = resolve(assetRotationDirectory, 'combination-config.json');
+const assetCombinationPendingConfigPath = resolve(assetRotationDirectory, 'combination-pending-config.json');
 const assetRotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'asset-rotation-history.json');
 const assetRotationBacktestPath = resolve(assetRotationDirectory, 'backtest.json');
+const assetRotationCombinationsPath = resolve(assetRotationDirectory, 'combinations.json');
 const dualEtfDirectory = resolve(process.cwd(), 'data', 'dual-etf');
 const dualEtfHistoryDirectory = resolve(dualEtfDirectory, 'history');
 const dualEtfConfigPath = resolve(dualEtfDirectory, 'config.json');
@@ -299,10 +349,12 @@ let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
 let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
+let cachedAssetRotationCombinations: AssetRotationCombinations | null = null;
 let cachedDualEtfSnapshot: RotationSnapshot | null = null;
 let cachedDualEtfAt = 0;
 let rotationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
+let assetCombinationPoolUpdateInFlight = false;
 let dualEtfPoolUpdateInFlight = false;
 const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
@@ -347,6 +399,74 @@ function readRotationConfig() {
 
 function readAssetRotationConfig() {
   return readStrategyConfig(assetRotationConfigPath, '大类资产轮动');
+}
+
+function readAssetRotationPendingConfig() {
+  return existsSync(assetRotationPendingConfigPath)
+    ? readStrategyConfig(assetRotationPendingConfigPath, '大类资产轮动待应用')
+    : null;
+}
+
+function sameSymbolSet(left: Array<{ code: string }>, right: Array<{ code: string }>) {
+  return left.map((item) => item.code).sort().join(',') === right.map((item) => item.code).sort().join(',');
+}
+
+export function getAssetRotationPoolDraft(): AssetRotationPoolDraft {
+  const active = readAssetRotationConfig();
+  const pending = readAssetRotationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeAssetRotationPoolDraft(config: AssetRotationConfig) {
+  const active = readAssetRotationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (existsSync(assetRotationPendingConfigPath)) unlinkSync(assetRotationPendingConfigPath);
+  } else {
+    writeStrategyConfig(assetRotationPendingConfigPath, config);
+  }
+  return getAssetRotationPoolDraft();
+}
+
+function readAssetCombinationConfig() {
+  return readStrategyConfig(assetCombinationConfigPath, '全组合收益排名');
+}
+
+function readAssetCombinationPendingConfig() {
+  return existsSync(assetCombinationPendingConfigPath)
+    ? readStrategyConfig(assetCombinationPendingConfigPath, '全组合收益排名待应用')
+    : null;
+}
+
+export function getAssetCombinationPoolDraft(): AssetRotationPoolDraft {
+  const active = readAssetCombinationConfig();
+  const pending = readAssetCombinationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeAssetCombinationPoolDraft(config: AssetRotationConfig) {
+  const active = readAssetCombinationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (existsSync(assetCombinationPendingConfigPath)) unlinkSync(assetCombinationPendingConfigPath);
+  } else {
+    writeStrategyConfig(assetCombinationPendingConfigPath, config);
+  }
+  return getAssetCombinationPoolDraft();
 }
 
 function readDualEtfConfig() {
@@ -399,6 +519,82 @@ function readRotationBacktest(config = readRotationConfig()) {
 
 function readAssetRotationBacktest(config = readAssetRotationConfig()) {
   return readStrategyBacktest(assetRotationBacktestPath, 'asset-rotation', config, '大类资产轮动');
+}
+
+function applyAssetCombinationScores(combinations: AssetRotationCombination[]) {
+  const stats = (values: number[]) => {
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+    return { mean, standardDeviation: Math.sqrt(variance) || 1 };
+  };
+  const annualized = stats(combinations.map((item) => item.tenYearAnnualizedReturn));
+  const currentReturn = stats(combinations.map((item) => item.currentYearReturn));
+  const tenYearDrawdown = stats(combinations.map((item) => Math.abs(item.tenYearMaxDrawdown)));
+  const currentDrawdown = stats(combinations.map((item) => Math.abs(item.currentYearMaxDrawdown)));
+  const zScore = (value: number, metric: { mean: number; standardDeviation: number }) => (value - metric.mean) / metric.standardDeviation;
+  for (const item of combinations) {
+    item.compositeScore = round(
+      0.5 * zScore(item.tenYearAnnualizedReturn, annualized)
+      + 0.2 * zScore(item.currentYearReturn, currentReturn)
+      - 0.2 * zScore(Math.abs(item.tenYearMaxDrawdown), tenYearDrawdown)
+      - 0.1 * zScore(Math.abs(item.currentYearMaxDrawdown), currentDrawdown),
+      6,
+    );
+  }
+  [...combinations]
+    .sort((left, right) => right.compositeScore - left.compositeScore || left.id.localeCompare(right.id))
+    .forEach((item, index) => { item.compositeRank = index + 1; });
+}
+
+function readAssetRotationCombinations() {
+  if (cachedAssetRotationCombinations) return cachedAssetRotationCombinations;
+  const record = JSON.parse(readFileSync(assetRotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
+  if (
+    !['asset-rotation-combinations-weekly-v2', 'asset-rotation-combinations-weekly-v3'].includes(record.version)
+    || record.strategy !== 'asset-rotation'
+    || !Array.isArray(record.universe)
+    || !Array.isArray(record.combinations)
+    || record.totalCombinations !== record.combinations.length
+    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
+    || !sameSymbolSet(readAssetCombinationConfig().symbols, record.universe)
+  ) throw new Error('策略 2 组合回测数据无效，请重新计算');
+  applyAssetCombinationScores(record.combinations);
+  cachedAssetRotationCombinations = record;
+  return record;
+}
+
+export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
+  const record = readAssetRotationCombinations();
+  const normalizedPageSize = Math.min(Math.max(Math.trunc(pageSize) || 25, 10), 100);
+  const totalPages = Math.max(Math.ceil(record.totalCombinations / normalizedPageSize), 1);
+  const normalizedPage = Math.min(Math.max(Math.trunc(page) || 1, 1), totalPages);
+  const metric = (item: AssetRotationCombination) => sort === 'score'
+    ? item.compositeScore
+    : sort === 'current-year'
+      ? item.currentYearReturn
+      : item.tenYearReturn;
+  const sorted = [...record.combinations].sort((left, right) => {
+    const difference = metric(left) - metric(right);
+    return (direction === 'asc' ? difference : -difference) || left.id.localeCompare(right.id);
+  });
+  const start = (normalizedPage - 1) * normalizedPageSize;
+  const pageCombinations = sorted.slice(start, start + normalizedPageSize)
+    .map((item, index) => ({ ...item, displayRank: start + index + 1 }));
+  return {
+    version: record.version,
+    generatedAt: record.generatedAt,
+    periods: record.periods,
+    universe: record.universe,
+    totalCombinations: record.totalCombinations,
+    sort,
+    direction,
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    totalPages,
+    best: { ...sorted[0], displayRank: 1 },
+    combinations: pageCombinations,
+    poolDraft: getAssetCombinationPoolDraft(),
+  };
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
@@ -1447,6 +1643,22 @@ async function nextRotationConfig(current: AssetRotationConfig, action: 'add' | 
   return { version: current.version + 1, updatedAt: new Date().toISOString(), symbols };
 }
 
+async function nextAssetCombinationConfig(current: AssetRotationConfig, action: 'add' | 'remove', normalizedCode: string) {
+  let symbols = [...current.symbols];
+  if (action === 'add') {
+    if (symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 已在组合池中');
+    if (symbols.length >= 16) throw new Error('组合池最多支持 16 只 ETF');
+    const candidate = (await searchEtfs(normalizedCode)).find((item) => item.code === normalizedCode);
+    if (!candidate) throw new Error('未找到对应的沪深 ETF');
+    symbols.push(candidate);
+  } else {
+    if (!symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 不在组合池中');
+    if (symbols.length <= 3) throw new Error('组合池至少保留 3 只 ETF');
+    symbols = symbols.filter((item) => item.code !== normalizedCode);
+  }
+  return { version: current.version + 1, updatedAt: new Date().toISOString(), symbols };
+}
+
 export async function updateRotationPool(action: 'add' | 'remove', code: string) {
   if (rotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
   const normalizedCode = code.trim();
@@ -1465,9 +1677,99 @@ export async function updateAssetRotationPool(action: 'add' | 'remove', code: st
   if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
   assetRotationPoolUpdateInFlight = true;
   try {
-    return await rebuildRotationPool('asset-rotation', await nextRotationConfig(readAssetRotationConfig(), action, normalizedCode));
+    const current = readAssetRotationPendingConfig() ?? readAssetRotationConfig();
+    return writeAssetRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
   } finally {
     assetRotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function replaceAssetRotationPool(codes: string[]) {
+  if (assetRotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
+  if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
+  if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
+  const availableSymbols = new Map(readAssetCombinationConfig().symbols.map((symbol) => [symbol.code, symbol]));
+  const symbols = normalizedCodes.map((code) => availableSymbols.get(code));
+  if (symbols.some((symbol) => !symbol)) throw new Error('组合中包含已不在组合池内的 ETF，请重新计算全组合排名');
+  assetRotationPoolUpdateInFlight = true;
+  try {
+    const current = readAssetRotationPendingConfig() ?? readAssetRotationConfig();
+    return writeAssetRotationPoolDraft({
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+      symbols: symbols as SymbolConfig[],
+    });
+  } finally {
+    assetRotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateAssetRotationPool() {
+  if (assetRotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const pending = readAssetRotationPendingConfig();
+  if (!pending || sameSymbolSet(readAssetRotationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的标的池变更');
+  assetRotationPoolUpdateInFlight = true;
+  try {
+    const snapshot = await rebuildRotationPool('asset-rotation', pending);
+    if (existsSync(assetRotationPendingConfigPath)) unlinkSync(assetRotationPendingConfigPath);
+    return { ...snapshot, poolDraft: getAssetRotationPoolDraft() };
+  } finally {
+    assetRotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function updateAssetCombinationPool(action: 'add' | 'remove', code: string) {
+  if (assetCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  assetCombinationPoolUpdateInFlight = true;
+  try {
+    const current = readAssetCombinationPendingConfig() ?? readAssetCombinationConfig();
+    return writeAssetCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+  } finally {
+    assetCombinationPoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateAssetCombinationPool() {
+  if (assetCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const pending = readAssetCombinationPendingConfig();
+  if (!pending || sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
+  assetCombinationPoolUpdateInFlight = true;
+  const previousFiles = new Map([
+    [assetCombinationConfigPath, existsSync(assetCombinationConfigPath) ? readFileSync(assetCombinationConfigPath, 'utf8') : null],
+    [assetRotationCombinationsPath, existsSync(assetRotationCombinationsPath) ? readFileSync(assetRotationCombinationsPath, 'utf8') : null],
+  ]);
+  const previousHistory = snapshotRotationHistory(assetRotationHistoryDirectory);
+  writeStrategyConfig(assetCombinationConfigPath, pending);
+  try {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-asset-rotation-history.cjs')], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ASSET_ROTATION_CONFIG_FILE: 'combination-config.json',
+        ASSET_ROTATION_ONLY_MISSING: '1',
+      },
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-asset-rotation.cjs')], {
+      cwd: process.cwd(),
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    cachedAssetRotationCombinations = null;
+    readAssetRotationCombinations();
+    if (existsSync(assetCombinationPendingConfigPath)) unlinkSync(assetCombinationPendingConfigPath);
+    return getAssetCombinationPoolDraft();
+  } catch (error) {
+    for (const [path, content] of previousFiles) restoreFile(path, content);
+    restoreRotationHistory(assetRotationHistoryDirectory, previousHistory);
+    cachedAssetRotationCombinations = null;
+    throw new Error(`组合排名计算失败，已恢复原数据：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally {
+    assetCombinationPoolUpdateInFlight = false;
   }
 }
 
@@ -1545,7 +1847,7 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
 
 export async function getAssetRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
   if (!forceRefresh && cachedAssetRotationSnapshot && Date.now() - cachedAssetRotationAt < cacheTtlMs) {
-    return { ...cachedAssetRotationSnapshot, cached: true };
+    return { ...cachedAssetRotationSnapshot, poolDraft: getAssetRotationPoolDraft(), cached: true };
   }
 
   const config = readAssetRotationConfig();
@@ -1595,6 +1897,7 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
     lastTradingDate,
     cached: false,
     backtest: readAssetRotationBacktest(config),
+    poolDraft: getAssetRotationPoolDraft(),
   };
   if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('asset-rotation', yearPerformance, provider, fetchedAt);
   cachedAssetRotationSnapshot = snapshot;

@@ -1,42 +1,30 @@
 {
-  "version": 23,
-  "updatedAt": "2026-08-30T08:24:59.510Z",
+  "version": 37,
+  "updatedAt": "2026-08-30T12:36:44.297Z",
   "symbols": [
     {
-      "marketCode": "sh510300",
-      "code": "510300",
-      "name": "沪深300",
-      "category": "A股宽基"
-    },
-    {
-      "marketCode": "sz159915",
-      "code": "159915",
-      "name": "创业板ETF",
-      "category": "A股宽基"
+      "marketCode": "sz159612",
+      "code": "159612",
+      "name": "标普500ETF国泰",
+      "category": "海外指数"
     },
     {
       "marketCode": "sh513100",
       "code": "513100",
-      "name": "纳指ETF",
+      "name": "纳指ETF国泰",
       "category": "海外指数"
     },
     {
-      "marketCode": "sh518880",
-      "code": "518880",
-      "name": "黄金ETF",
+      "marketCode": "sh512690",
+      "code": "512690",
+      "name": "酒ETF鹏华",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sz159881",
+      "code": "159881",
+      "name": "有色金属ETF国泰",
       "category": "商品"
-    },
-    {
-      "marketCode": "sh511260",
-      "code": "511260",
-      "name": "十年国债ETF国泰",
-      "category": "债券"
-    },
-    {
-      "marketCode": "sh513050",
-      "code": "513050",
-      "name": "中概互联网ETF易方达",
-      "category": "海外指数"
     }
   ]
 }

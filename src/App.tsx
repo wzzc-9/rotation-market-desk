@@ -20,6 +20,7 @@ import {
   Maximize2,
   Minimize2,
   Plus,
+  Replace,
   RefreshCw,
   Search,
   Settings2,
@@ -35,13 +36,14 @@ import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
 import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, dualEtfAnnualReturns, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
-import { formatPct, formatVolume, movingAverage, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
+import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
 type StrategyId = 'rotation' | 'asset-rotation' | 'dual-etf' | 'intersection' | ScreeningStrategyId;
 type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
+type PoolSymbol = Pick<EtfSearchResult, 'code' | 'name' | 'category'>;
 
 const intersectionStrategyOptions: Array<{ id: ScreeningStrategyId; label: string; detail: string; endpoint: string }> = [
   { id: 'macd', label: 'MACD 金叉共振', detail: '10 / 20 / 7', endpoint: '/api/strategy/macd-confluence' },
@@ -60,7 +62,7 @@ const menuItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 const screenedStockHistoryCache = new Map<string, MarketHistoryResponse>();
 const screenedStockHistoryRequests = new Map<string, Promise<MarketHistoryResponse>>();
 const stockKlineOpenEvent = 'screened-stock-kline-open';
-const etfSearchHistoryStorageKey = 'rotation-desk-etf-search-history-v1';
+const etfSearchHistoryStorageKey = 'rotation-desk-etf-search-history-v2';
 const etfSearchHistoryLimit = 8;
 
 function readEtfSearchHistory() {
@@ -543,7 +545,7 @@ function StockKlineCell({ code, name }: { code: string; name: string }) {
   </button>;
 }
 
-function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]; updating: boolean; onAdd: (result: EtfSearchResult) => Promise<void> }) {
+function AssetPoolEditor({ markets, updating, deferred = false, label = '管理标的池', description = '按名称或 6 位代码搜索沪深 ETF', statusText, action, onAdd }: { markets: PoolSymbol[]; updating: boolean; deferred?: boolean; label?: string; description?: string; statusText?: string; action?: ReactNode; onAdd: (result: EtfSearchResult) => Promise<void> }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<EtfSearchResult[]>([]);
   const [searchHistory, setSearchHistory] = useState(readEtfSearchHistory);
@@ -560,6 +562,14 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
     setSearchHistory((current) => {
       const next = [normalized, ...current.filter((item) => item.toLocaleLowerCase() !== normalized.toLocaleLowerCase())].slice(0, etfSearchHistoryLimit);
       persistEtfSearchHistory(next);
+      return next;
+    });
+  }, []);
+  const forgetSearch = useCallback((term: string) => {
+    const normalized = term.trim().toLocaleLowerCase();
+    setSearchHistory((current) => {
+      const next = current.filter((item) => item.toLocaleLowerCase() !== normalized);
+      if (next.length !== current.length) persistEtfSearchHistory(next);
       return next;
     });
   }, []);
@@ -582,16 +592,18 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
       setSearchError('');
       return;
     }
+    setSearching(true);
+    setSearchError('');
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setSearching(true);
-      setSearchError('');
       try {
         const response = await apiFetch(`/api/etfs/search?q=${encodeURIComponent(normalized)}`, { cache: 'no-store', signal: controller.signal });
         const payload = await response.json() as { results?: EtfSearchResult[]; message?: string };
         if (!response.ok) throw new Error(payload.message || `ETF 搜索返回 HTTP ${response.status}`);
-        setResults(Array.isArray(payload.results) ? payload.results : []);
-        rememberSearch(normalized);
+        const nextResults = Array.isArray(payload.results) ? payload.results : [];
+        setResults(nextResults);
+        if (nextResults.length > 0) rememberSearch(normalized);
+        else forgetSearch(normalized);
       } catch (reason) {
         if (controller.signal.aborted) return;
         setResults([]);
@@ -604,7 +616,7 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query, rememberSearch]);
+  }, [forgetSearch, query, rememberSearch]);
 
   const useHistoryItem = (term: string) => {
     setQuery(term);
@@ -637,7 +649,7 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
 
   const showResults = query.trim().length >= 2;
   return <div className="asset-pool-editor">
-    <div className="etf-search-copy"><strong>管理标的池</strong><span>按名称或 6 位代码搜索沪深 ETF</span></div>
+    <div className="etf-search-copy"><strong>{label}</strong><span>{description}</span></div>
     <div className="etf-search-control" ref={searchControlRef}>
       <Search size={16} />
       <input ref={searchInputRef} value={query} disabled={updating} placeholder="例如：黄金ETF / 518880" aria-label="搜索 ETF" onFocus={() => setHistoryOpen(query.trim().length === 0)} onKeyDown={(event) => { if (event.key === 'Escape') setHistoryOpen(false); }} onChange={(event) => { setQuery(event.target.value); setHistoryOpen(event.target.value.trim().length === 0); }} />
@@ -662,41 +674,49 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
             <div><strong>{result.name}</strong><span>{result.code} · {result.category}</span></div>
             <button type="button" disabled={included || updating || Boolean(addingCode)} onClick={() => void addResult(result).catch(() => undefined)}>
               {adding ? <RefreshCw className="spin-icon" size={14} /> : included ? <Check size={14} /> : <Plus size={14} />}
-              {included ? '已加入' : adding ? '重算中' : '加入'}
+              {included ? '已加入' : adding ? (deferred ? '暂存中' : '重算中') : '加入'}
             </button>
           </div>;
         })}
       </div>}
     </div>
-    {updating && <div className="pool-update-state"><RefreshCw className="spin-icon" size={14} />正在补齐历史行情并重算 2016—2025 与今年以来收益</div>}
+    {updating && <div className="pool-update-state"><RefreshCw className="spin-icon" size={14} />{statusText ?? (deferred ? '正在保存标的池变更' : '正在补齐历史行情并重算 2016—2025 与今年以来收益')}</div>}
+    {action && <div className="pool-editor-action">{action}</div>}
   </div>;
 }
 
-function StrategyUniverse({ markets, trendPeriod = 20, momentumLabel = '20日动量', editor, updating = false, onRemove }: { markets: RankedMarket[]; trendPeriod?: number; momentumLabel?: string; editor?: ReactNode; updating?: boolean; onRemove?: (market: RankedMarket) => void }) {
+function StrategyUniverse({ markets, symbols, trendPeriod = 20, momentumLabel = '20日动量', editor, updating = false, onRemove }: { markets: RankedMarket[]; symbols?: PoolSymbol[]; trendPeriod?: number; momentumLabel?: string; editor?: ReactNode; updating?: boolean; onRemove?: (market: PoolSymbol) => void }) {
   const editable = Boolean(onRemove);
+  const marketByCode = useMemo(() => new Map(markets.map((market) => [market.code, market])), [markets]);
+  const poolSymbols: PoolSymbol[] = symbols ?? markets;
+  const symbolByCode = new Map(poolSymbols.map((symbol) => [symbol.code, symbol]));
+  const rows = [
+    ...markets.filter((market) => symbolByCode.has(market.code)).map((market) => ({ symbol: symbolByCode.get(market.code)!, market })),
+    ...poolSymbols.filter((symbol) => !marketByCode.has(symbol.code)).map((symbol) => ({ symbol, market: undefined })),
+  ];
   return (
     <section className="panel universe-panel">
       <div className="panel-title-row">
         <div><span className="eyebrow">ASSET UNIVERSE</span><h3>轮动标的池</h3></div>
-        <span className="count-badge">{markets.length}</span>
+        <span className="count-badge">{poolSymbols.length}</span>
       </div>
       {editor}
       <div className="table-scroll">
         <table className={`strategy-universe-table${editable ? ' has-actions' : ''}`}>
           <thead><tr><th>排名</th><th>标的</th><th>类别</th><th>现价</th><th>涨跌幅</th><th>MA{trendPeriod}</th><th>{momentumLabel}</th><th>量比</th><th>趋势</th><th>信号</th>{editable && <th>管理</th>}</tr></thead>
-          <tbody>{markets.map((market) => (
-            <tr key={market.code}>
-              <td><RankBadge rank={market.rank} /></td>
-              <td><StockKlineCell name={market.name} code={market.code} /></td>
-              <td>{market.category}</td>
-              <td className="number">{market.price.toFixed(3)}</td>
-              <td className="number"><Change value={market.change} /></td>
-              <td className="number">{market.ma20.toFixed(3)}</td>
-              <td className="number"><Change value={market.momentum} /></td>
-              <td className="number">{market.volumeRatio.toFixed(2)}</td>
-              <td><span className={market.aboveMa ? 'trend-up' : 'trend-down'}>{market.aboveMa ? `MA${trendPeriod}上方` : `MA${trendPeriod}下方`}</span></td>
-              <td><span className={`signal signal-${market.signal}`}>{market.signal}</span></td>
-              {editable && <td><button type="button" className="pool-remove-button" disabled={updating || markets.length <= 2} title={markets.length <= 2 ? '标的池至少保留 2 只 ETF' : `移除 ${market.name}`} aria-label={`从标的池移除 ${market.name}`} onClick={() => onRemove?.(market)}><Trash2 size={15} /></button></td>}
+          <tbody>{rows.map(({ symbol, market }) => (
+            <tr key={symbol.code} className={market ? undefined : 'pool-pending-row'}>
+              <td>{market ? <RankBadge rank={market.rank} /> : <span className="pending-metric">--</span>}</td>
+              <td><StockKlineCell name={symbol.name} code={symbol.code} /></td>
+              <td>{symbol.category}</td>
+              <td className="number">{market ? market.price.toFixed(3) : <span className="pending-metric">--</span>}</td>
+              <td className="number">{market ? <Change value={market.change} /> : <span className="pending-metric">--</span>}</td>
+              <td className="number">{market ? market.ma20.toFixed(3) : <span className="pending-metric">--</span>}</td>
+              <td className="number">{market ? <Change value={market.momentum} /> : <span className="pending-metric">--</span>}</td>
+              <td className="number">{market ? market.volumeRatio.toFixed(2) : <span className="pending-metric">--</span>}</td>
+              <td>{market ? <span className={market.aboveMa ? 'trend-up' : 'trend-down'}>{market.aboveMa ? `MA${trendPeriod}上方` : `MA${trendPeriod}下方`}</span> : <span className="pending-metric">待计算</span>}</td>
+              <td>{market ? <span className={`signal signal-${market.signal}`}>{market.signal}</span> : <span className="signal signal-pending">待计算</span>}</td>
+              {editable && <td><button type="button" className="pool-remove-button" disabled={updating || poolSymbols.length <= 2} title={poolSymbols.length <= 2 ? '标的池至少保留 2 只 ETF' : `移除 ${symbol.name}`} aria-label={`从标的池移除 ${symbol.name}`} onClick={() => onRemove?.(symbol)}><Trash2 size={15} /></button></td>}
             </tr>
           ))}</tbody>
         </table>
@@ -990,14 +1010,212 @@ function Screener({
   );
 }
 
-function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset' | 'dual'; refreshing?: boolean; onRefresh?: () => void }) {
+function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
+  type CombinationSortKey = 'score' | 'ten-year' | 'current-year';
+  type CombinationSort = { key: CombinationSortKey; direction: 'asc' | 'desc' };
+  const [sort, setSort] = useState<CombinationSort>({ key: 'score', direction: 'desc' });
+  const [page, setPage] = useState(1);
+  const [pageInput, setPageInput] = useState('1');
+  const [result, setResult] = useState<AssetRotationCombinationsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [poolUpdating, setPoolUpdating] = useState(false);
+  const [poolCalculating, setPoolCalculating] = useState(false);
+  const [poolError, setPoolError] = useState('');
+  const [replacingId, setReplacingId] = useState<string | null>(null);
+  const [replaceNotice, setReplaceNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    void apiFetch(`/api/strategy/asset-rotation/combinations?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    }).then(async (response) => {
+      const payload = await response.json() as AssetRotationCombinationsResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `组合回测返回 HTTP ${response.status}`);
+      setResult(payload);
+    }).catch((reason) => {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return;
+      setError(reason instanceof Error ? reason.message : '组合回测数据加载失败');
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [page, sort.direction, sort.key]);
+  useEffect(() => {
+    if (result) setPageInput(String(result.page));
+  }, [result]);
+  const names = useMemo(() => new Map(result?.universe.map((item) => [item.code, item.name]) ?? []), [result]);
+  const first = result?.best;
+  const changeSort = (key: CombinationSortKey) => {
+    setSort((current) => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' }));
+    setPage(1);
+    setPageInput('1');
+  };
+  const sortableHeader = (key: CombinationSortKey, label: string) => {
+    const active = sort.key === key;
+    const nextDirection = active && sort.direction === 'desc' ? '正序' : '倒序';
+    return <button className={`table-sort-button${active ? ' active' : ''}`} type="button" title={`按${label}${nextDirection}排列`} onClick={() => changeSort(key)}>{label}{!active ? <ArrowUpDown size={13} /> : sort.direction === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />}</button>;
+  };
+  const goToPage = (nextPage: number) => {
+    if (!result) return;
+    const normalized = Math.min(Math.max(Math.trunc(nextPage) || 1, 1), result.totalPages);
+    setPageInput(String(normalized));
+    setPage(normalized);
+  };
+  const submitPage = () => goToPage(Number(pageInput));
+  const updatePool = useCallback(async (action: 'add' | 'remove', item: PoolSymbol) => {
+    setPoolUpdating(true);
+    setPoolError('');
+    try {
+      const response = await apiFetch(action === 'add' ? '/api/strategy/asset-rotation/combinations/symbols' : `/api/strategy/asset-rotation/combinations/symbols/${encodeURIComponent(item.code)}`, {
+        method: action === 'add' ? 'POST' : 'DELETE',
+        headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
+        body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
+      });
+      const payload = await response.json() as AssetRotationCombinationsResponse['poolDraft'] & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移出'}组合池失败`);
+      if (!Array.isArray(payload.symbols) || payload.symbols.length < 3) throw new Error('组合池变更已保存，但返回的数据不完整');
+      setResult((current) => current ? { ...current, poolDraft: payload } : current);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移出'}组合池失败`;
+      setPoolError(message);
+      throw reason;
+    } finally {
+      setPoolUpdating(false);
+    }
+  }, []);
+  const recalculatePool = useCallback(async () => {
+    setPoolCalculating(true);
+    setPoolError('');
+    try {
+      const response = await apiFetch(`/api/strategy/asset-rotation/combinations/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const payload = await response.json() as AssetRotationCombinationsResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || '全组合收益排名重新计算失败');
+      if (!Array.isArray(payload.combinations) || !payload.combinations.length || payload.poolDraft?.dirty) throw new Error('重新计算完成，但返回的数据不完整');
+      setPage(1);
+      setPageInput('1');
+      setResult(payload);
+    } catch (reason) {
+      setPoolError(reason instanceof Error ? reason.message : '全组合收益排名重新计算失败');
+    } finally {
+      setPoolCalculating(false);
+    }
+  }, [sort.direction, sort.key]);
+  const poolSymbols = result?.poolDraft.symbols ?? [];
+  const calculatedCodes = useMemo(() => new Set(result?.universe.map((item) => item.code) ?? []), [result]);
+  const activeRotationPoolKey = useMemo(() => [...rotationPoolCodes].sort().join(','), [rotationPoolCodes]);
+  const replaceRotationPool = useCallback(async (item: AssetRotationCombinationsResponse['combinations'][number]) => {
+    setReplacingId(item.id);
+    setReplaceNotice(null);
+    try {
+      await onReplaceRotationPool(item.codes);
+      setReplaceNotice({ type: 'success', message: `已将轮动标的池替换为排名第 ${item.displayRank} 的 ${item.size} 只 ETF，请点击上方“重新计算”后生效。` });
+    } catch (reason) {
+      setReplaceNotice({ type: 'error', message: reason instanceof Error ? reason.message : '轮动标的池替换失败' });
+    } finally {
+      setReplacingId(null);
+    }
+  }, [onReplaceRotationPool]);
+  return (
+    <section className="panel asset-combination-panel">
+      <div className="panel-title-row combination-title-row">
+        <div><span className="eyebrow">COMBINATION REPLAY</span><h3>全组合收益排名</h3></div>
+        <div className="combination-toolbar">
+          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {result.totalCombinations.toLocaleString()} 个组合</span>}
+        </div>
+      </div>
+      {result && <>
+        <AssetPoolEditor
+          markets={poolSymbols}
+          updating={poolUpdating || poolCalculating}
+          deferred
+          label="管理组合池"
+          description="仅组合池内 ETF 参与排列组合"
+          statusText={poolCalculating ? '正在补齐行情并重新计算全组合收益排名' : undefined}
+          action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={!result.poolDraft.dirty || poolUpdating || poolCalculating} title={result.poolDraft.dirty ? '应用组合池变更并重新计算全组合收益排名' : '当前没有待计算的组合池变更'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
+          onAdd={(item) => updatePool('add', item)}
+        />
+        <div className="combination-pool-strip">
+          <div className="combination-pool-label"><span>组合池</span><small>{poolSymbols.length} / 16</small></div>
+          <div className="combination-pool-symbols">
+            {poolSymbols.map((symbol) => <div className={`combination-pool-chip${calculatedCodes.has(symbol.code) ? '' : ' is-pending'}`} key={symbol.code}>
+              <span><strong>{symbol.name}</strong><small>{symbol.code}</small></span>
+              <button type="button" disabled={poolUpdating || poolCalculating || poolSymbols.length <= 3} title={poolSymbols.length <= 3 ? '组合池至少保留 3 只 ETF' : `移出组合池：${symbol.name}`} aria-label={`从组合池移除 ${symbol.name}`} onClick={() => void updatePool('remove', symbol).catch(() => undefined)}><X size={13} /></button>
+            </div>)}
+          </div>
+        </div>
+      </>}
+      {poolError && <div className="combination-pool-error"><AlertTriangle size={15} /><span>{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭组合池提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
+      {replaceNotice && <div className={`combination-replace-notice ${replaceNotice.type}`}>
+        {replaceNotice.type === 'success' ? <Check size={15} /> : <AlertTriangle size={15} />}
+        <span>{replaceNotice.message}</span>
+        <button type="button" className="icon-button" title="关闭提示" aria-label="关闭替换提示" onClick={() => setReplaceNotice(null)}><X size={14} /></button>
+      </div>}
+      {error && <div className="combination-state error"><AlertTriangle size={16} />{error}</div>}
+      {loading && !result && <div className="combination-state"><RefreshCw className="spin-icon" size={16} />正在读取全部组合回测</div>}
+      {result && first && <>
+        <div className="combination-leader">
+          <div><span>当前第一名</span><strong>{first.codes.map((code) => names.get(code) ?? code).join(' / ')}</strong><small>{first.codes.join(' · ')}</small></div>
+          <div><span>{sort.key === 'score' ? '综合得分' : sort.key === 'ten-year' ? '近 10 年累计收益' : `${result.periods.currentYear.year} 年收益`}</span><strong className={sort.key === 'score' ? undefined : (sort.key === 'ten-year' ? first.tenYearReturn : first.currentYearReturn) >= 0 ? 'up' : 'down'}>{sort.key === 'score' ? first.compositeScore.toFixed(4) : formatPct(sort.key === 'ten-year' ? first.tenYearReturn : first.currentYearReturn)}</strong></div>
+          <div><span>{sort.key === 'score' ? '近 10 年年化收益' : '同期最大回撤'}</span><strong className={sort.key === 'score' ? (first.tenYearAnnualizedReturn >= 0 ? 'up' : 'down') : 'down'}>{formatPct(sort.key === 'score' ? first.tenYearAnnualizedReturn : sort.key === 'ten-year' ? first.tenYearMaxDrawdown : first.currentYearMaxDrawdown)}</strong></div>
+          <div><span>当前持仓</span><strong>{first.currentHolding ? names.get(first.currentHolding) ?? first.currentHolding : '空仓'}</strong></div>
+        </div>
+        <div className="combination-table-wrap">
+          <table className="combination-table">
+            <thead><tr><th>排名</th><th>ETF 组合</th><th>资产覆盖</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>年化收益</th><th>10年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>周度交易</th><th>当前持仓</th><th>操作</th></tr></thead>
+            <tbody>{result.combinations.map((item) => (
+              <tr key={item.id}>
+                <td><RankBadge rank={item.displayRank} /></td>
+                <td><div className="combination-assets"><strong>{item.codes.map((code) => names.get(code) ?? code).join(' / ')}</strong><small>{item.codes.join(' · ')}</small></div></td>
+                <td>{item.assetClasses.join(' · ')}</td>
+                <td>{item.size}</td>
+                <td className={item.compositeScore >= 0 ? 'up' : 'down'}>{item.compositeScore.toFixed(4)}</td>
+                <td><Change value={item.tenYearReturn} /></td>
+                <td><Change value={item.tenYearAnnualizedReturn} /></td>
+                <td><Change value={item.tenYearMaxDrawdown} /></td>
+                <td><Change value={item.currentYearReturn} /></td>
+                <td><Change value={item.currentYearMaxDrawdown} /></td>
+                <td>{sort.key === 'current-year' ? item.currentYearTrades : item.tenYearTrades}</td>
+                <td>{item.currentHolding ? names.get(item.currentHolding) ?? item.currentHolding : '空仓'}</td>
+                <td>{(() => {
+                  const selected = [...item.codes].sort().join(',') === activeRotationPoolKey;
+                  const replacing = replacingId === item.id;
+                  return <button type="button" className={`combination-replace-button${selected ? ' is-selected' : ''}`} disabled={rotationPoolUpdating || replacingId !== null || selected} title={selected ? '当前轮动标的池已是这个组合' : '将上方轮动标的池替换为这个组合'} onClick={() => void replaceRotationPool(item)}>{replacing ? <RefreshCw className="spin-icon" size={13} /> : selected ? <Check size={13} /> : <Replace size={13} />}{replacing ? '替换中' : selected ? '已选' : '替换'}</button>;
+                })()}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div className="combination-pagination">
+          <span>第 {result.page.toLocaleString()} / {result.totalPages.toLocaleString()} 页</span>
+          <button type="button" className="icon-button" title="上一页" aria-label="组合排名上一页" disabled={result.page <= 1 || loading} onClick={() => goToPage(result.page - 1)}><ChevronLeft size={16} /></button>
+          <form className="combination-page-jump" onSubmit={(event) => { event.preventDefault(); submitPage(); }}>
+            <label htmlFor={`combination-page-${sort.key}-${sort.direction}`}>页码</label>
+            <input id={`combination-page-${sort.key}-${sort.direction}`} aria-label="输入组合排名页码" type="text" inputMode="numeric" value={pageInput} disabled={loading} onChange={(event) => setPageInput(event.target.value.replace(/\D/g, ''))} />
+            <button type="submit" disabled={loading}>跳转</button>
+          </form>
+          <button type="button" className="icon-button" title="下一页" aria-label="组合排名下一页" disabled={result.page >= result.totalPages || loading} onClick={() => goToPage(result.page + 1)}><ChevronRight size={16} /></button>
+        </div>
+        <div className="method-note">综合得分 = 50% × 标准化近 10 年年化收益 + 20% × 标准化 {result.periods.currentYear.year} 年收益 − 20% × 标准化近 10 年最大回撤绝对值 − 10% × 标准化 {result.periods.currentYear.year} 年最大回撤绝对值；标准化使用全部组合的总体均值与总体标准差。候选全集取自独立组合池，完整枚举 3—{result.universe.length} 只 ETF 的所有组合，并排除仅含 2 只 ETF 的组合。所有组合均使用每周最后一个交易日收盘信号、20 日涨幅排名、MA28 与前 2 名持有规则，未计手续费、滑点与冲击成本。组合排名属于历史参数搜索，不代表未来收益。</div>
+      </>}
+    </section>
+  );
+}
+
+function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolSymbols, poolUpdating = false, onRemoveMarket, onReplaceCombination, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolSymbols?: PoolSymbol[]; poolUpdating?: boolean; onRemoveMarket?: (market: PoolSymbol) => void; onReplaceCombination?: (codes: string[]) => Promise<void>; variant?: 'broad' | 'asset' | 'dual'; refreshing?: boolean; onRefresh?: () => void }) {
   const isAssetRotation = variant === 'asset';
   const isDualEtf = variant === 'dual';
   const leader = markets[0];
   const second = markets[1];
   const holding = markets.find((market) => market.name === yearPerformance.currentHolding) ?? null;
   const trendPeriod = isAssetRotation ? 28 : 20;
-  const poolSize = markets.length;
+  const poolSize = poolSymbols?.length ?? markets.length;
   const performanceReturns = strategyBacktest?.annualReturns ?? (isAssetRotation ? assetRotationAnnualReturns : isDualEtf ? dualEtfAnnualReturns : annualReturns);
   const [backtestStartYear, setBacktestStartYear] = useState(performanceReturns[0].year);
   const filteredPerformanceReturns = useMemo(
@@ -1103,7 +1321,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           </div>
         </section>
 
-        <StrategyUniverse markets={markets} trendPeriod={trendPeriod} momentumLabel={isAssetRotation || isDualEtf ? '20日涨幅' : '20日动量'} editor={poolEditor} updating={poolUpdating} onRemove={onRemoveMarket} />
+        <StrategyUniverse markets={markets} symbols={poolSymbols} trendPeriod={trendPeriod} momentumLabel={isAssetRotation || isDualEtf ? '20日涨幅' : '20日动量'} editor={poolEditor} updating={poolUpdating} onRemove={onRemoveMarket} />
 
         <section className="panel year-performance-panel">
           <div className="panel-title-row">
@@ -1187,6 +1405,8 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           </div>
         </section>
 
+        {isAssetRotation && onReplaceCombination && <AssetCombinationExplorer rotationPoolCodes={(poolSymbols ?? markets).map((item) => item.code)} rotationPoolUpdating={poolUpdating} onReplaceRotationPool={onReplaceCombination} />}
+
         <section className="panel notes-panel">
           <div className="panel-title-row"><div><span className="eyebrow">RISK CONTROL</span><h3>执行约束</h3></div></div>
           <div className="constraint-grid">
@@ -1205,7 +1425,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
   );
 }
 
-function PoolRemovalDialog({ market, strategyName, onCancel, onConfirm }: { market: RankedMarket; strategyName: string; onCancel: () => void; onConfirm: () => void }) {
+function PoolRemovalDialog({ market, strategyName, deferred = false, onCancel, onConfirm }: { market: PoolSymbol; strategyName: string; deferred?: boolean; onCancel: () => void; onConfirm: () => void }) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     confirmButtonRef.current?.focus();
@@ -1232,7 +1452,7 @@ function PoolRemovalDialog({ market, strategyName, onCancel, onConfirm }: { mark
             <div><strong>{market.name}</strong><span>{market.category}</span></div>
             <code>{market.code}</code>
           </div>
-          <div className="pool-dialog-rebuild"><RefreshCw size={15} /><span>移除后将重新计算 <strong>2016—2025</strong> 回测和 <strong>今年以来</strong> 的交易节点与收益。</span></div>
+          <div className="pool-dialog-rebuild"><RefreshCw size={15} /><span>{deferred ? <>此次移除将先保存为待应用变更，点击标的池右上角的 <strong>重新计算</strong> 后生效。</> : <>移除后将重新计算 <strong>2016—2025</strong> 回测和 <strong>今年以来</strong> 的交易节点与收益。</>}</span></div>
         </div>
         <div className="pool-dialog-actions">
           <button type="button" className="pool-dialog-cancel" onClick={onCancel}>取消</button>
@@ -1248,8 +1468,9 @@ function AssetRotationStrategy() {
   const [snapshot, setSnapshot] = useState<RotationResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [poolUpdating, setPoolUpdating] = useState(false);
+  const [poolCalculating, setPoolCalculating] = useState(false);
   const [poolError, setPoolError] = useState('');
-  const [pendingRemoval, setPendingRemoval] = useState<RankedMarket | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PoolSymbol | null>(null);
   const [error, setError] = useState('');
   const didLoad = useRef(false);
   const loadSnapshot = useCallback(async (refresh = false) => {
@@ -1281,12 +1502,52 @@ function AssetRotationStrategy() {
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
       });
-      const payload = await response.json() as RotationResponse & { message?: string };
+      const payload = await response.json() as NonNullable<RotationResponse['poolDraft']> & { message?: string };
       if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移除'} ETF 失败`);
-      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('重算完成，但返回的数据不完整');
-      setSnapshot(payload);
+      if (!Array.isArray(payload.symbols) || payload.symbols.length < 2) throw new Error('标的池变更已保存，但返回的数据不完整');
+      setSnapshot((current) => current ? { ...current, poolDraft: payload } : current);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setPoolError(message);
+      throw reason;
+    } finally {
+      setPoolUpdating(false);
+    }
+  }, []);
+  const recalculatePool = useCallback(async () => {
+    setPoolCalculating(true);
+    setPoolError('');
+    try {
+      const response = await apiFetch('/api/strategy/asset-rotation/recalculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || '重新计算失败');
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length || payload.poolDraft?.dirty) throw new Error('重新计算完成，但返回的数据不完整');
+      setSnapshot(payload);
+    } catch (reason) {
+      setPoolError(reason instanceof Error ? reason.message : '重新计算失败');
+    } finally {
+      setPoolCalculating(false);
+    }
+  }, []);
+  const replacePool = useCallback(async (codes: string[]) => {
+    setPoolUpdating(true);
+    setPoolError('');
+    try {
+      const response = await apiFetch('/api/strategy/asset-rotation/symbols', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes }),
+      });
+      const payload = await response.json() as NonNullable<RotationResponse['poolDraft']> & { message?: string };
+      if (!response.ok) throw new Error(payload.message || '轮动标的池替换失败');
+      if (!Array.isArray(payload.symbols) || payload.symbols.length < 2) throw new Error('标的池替换已保存，但返回的数据不完整');
+      setSnapshot((current) => current ? { ...current, poolDraft: payload } : current);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '轮动标的池替换失败';
       setPoolError(message);
       throw reason;
     } finally {
@@ -1304,8 +1565,27 @@ function AssetRotationStrategy() {
   return snapshot ? <>
     {error && <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>}
     {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
-    <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} strategyBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="asset" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
-    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="全球大类资产轮动" onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
+    <StrategyCenter
+      markets={snapshot.markets}
+      yearPerformance={snapshot.yearPerformance}
+      strategyBacktest={snapshot.backtest}
+      poolEditor={<AssetPoolEditor
+        markets={snapshot.poolDraft?.symbols ?? snapshot.markets}
+        updating={poolUpdating || poolCalculating}
+        deferred
+        statusText={poolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
+        action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={!snapshot.poolDraft?.dirty || poolUpdating || poolCalculating} title={snapshot.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '当前没有待计算的变更'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
+        onAdd={(item) => updatePool('add', item)}
+      />}
+      poolSymbols={snapshot.poolDraft?.symbols}
+      poolUpdating={poolUpdating || poolCalculating}
+      onRemoveMarket={setPendingRemoval}
+      onReplaceCombination={replacePool}
+      variant="asset"
+      refreshing={loading || poolUpdating || poolCalculating}
+      onRefresh={() => void loadSnapshot(true)}
+    />
+    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="全球大类资产轮动" deferred onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
   </> : null;
 }
 
@@ -1314,7 +1594,7 @@ function DualEtfStrategy() {
   const [loading, setLoading] = useState(true);
   const [poolUpdating, setPoolUpdating] = useState(false);
   const [poolError, setPoolError] = useState('');
-  const [pendingRemoval, setPendingRemoval] = useState<RankedMarket | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PoolSymbol | null>(null);
   const [error, setError] = useState('');
   const didLoad = useRef(false);
   const loadSnapshot = useCallback(async (refresh = false) => {
@@ -2477,7 +2757,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [rotationPoolUpdating, setRotationPoolUpdating] = useState(false);
   const [rotationPoolError, setRotationPoolError] = useState('');
-  const [pendingRotationRemoval, setPendingRotationRemoval] = useState<RankedMarket | null>(null);
+  const [pendingRotationRemoval, setPendingRotationRemoval] = useState<PoolSymbol | null>(null);
   const [watchlist, setWatchlist] = useState(new Set(['512100', '518880', '513100']));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedStrategyGroups, setExpandedStrategyGroups] = useState<Set<StrategyGroupId>>(() => new Set(['index', 'stock']));

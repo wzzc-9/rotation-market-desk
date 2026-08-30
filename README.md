@@ -24,6 +24,7 @@ npm run dev
 - `POST /api/strategy/rotation/symbols`：加入 ETF，并重算近 10 年回测和今年操作节点
 - `DELETE /api/strategy/rotation/symbols/:code`：移出 ETF，并重算近 10 年回测和今年操作节点
 - `GET /api/strategy/asset-rotation`：读取全球大类资产 ETF 周度轮动结果
+- `GET /api/strategy/asset-rotation/combinations`：分页读取策略 2 全组合回测，可通过 `sort=ten-year|current-year` 切换收益排名
 - `GET /api/strategy/asset-rotation?refresh=1`：强制刷新动态标的池并重算 20 日涨幅、MA28 和今年交易节点
 - `POST /api/strategy/asset-rotation/symbols`：加入 ETF，并重算近 10 年回测和今年操作节点
 - `DELETE /api/strategy/asset-rotation/symbols/:code`：移出 ETF，并重算近 10 年回测和今年操作节点
@@ -54,6 +55,7 @@ npm run dev
 - 三个指数策略的标的池均由各自的 `config.json` 动态维护，页面支持按名称或代码搜索、加入和移出 ETF
 - 全球大类资产轮动规则：每周按 20 日涨幅排名；第 1 名且站上 MA28 买入，持仓跌出前 2 或跌破 MA28 时卖出或切换，全部不满足时空仓
 - 全球大类资产策略数据统一存放于 `data/asset-rotation/`：`config.json` 为标的池配置，`history/<ETF代码>.json` 为每只 ETF 独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点；可运行 `npm run history:asset:download` 更新历史，运行 `npm run backtest:asset` 复算
+- 策略 2 全组合结果存放于 `data/asset-rotation/combinations.json`；候选全集取自该策略的本地历史文件，完整枚举 3 只以上组合，并同时保存近 10 年与今年收益排名；运行 `pnpm run optimize:asset` 可重新计算
 - 宽基 20 日动量轮动策略数据统一存放于 `data/rotation/`：`config.json` 为动态标的池配置，`history/<ETF代码>.json` 为独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点
 - 双 ETF 20 日动量轮动规则：每日比较标的近 20 个交易日涨跌幅，只持有排名第 1 且收盘价站上 MA20 的 ETF；第 1 名变化时切换，领先 ETF 跌破 MA20 时空仓；收盘产生信号，下一交易日承接收益
 - 双 ETF 策略数据统一存放于 `data/dual-etf/`：`config.json` 为动态标的池配置，`history/<ETF代码>.json` 为每只 ETF 独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点；可运行 `npm run history:dual:download` 更新历史，运行 `npm run backtest:dual` 复算

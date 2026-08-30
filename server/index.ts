@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, updateDualEtfPool, updateRotationPool, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, replaceAssetRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
 const allowedCorsOrigins = new Set([
@@ -14,7 +14,7 @@ app.addHook('onRequest', async (request, reply) => {
   const origin = request.headers.origin;
   if (origin && allowedCorsOrigins.has(origin)) {
     reply.header('Access-Control-Allow-Origin', origin);
-    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
     reply.header('Vary', 'Origin');
   }
@@ -50,6 +50,61 @@ app.get<{ Querystring: { refresh?: string } }>('/api/strategy/asset-rotation', a
       error: 'UPSTREAM_MARKET_DATA_ERROR',
       message: error instanceof Error ? error.message : '大类资产轮动行情暂时不可用',
     });
+  }
+});
+
+app.get<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; page?: string; pageSize?: string } }>('/api/strategy/asset-rotation/combinations', async (request, reply) => {
+  try {
+    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
+    const result = getAssetRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25));
+    reply.header('Cache-Control', 'no-store');
+    return result;
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(500).send({
+      error: 'ASSET_COMBINATIONS_ERROR',
+      message: error instanceof Error ? error.message : '策略 2 组合回测数据读取失败',
+    });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/asset-rotation/combinations/symbols', async (request, reply) => {
+  try {
+    const draft = await updateAssetCombinationPool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入组合池失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_COMBINATION_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation/combinations/symbols/:code', async (request, reply) => {
+  try {
+    const draft = await updateAssetCombinationPool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移出组合池失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_COMBINATION_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.post<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; pageSize?: string } }>('/api/strategy/asset-rotation/combinations/recalculate', async (request, reply) => {
+  try {
+    await recalculateAssetCombinationPool();
+    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
+    const result = getAssetRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25));
+    reply.header('Cache-Control', 'no-store');
+    return result;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '全组合收益排名重新计算失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_COMBINATION_RECALCULATE_ERROR', message });
   }
 });
 
@@ -123,6 +178,30 @@ app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation/symbols/:
     request.log.error(error);
     const message = error instanceof Error ? error.message : 'ETF 移除失败';
     return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.put<{ Body: { codes?: string[] } }>('/api/strategy/asset-rotation/symbols', async (request, reply) => {
+  try {
+    const draft = await replaceAssetRotationPool(Array.isArray(request.body?.codes) ? request.body.codes : []);
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '轮动标的池替换失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_REPLACE_ERROR', message });
+  }
+});
+
+app.post('/api/strategy/asset-rotation/recalculate', async (request, reply) => {
+  try {
+    const snapshot = await recalculateAssetRotationPool();
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '策略 2 重新计算失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_RECALCULATE_ERROR', message });
   }
 });
 
