@@ -1,7 +1,7 @@
 {
   "version": "asset-rotation-return20-ma28-weekly-v1",
   "strategy": "asset-rotation",
-  "configVersion": 18,
+  "configVersion": 19,
   "symbols": [
     {
       "marketCode": "sh510300",
@@ -44,9 +44,15 @@
       "code": "588000",
       "name": "科创50ETF华夏",
       "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh588080",
+      "code": "588080",
+      "name": "科创50ETF易方达",
+      "category": "A股宽基"
     }
   ],
-  "generatedAt": "2026-08-28T15:39:03.130Z",
+  "generatedAt": "2026-08-30T08:13:13.251Z",
   "period": {
     "start": "2016-01-04",
     "end": "2025-12-31"
@@ -89,54 +95,54 @@
       "returnRate": 40.63247445035658,
       "maxDrawdown": -17.90434157121976,
       "trades": 19,
-      "availableAssets": 7,
+      "availableAssets": 8,
       "yearEndHolding": "创业板ETF"
     },
     {
       "year": 2021,
-      "returnRate": 6.362788584949186,
+      "returnRate": 12.136129194613776,
       "maxDrawdown": -17.017086169591032,
-      "trades": 14,
-      "availableAssets": 7,
+      "trades": 17,
+      "availableAssets": 8,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2022,
-      "returnRate": -11.324693954118636,
-      "maxDrawdown": -18.912446607635935,
-      "trades": 17,
-      "availableAssets": 7,
+      "returnRate": -11.723785253693631,
+      "maxDrawdown": -18.912446607635868,
+      "trades": 18,
+      "availableAssets": 8,
       "yearEndHolding": "十年国债ETF国泰"
     },
     {
       "year": 2023,
-      "returnRate": 13.531268611010416,
-      "maxDrawdown": -11.498780257611973,
+      "returnRate": 15.199432085959753,
+      "maxDrawdown": -11.498780257611951,
       "trades": 15,
-      "availableAssets": 7,
+      "availableAssets": 8,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2024,
-      "returnRate": 38.59166371692477,
-      "maxDrawdown": -25.50410754294249,
-      "trades": 15,
-      "availableAssets": 7,
+      "returnRate": 37.08699536426781,
+      "maxDrawdown": -25.504107542942457,
+      "trades": 18,
+      "availableAssets": 8,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2025,
-      "returnRate": 31.138590324427117,
-      "maxDrawdown": -20.54884077718152,
-      "trades": 15,
-      "availableAssets": 7,
+      "returnRate": 22.713746273259105,
+      "maxDrawdown": -21.09983752157095,
+      "trades": 18,
+      "availableAssets": 8,
       "yearEndHolding": "创业板ETF"
     }
   ],
   "summary": {
-    "cumulativeReturn": 279.5941528104993,
-    "annualizedReturn": 14.284548745383251,
+    "cumulativeReturn": 274.1735349151697,
+    "annualizedReturn": 14.120134268398864,
     "positiveYears": 7,
-    "worstDrawdown": -25.50410754294249
+    "worstDrawdown": -25.504107542942457
   }
 }

@@ -575,6 +575,18 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
 .etf-search-control input::placeholder { color: #9aa5ad; }
 .etf-search-control input:disabled { cursor: wait; }
 .etf-search-clear { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; color: #7d8993; background: transparent; border: 0; cursor: pointer; }
+.etf-search-history { position: absolute; z-index: 55; top: calc(100% + 5px); right: -1px; left: -1px; overflow: hidden; background: #fff; border: 1px solid #cbd5dc; box-shadow: 0 10px 26px rgba(38, 53, 65, .18); }
+.etf-search-history-head { height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px 0 12px; color: #71808b; background: #f8fafb; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
+.etf-search-history-head button { padding: 4px; color: #a44b4b; background: transparent; border: 0; font-size: 11px; cursor: pointer; }
+.etf-search-history-list { max-height: 280px; overflow-y: auto; }
+.etf-search-history-item { min-height: 42px; display: flex; align-items: center; border-bottom: 1px solid var(--line-soft); }
+.etf-search-history-item:last-child { border-bottom: 0; }
+.etf-search-history-item:hover { background: #f7f9fa; }
+.etf-search-history-term { min-width: 0; height: 42px; flex: 1; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 12px; color: #3f4e59; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.etf-search-history-term svg { flex: 0 0 auto; color: #8a969f; }
+.etf-search-history-term span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.etf-search-history-remove { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; margin-right: 4px; padding: 0; color: #8a969f; background: transparent; border: 0; cursor: pointer; }
+.etf-search-history-remove:hover { color: #a74444; background: #fff0f0; }
 .etf-search-results { position: absolute; z-index: 55; top: calc(100% + 5px); right: -1px; left: -1px; max-height: 310px; overflow-y: auto; background: #fff; border: 1px solid #cbd5dc; box-shadow: 0 10px 26px rgba(38, 53, 65, .18); }
 .etf-search-state { min-height: 55px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px; color: #778590; font-size: 12px; }
 .etf-search-state.error { color: #b04d4d; }

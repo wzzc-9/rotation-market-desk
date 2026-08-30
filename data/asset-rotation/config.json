@@ -1,6 +1,6 @@
 {
-  "version": 18,
-  "updatedAt": "2026-08-28T15:39:02.988Z",
+  "version": 19,
+  "updatedAt": "2026-08-30T08:13:12.406Z",
   "symbols": [
     {
       "marketCode": "sh510300",
@@ -42,6 +42,12 @@
       "marketCode": "sh588000",
       "code": "588000",
       "name": "科创50ETF华夏",
+      "category": "A股宽基"
+    },
+    {
+      "marketCode": "sh588080",
+      "code": "588080",
+      "name": "科创50ETF易方达",
       "category": "A股宽基"
     }
   ]

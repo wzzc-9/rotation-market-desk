@@ -14,6 +14,7 @@ import {
   CircleDollarSign,
   Filter,
   GitMerge,
+  History,
   LayoutDashboard,
   Menu,
   Maximize2,
@@ -59,6 +60,27 @@ const menuItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 const screenedStockHistoryCache = new Map<string, MarketHistoryResponse>();
 const screenedStockHistoryRequests = new Map<string, Promise<MarketHistoryResponse>>();
 const stockKlineOpenEvent = 'screened-stock-kline-open';
+const etfSearchHistoryStorageKey = 'rotation-desk-etf-search-history-v1';
+const etfSearchHistoryLimit = 8;
+
+function readEtfSearchHistory() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(etfSearchHistoryStorageKey) ?? '[]') as unknown;
+    return Array.isArray(stored)
+      ? stored.filter((item): item is string => typeof item === 'string' && item.trim().length >= 2).slice(0, etfSearchHistoryLimit)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistEtfSearchHistory(history: string[]) {
+  try {
+    window.localStorage.setItem(etfSearchHistoryStorageKey, JSON.stringify(history));
+  } catch {
+    // Search remains available when browser storage is disabled.
+  }
+}
 
 function formatTradingDate(value: string) {
   const match = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(value);
@@ -524,10 +546,33 @@ function StockKlineCell({ code, name }: { code: string; name: string }) {
 function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]; updating: boolean; onAdd: (result: EtfSearchResult) => Promise<void> }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<EtfSearchResult[]>([]);
+  const [searchHistory, setSearchHistory] = useState(readEtfSearchHistory);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [addingCode, setAddingCode] = useState('');
+  const searchControlRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const poolCodes = useMemo(() => new Set(markets.map((market) => market.code)), [markets]);
+  const rememberSearch = useCallback((term: string) => {
+    const normalized = term.trim();
+    if (normalized.length < 2) return;
+    setSearchHistory((current) => {
+      const next = [normalized, ...current.filter((item) => item.toLocaleLowerCase() !== normalized.toLocaleLowerCase())].slice(0, etfSearchHistoryLimit);
+      persistEtfSearchHistory(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const closeHistory = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && searchControlRef.current?.contains(target)) return;
+      setHistoryOpen(false);
+    };
+    document.addEventListener('pointerdown', closeHistory);
+    return () => document.removeEventListener('pointerdown', closeHistory);
+  }, []);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -546,6 +591,7 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
         const payload = await response.json() as { results?: EtfSearchResult[]; message?: string };
         if (!response.ok) throw new Error(payload.message || `ETF 搜索返回 HTTP ${response.status}`);
         setResults(Array.isArray(payload.results) ? payload.results : []);
+        rememberSearch(normalized);
       } catch (reason) {
         if (controller.signal.aborted) return;
         setResults([]);
@@ -558,7 +604,25 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, rememberSearch]);
+
+  const useHistoryItem = (term: string) => {
+    setQuery(term);
+    setHistoryOpen(false);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+  const removeHistoryItem = (term: string) => {
+    setSearchHistory((current) => {
+      const next = current.filter((item) => item !== term);
+      persistEtfSearchHistory(next);
+      return next;
+    });
+  };
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    persistEtfSearchHistory([]);
+    setHistoryOpen(false);
+  };
 
   const addResult = async (result: EtfSearchResult) => {
     setAddingCode(result.code);
@@ -574,10 +638,19 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
   const showResults = query.trim().length >= 2;
   return <div className="asset-pool-editor">
     <div className="etf-search-copy"><strong>管理标的池</strong><span>按名称或 6 位代码搜索沪深 ETF</span></div>
-    <div className="etf-search-control">
+    <div className="etf-search-control" ref={searchControlRef}>
       <Search size={16} />
-      <input value={query} disabled={updating} placeholder="例如：黄金ETF / 518880" aria-label="搜索 ETF" onChange={(event) => setQuery(event.target.value)} />
-      {query && !updating && <button type="button" className="etf-search-clear" title="清空搜索" aria-label="清空搜索" onClick={() => setQuery('')}><X size={14} /></button>}
+      <input ref={searchInputRef} value={query} disabled={updating} placeholder="例如：黄金ETF / 518880" aria-label="搜索 ETF" onFocus={() => setHistoryOpen(query.trim().length === 0)} onKeyDown={(event) => { if (event.key === 'Escape') setHistoryOpen(false); }} onChange={(event) => { setQuery(event.target.value); setHistoryOpen(event.target.value.trim().length === 0); }} />
+      {query && !updating && <button type="button" className="etf-search-clear" title="清空搜索" aria-label="清空搜索" onClick={() => { setQuery(''); setHistoryOpen(true); searchInputRef.current?.focus(); }}><X size={14} /></button>}
+      {historyOpen && query.trim().length === 0 && searchHistory.length > 0 && <div className="etf-search-history">
+        <div className="etf-search-history-head"><span>最近搜索</span><button type="button" onClick={clearSearchHistory}>清空</button></div>
+        <div className="etf-search-history-list">
+          {searchHistory.map((term) => <div className="etf-search-history-item" key={term}>
+            <button type="button" className="etf-search-history-term" onClick={() => useHistoryItem(term)}><History size={14} /><span>{term}</span></button>
+            <button type="button" className="etf-search-history-remove" title={`删除搜索记录 ${term}`} aria-label={`删除搜索记录 ${term}`} onClick={() => removeHistoryItem(term)}><X size={13} /></button>
+          </div>)}
+        </div>
+      </div>}
       {showResults && <div className="etf-search-results">
         {searching && <div className="etf-search-state"><RefreshCw className="spin-icon" size={15} />正在搜索</div>}
         {!searching && searchError && <div className="etf-search-state error"><AlertTriangle size={15} />{searchError}</div>}
