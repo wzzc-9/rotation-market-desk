@@ -37,6 +37,7 @@ jobs:
         run: pnpm run build
         env:
           VITE_BASE_URL: /rotation-market-desk/
+          VITE_API_BASE_URL: https://rotation-market-desk.onrender.com
 
       # 升级到 v4（关键！）
       - name: Deploy to GitHub Pages

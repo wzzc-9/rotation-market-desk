@@ -14,6 +14,8 @@ npm run dev
 
 `npm run dev` 会同时启动前后端。浏览器加载时会请求后端获取宽基轮动标的池的真实前复权日线，并重新计算 MA20、动量排名和交易信号。
 
+生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理；GitHub Pages 构建已配置为请求 `https://rotation-market-desk.onrender.com`。Render 后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
+
 ## 接口
 
 - `GET /api/health`：代理健康检查

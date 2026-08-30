@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
+import { apiFetch } from './api';
 import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, type AnnualReturn } from './backtest';
 import { formatPct, formatVolume, movingAverage, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
@@ -413,7 +414,7 @@ async function loadScreenedStockHistory(code: string, period: HistoryPeriod) {
   if (cached) return cached;
   const runningRequest = screenedStockHistoryRequests.get(key);
   if (runningRequest) return runningRequest;
-  const request = fetch(`/api/market/${code}/history?period=${period}`, { cache: 'no-store' })
+  const request = apiFetch(`/api/market/${code}/history?period=${period}`, { cache: 'no-store' })
     .then(async (response) => {
       const payload = await response.json() as MarketHistoryResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史行情返回 HTTP ${response.status}`);
@@ -541,7 +542,7 @@ function AssetPoolEditor({ markets, updating, onAdd }: { markets: RankedMarket[]
       setSearching(true);
       setSearchError('');
       try {
-        const response = await fetch(`/api/etfs/search?q=${encodeURIComponent(normalized)}`, { cache: 'no-store', signal: controller.signal });
+        const response = await apiFetch(`/api/etfs/search?q=${encodeURIComponent(normalized)}`, { cache: 'no-store', signal: controller.signal });
         const payload = await response.json() as { results?: EtfSearchResult[]; message?: string };
         if (!response.ok) throw new Error(payload.message || `ETF 搜索返回 HTTP ${response.status}`);
         setResults(Array.isArray(payload.results) ? payload.results : []);
@@ -1169,7 +1170,7 @@ function AssetRotationStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/strategy/asset-rotation${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/asset-rotation${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
       const payload = await response.json() as RotationResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message || `大类资产轮动行情返回 HTTP ${response.status}`);
       if (!Array.isArray(payload.markets) || payload.markets.length < 2) throw new Error('大类资产轮动行情数据不完整');
@@ -1189,7 +1190,7 @@ function AssetRotationStrategy() {
     setPoolUpdating(true);
     setPoolError('');
     try {
-      const response = await fetch(action === 'add' ? '/api/strategy/asset-rotation/symbols' : `/api/strategy/asset-rotation/symbols/${encodeURIComponent(item.code)}`, {
+      const response = await apiFetch(action === 'add' ? '/api/strategy/asset-rotation/symbols' : `/api/strategy/asset-rotation/symbols/${encodeURIComponent(item.code)}`, {
         method: action === 'add' ? 'POST' : 'DELETE',
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
@@ -1292,7 +1293,7 @@ function MacdPullbackStrategy() {
   const [storedDates, setStoredDates] = useState<string[]>([]);
   const loadStoredDates = useCallback(async () => {
     try {
-      const response = await fetch('/api/strategy/macd-pullback/dates', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-pullback/dates', { cache: 'no-store' });
       const payload = await response.json() as { dates?: string[] };
       if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
     } catch {
@@ -1303,7 +1304,7 @@ function MacdPullbackStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/strategy/macd-pullback', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-pullback', { cache: 'no-store' });
       const payload = await response.json() as MacdPullbackSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `MACD 零轴回踩扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
@@ -1325,7 +1326,7 @@ function MacdPullbackStrategy() {
     setHistoryLoading(true);
     setHistorySnapshot(null);
     try {
-      const response = await fetch(`/api/strategy/macd-pullback?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/macd-pullback?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
       const payload = await response.json() as MacdPullbackSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史 MACD 零轴回踩结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
@@ -1472,7 +1473,7 @@ function MacdKdjStrategy() {
   const [storedDates, setStoredDates] = useState<string[]>([]);
   const loadStoredDates = useCallback(async () => {
     try {
-      const response = await fetch('/api/strategy/macd-kdj/dates', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-kdj/dates', { cache: 'no-store' });
       const payload = await response.json() as { dates?: string[] };
       if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
     } catch {
@@ -1483,7 +1484,7 @@ function MacdKdjStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/strategy/macd-kdj', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-kdj', { cache: 'no-store' });
       const payload = await response.json() as MacdKdjSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `MACD + KDJ 扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
@@ -1505,7 +1506,7 @@ function MacdKdjStrategy() {
     setHistoryLoading(true);
     setHistorySnapshot(null);
     try {
-      const response = await fetch(`/api/strategy/macd-kdj?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/macd-kdj?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
       const payload = await response.json() as MacdKdjSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史 MACD + KDJ 结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
@@ -1656,7 +1657,7 @@ function VolumeSignalStrategy() {
   const [storedDates, setStoredDates] = useState<string[]>([]);
   const loadStoredDates = useCallback(async () => {
     try {
-      const response = await fetch('/api/strategy/volume-signals/dates', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/volume-signals/dates', { cache: 'no-store' });
       const payload = await response.json() as { dates?: string[] };
       if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
     } catch {
@@ -1667,7 +1668,7 @@ function VolumeSignalStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/strategy/volume-signals', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/volume-signals', { cache: 'no-store' });
       const payload = await response.json() as VolumeSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `量价三信号扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
@@ -1689,7 +1690,7 @@ function VolumeSignalStrategy() {
     setHistoryLoading(true);
     setHistorySnapshot(null);
     try {
-      const response = await fetch(`/api/strategy/volume-signals?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/volume-signals?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
       const payload = await response.json() as VolumeSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史量价三信号结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
@@ -1834,7 +1835,7 @@ function BullPointStrategy() {
   const [storedDates, setStoredDates] = useState<string[]>([]);
   const loadStoredDates = useCallback(async () => {
     try {
-      const response = await fetch('/api/strategy/bull-points/dates', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/bull-points/dates', { cache: 'no-store' });
       const payload = await response.json() as { dates?: string[] };
       if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
     } catch {
@@ -1845,7 +1846,7 @@ function BullPointStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/strategy/bull-points', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/bull-points', { cache: 'no-store' });
       const payload = await response.json() as BullPointSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `多空趋势多点扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
@@ -1867,7 +1868,7 @@ function BullPointStrategy() {
     setHistoryLoading(true);
     setHistorySnapshot(null);
     try {
-      const response = await fetch(`/api/strategy/bull-points?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/bull-points?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
       const payload = await response.json() as BullPointSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史多点结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
@@ -2029,7 +2030,7 @@ function MacdConfluenceStrategy() {
   const [historyPageSize, setHistoryPageSize] = useState(10);
   const loadStoredDates = useCallback(async () => {
     try {
-      const response = await fetch('/api/strategy/macd-confluence/dates', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-confluence/dates', { cache: 'no-store' });
       const payload = await response.json() as { dates?: string[] };
       if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
     } catch {
@@ -2040,7 +2041,7 @@ function MacdConfluenceStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/strategy/macd-confluence', { cache: 'no-store' });
+      const response = await apiFetch('/api/strategy/macd-confluence', { cache: 'no-store' });
       const payload = await response.json() as MacdSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `MACD 扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
@@ -2064,7 +2065,7 @@ function MacdConfluenceStrategy() {
     setHistoryLoading(true);
     setHistorySnapshot(null);
     try {
-      const response = await fetch(`/api/strategy/macd-confluence?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/macd-confluence?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
       const payload = await response.json() as MacdSnapshot & { message?: string };
       if (!response.ok) throw new Error(payload.message || `历史 MACD 结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
@@ -2216,7 +2217,7 @@ function StrategyIntersection({ latestTradingDate }: { latestTradingDate?: strin
     setResult(null);
     try {
       const snapshots = await Promise.all(selectedOptions.map(async (option) => {
-        const response = await fetch(`${option.endpoint}?date=${selectedDate.replaceAll('-', '')}`, { cache: 'no-store' });
+        const response = await apiFetch(`${option.endpoint}?date=${selectedDate.replaceAll('-', '')}`, { cache: 'no-store' });
         const payload = await response.json() as IntersectionSnapshot;
         if (!response.ok) throw new Error(`${option.label}：${payload.message || `返回 HTTP ${response.status}`}`);
         if (!Array.isArray(payload.signals)) throw new Error(`${option.label}：筛选结果格式不完整`);
@@ -2336,7 +2337,7 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/strategy/rotation${forceRefresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
+      const response = await apiFetch(`/api/strategy/rotation${forceRefresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
       const payload = await response.json() as RotationResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message || `行情代理返回 HTTP ${response.status}`);
       if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('行情代理返回的数据不完整');
@@ -2354,7 +2355,7 @@ export default function App() {
     setRotationPoolUpdating(true);
     setRotationPoolError('');
     try {
-      const response = await fetch(action === 'add' ? '/api/strategy/rotation/symbols' : `/api/strategy/rotation/symbols/${encodeURIComponent(item.code)}`, {
+      const response = await apiFetch(action === 'add' ? '/api/strategy/rotation/symbols' : `/api/strategy/rotation/symbols/${encodeURIComponent(item.code)}`, {
         method: action === 'add' ? 'POST' : 'DELETE',
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,

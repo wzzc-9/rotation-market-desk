@@ -2,6 +2,26 @@ import Fastify from 'fastify';
 import { getAssetRotationSnapshot, getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, updateRotationPool, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
+const allowedCorsOrigins = new Set([
+  'https://wzzc-9.github.io',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:4174',
+  'http://localhost:4173',
+  ...String(process.env.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
+]);
+
+app.addHook('onRequest', async (request, reply) => {
+  const origin = request.headers.origin;
+  if (origin && allowedCorsOrigins.has(origin)) {
+    reply.header('Access-Control-Allow-Origin', origin);
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    reply.header('Vary', 'Origin');
+  }
+  if (request.method === 'OPTIONS') return reply.code(204).send();
+});
+
+app.get('/', async () => ({ status: 'ok', service: 'rotation-market-desk-api' }));
 
 app.get('/api/health', async () => ({ status: 'ok', time: new Date().toISOString() }));
 
