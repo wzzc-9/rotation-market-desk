@@ -12,6 +12,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "history:download": "node scripts/download-history.cjs",
     "backtest": "node scripts/backtest.cjs",
+    "optimize:rotation": "node scripts/optimize-rotation.cjs",
     "history:asset:download": "node scripts/download-asset-rotation-history.cjs",
     "backtest:asset": "node scripts/backtest-asset-rotation.cjs",
     "optimize:asset": "node scripts/optimize-asset-rotation.cjs",

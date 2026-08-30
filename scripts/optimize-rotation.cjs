@@ -2,15 +2,14 @@ const fs = require('fs');
 const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
-const strategyDirectory = path.join(projectRoot, 'data', 'asset-rotation');
+const strategyDirectory = path.join(projectRoot, 'data', 'rotation');
 const historyDirectory = path.join(strategyDirectory, 'history');
 const configPath = path.join(strategyDirectory, 'combination-config.json');
 const outputPath = path.join(strategyDirectory, 'combinations.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const symbols = Array.isArray(config.symbols) ? config.symbols : [];
-const historyFiles = symbols.map((symbol) => `${symbol.code}.json`);
 
-if (historyFiles.length < 3) throw new Error('组合池至少需要 3 只 ETF');
+if (symbols.length < 3) throw new Error('组合池至少需要 3 只 ETF');
 if (new Set(symbols.map((symbol) => symbol.code)).size !== symbols.length) throw new Error('组合池包含重复 ETF');
 
 function inferAssetClass(name) {
@@ -37,13 +36,11 @@ function popcount(value) {
 const universe = [];
 const series = {};
 const allDates = new Set();
-for (const file of historyFiles) {
-  const inputPath = path.join(historyDirectory, file);
-  if (!fs.existsSync(inputPath)) throw new Error(`${file} 缺少历史行情，请先下载`);
+for (const symbol of symbols) {
+  const inputPath = path.join(historyDirectory, `${symbol.code}.json`);
+  if (!fs.existsSync(inputPath)) throw new Error(`${symbol.code}.json 缺少历史行情，请先下载`);
   const record = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
-  if (!record.code || !record.name || !Array.isArray(record.rows) || record.rows.length < 28) {
-    throw new Error(`${file} 历史行情格式无效`);
-  }
+  if (record.code !== symbol.code || !Array.isArray(record.rows) || record.rows.length < 20) throw new Error(`${symbol.code}.json 历史行情格式无效`);
   const closes = new Map();
   const indicators = new Map();
   record.rows.forEach((row, index) => {
@@ -51,48 +48,28 @@ for (const file of historyFiles) {
     const close = Number(row[2]);
     closes.set(date, close);
     allDates.add(date);
-    if (index < 27) return;
-    const ma28 = record.rows.slice(index - 27, index + 1)
-      .reduce((sum, item) => sum + Number(item[2]), 0) / 28;
-    indicators.set(date, {
-      close,
-      ma28,
-      return20: close / Number(record.rows[index - 20][2]) - 1,
-    });
+    if (index < 19) return;
+    const ma20 = record.rows.slice(index - 19, index + 1).reduce((sum, item) => sum + Number(item[2]), 0) / 20;
+    indicators.set(date, { close, ma20, momentum: close / ma20 - 1 });
   });
-  const assetClass = inferAssetClass(record.name);
   universe.push({
-    code: record.code,
-    name: record.name,
-    assetClass,
+    code: symbol.code,
+    name: symbol.name,
+    assetClass: inferAssetClass(symbol.name),
     firstDate: record.rows[0][0],
     lastDate: record.rows.at(-1)[0],
   });
-  series[record.code] = { closes, indicators };
+  series[symbol.code] = { closes, indicators };
 }
 
 const dates = [...allDates].sort();
-const reviewDates = new Set(dates.filter((date, index) => {
-  const nextDate = dates[index + 1];
-  if (!nextDate) return true;
-  const currentWeek = new Date(`${date}T00:00:00Z`);
-  const nextWeek = new Date(`${nextDate}T00:00:00Z`);
-  currentWeek.setUTCDate(currentWeek.getUTCDate() - ((currentWeek.getUTCDay() + 6) % 7));
-  nextWeek.setUTCDate(nextWeek.getUTCDate() - ((nextWeek.getUTCDay() + 6) % 7));
-  return currentWeek.getTime() !== nextWeek.getTime();
-}));
 
-function nextPositionFor(codes, date, current) {
-  const ranked = codes
+function nextPositionFor(codes, date) {
+  const leader = codes
     .map((code) => ({ code, ...series[code].indicators.get(date) }))
-    .filter((item) => Number.isFinite(item.return20))
-    .sort((left, right) => right.return20 - left.return20);
-  if (current) {
-    const holdingRank = ranked.findIndex((item) => item.code === current);
-    if (holdingRank >= 0 && holdingRank < 2 && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
-  }
-  const leader = ranked[0];
-  return leader && leader.close >= leader.ma28 ? leader.code : null;
+    .filter((item) => Number.isFinite(item.momentum))
+    .sort((left, right) => right.momentum - left.momentum)[0];
+  return leader && leader.close > leader.ma20 ? leader.code : null;
 }
 
 function simulate(codes, periodDates, initialPosition, previousDate) {
@@ -109,19 +86,12 @@ function simulate(codes, periodDates, initialPosition, previousDate) {
     }
     peak = Math.max(peak, value);
     maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
-    if (reviewDates.has(date)) {
-      const nextPosition = nextPositionFor(codes, date, position);
-      if (nextPosition !== position) trades += 1;
-      position = nextPosition;
-    }
+    const nextPosition = nextPositionFor(codes, date);
+    if (nextPosition !== position) trades += 1;
+    position = nextPosition;
     previousDate = date;
   }
-  return {
-    cumulativeReturn: (value - 1) * 100,
-    maxDrawdown: maxDrawdown * 100,
-    trades,
-    holding: position,
-  };
+  return { cumulativeReturn: (value - 1) * 100, maxDrawdown: maxDrawdown * 100, trades, holding: position };
 }
 
 const tenYearDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
@@ -185,17 +155,11 @@ const compositeOrder = [...combinations].sort((left, right) => right.compositeSc
 compositeOrder.forEach((item, index) => { item.compositeRank = index + 1; });
 
 const result = {
-  _comment: '页面“全组合收益排名”表格的数据，包括每个 ETF 组合的近10年收益、2026年收益、回撤、综合得分和排名。',
-  version: 'asset-rotation-combinations-weekly-v3',
-  strategy: 'asset-rotation',
+  _comment: '页面“宽基 20 日动量轮动”的“全组合收益排名”表格数据，包括每个 ETF 组合的近10年收益、2026年收益、回撤、综合得分和排名。',
+  version: 'rotation-combinations-daily-v1',
+  strategy: 'rotation',
   generatedAt: new Date().toISOString(),
-  rule: {
-    frequency: 'weekly',
-    momentumPeriod: 20,
-    movingAveragePeriod: 28,
-    holdRankLimit: 2,
-    minimumPoolSize: 3,
-  },
+  rule: { frequency: 'daily', momentumPeriod: 20, movingAveragePeriod: 20, minimumPoolSize: 3 },
   periods: {
     tenYear: { start: tenYearDates[0], end: tenYearDates.at(-1) },
     currentYear: { year: currentYear, start: currentYearDates[0], end: currentYearDates.at(-1) },

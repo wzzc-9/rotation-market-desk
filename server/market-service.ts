@@ -68,7 +68,7 @@ export type AssetRotationCombination = {
 
 export type AssetRotationCombinations = {
   version: string;
-  strategy: 'asset-rotation';
+  strategy: 'rotation' | 'asset-rotation';
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
@@ -316,8 +316,12 @@ const execFileAsync = promisify(execFile);
 const rotationDirectory = resolve(process.cwd(), 'data', 'rotation');
 const rotationHistoryDirectory = resolve(rotationDirectory, 'history');
 const rotationConfigPath = resolve(rotationDirectory, 'config.json');
+const rotationPendingConfigPath = resolve(rotationDirectory, 'pending-config.json');
+const rotationCombinationConfigPath = resolve(rotationDirectory, 'combination-config.json');
+const rotationCombinationPendingConfigPath = resolve(rotationDirectory, 'combination-pending-config.json');
 const rotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'history-consolidated.json');
 const rotationBacktestPath = resolve(rotationDirectory, 'backtest.json');
+const rotationCombinationsPath = resolve(rotationDirectory, 'combinations.json');
 const rotationYearPerformanceDirectory = resolve(rotationDirectory, 'year-performance');
 const assetRotationDirectory = resolve(process.cwd(), 'data', 'asset-rotation');
 const assetRotationHistoryDirectory = resolve(assetRotationDirectory, 'history');
@@ -347,12 +351,14 @@ const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'y
 const dualEtfYearPerformanceDirectory = resolve(dualEtfDirectory, 'year-performance');
 let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
+let cachedRotationCombinations: AssetRotationCombinations | null = null;
 let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
 let cachedAssetRotationCombinations: AssetRotationCombinations | null = null;
 let cachedDualEtfSnapshot: RotationSnapshot | null = null;
 let cachedDualEtfAt = 0;
 let rotationPoolUpdateInFlight = false;
+let rotationCombinationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
 let assetCombinationPoolUpdateInFlight = false;
 let dualEtfPoolUpdateInFlight = false;
@@ -397,6 +403,12 @@ function readRotationConfig() {
   return readStrategyConfig(rotationConfigPath, '宽基轮动');
 }
 
+function readRotationPendingConfig() {
+  return existsSync(rotationPendingConfigPath)
+    ? readStrategyConfig(rotationPendingConfigPath, '宽基轮动待应用')
+    : null;
+}
+
 function readAssetRotationConfig() {
   return readStrategyConfig(assetRotationConfigPath, '大类资产轮动');
 }
@@ -409,6 +421,64 @@ function readAssetRotationPendingConfig() {
 
 function sameSymbolSet(left: Array<{ code: string }>, right: Array<{ code: string }>) {
   return left.map((item) => item.code).sort().join(',') === right.map((item) => item.code).sort().join(',');
+}
+
+export function getRotationPoolDraft(): AssetRotationPoolDraft {
+  const active = readRotationConfig();
+  const pending = readRotationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeRotationPoolDraft(config: AssetRotationConfig) {
+  const active = readRotationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (existsSync(rotationPendingConfigPath)) unlinkSync(rotationPendingConfigPath);
+  } else {
+    writeStrategyConfig(rotationPendingConfigPath, config);
+  }
+  return getRotationPoolDraft();
+}
+
+function readRotationCombinationConfig() {
+  return readStrategyConfig(rotationCombinationConfigPath, '宽基全组合收益排名');
+}
+
+function readRotationCombinationPendingConfig() {
+  return existsSync(rotationCombinationPendingConfigPath)
+    ? readStrategyConfig(rotationCombinationPendingConfigPath, '宽基全组合收益排名待应用')
+    : null;
+}
+
+export function getRotationCombinationPoolDraft(): AssetRotationPoolDraft {
+  const active = readRotationCombinationConfig();
+  const pending = readRotationCombinationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeRotationCombinationPoolDraft(config: AssetRotationConfig) {
+  const active = readRotationCombinationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (existsSync(rotationCombinationPendingConfigPath)) unlinkSync(rotationCombinationPendingConfigPath);
+  } else {
+    writeStrategyConfig(rotationCombinationPendingConfigPath, config);
+  }
+  return getRotationCombinationPoolDraft();
 }
 
 export function getAssetRotationPoolDraft(): AssetRotationPoolDraft {
@@ -480,7 +550,11 @@ function writeTextAtomic(path: string, content: string) {
 }
 
 function writeStrategyConfig(path: string, config: AssetRotationConfig) {
-  const comment = path === assetRotationConfigPath || path === assetRotationPendingConfigPath
+  const comment = path === rotationConfigPath || path === rotationPendingConfigPath
+    ? '页面“宽基 20 日动量轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
+    : path === rotationCombinationConfigPath || path === rotationCombinationPendingConfigPath
+      ? '页面“宽基 20 日动量轮动”的“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
+      : path === assetRotationConfigPath || path === assetRotationPendingConfigPath
     ? '页面“全球大类资产 ETF 轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
     : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
       ? '页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
@@ -551,25 +625,7 @@ function applyAssetCombinationScores(combinations: AssetRotationCombination[]) {
     .forEach((item, index) => { item.compositeRank = index + 1; });
 }
 
-function readAssetRotationCombinations() {
-  if (cachedAssetRotationCombinations) return cachedAssetRotationCombinations;
-  const record = JSON.parse(readFileSync(assetRotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
-  if (
-    !['asset-rotation-combinations-weekly-v2', 'asset-rotation-combinations-weekly-v3'].includes(record.version)
-    || record.strategy !== 'asset-rotation'
-    || !Array.isArray(record.universe)
-    || !Array.isArray(record.combinations)
-    || record.totalCombinations !== record.combinations.length
-    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
-    || !sameSymbolSet(readAssetCombinationConfig().symbols, record.universe)
-  ) throw new Error('策略 2 组合回测数据无效，请重新计算');
-  applyAssetCombinationScores(record.combinations);
-  cachedAssetRotationCombinations = record;
-  return record;
-}
-
-export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
-  const record = readAssetRotationCombinations();
+function paginateRotationCombinations(record: AssetRotationCombinations, sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, poolDraft: AssetRotationPoolDraft) {
   const normalizedPageSize = Math.min(Math.max(Math.trunc(pageSize) || 25, 10), 100);
   const totalPages = Math.max(Math.ceil(record.totalCombinations / normalizedPageSize), 1);
   const normalizedPage = Math.min(Math.max(Math.trunc(page) || 1, 1), totalPages);
@@ -598,8 +654,50 @@ export function getAssetRotationCombinations(sort: AssetRotationCombinationSort,
     totalPages,
     best: { ...sorted[0], displayRank: 1 },
     combinations: pageCombinations,
-    poolDraft: getAssetCombinationPoolDraft(),
+    poolDraft,
   };
+}
+
+function readRotationCombinations() {
+  if (cachedRotationCombinations) return cachedRotationCombinations;
+  const record = JSON.parse(readFileSync(rotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
+  if (
+    record.version !== 'rotation-combinations-daily-v1'
+    || record.strategy !== 'rotation'
+    || !Array.isArray(record.universe)
+    || !Array.isArray(record.combinations)
+    || record.totalCombinations !== record.combinations.length
+    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
+    || !sameSymbolSet(readRotationCombinationConfig().symbols, record.universe)
+  ) throw new Error('策略 1 组合回测数据无效，请重新计算');
+  applyAssetCombinationScores(record.combinations);
+  cachedRotationCombinations = record;
+  return record;
+}
+
+export function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
+  return paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft());
+}
+
+function readAssetRotationCombinations() {
+  if (cachedAssetRotationCombinations) return cachedAssetRotationCombinations;
+  const record = JSON.parse(readFileSync(assetRotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
+  if (
+    !['asset-rotation-combinations-weekly-v2', 'asset-rotation-combinations-weekly-v3'].includes(record.version)
+    || record.strategy !== 'asset-rotation'
+    || !Array.isArray(record.universe)
+    || !Array.isArray(record.combinations)
+    || record.totalCombinations !== record.combinations.length
+    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
+    || !sameSymbolSet(readAssetCombinationConfig().symbols, record.universe)
+  ) throw new Error('策略 2 组合回测数据无效，请重新计算');
+  applyAssetCombinationScores(record.combinations);
+  cachedAssetRotationCombinations = record;
+  return record;
+}
+
+export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
+  return paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft());
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
@@ -1652,7 +1750,7 @@ async function nextAssetCombinationConfig(current: AssetRotationConfig, action: 
   let symbols = [...current.symbols];
   if (action === 'add') {
     if (symbols.some((item) => item.code === normalizedCode)) throw new Error('该 ETF 已在组合池中');
-    if (symbols.length >= 16) throw new Error('组合池最多支持 16 只 ETF');
+    if (symbols.length >= 20) throw new Error('组合池最多支持 20 只 ETF');
     const candidate = (await searchEtfs(normalizedCode)).find((item) => item.code === normalizedCode);
     if (!candidate) throw new Error('未找到对应的沪深 ETF');
     symbols.push(candidate);
@@ -1670,9 +1768,95 @@ export async function updateRotationPool(action: 'add' | 'remove', code: string)
   if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
   rotationPoolUpdateInFlight = true;
   try {
-    return await rebuildRotationPool('rotation', await nextRotationConfig(readRotationConfig(), action, normalizedCode));
+    const current = readRotationPendingConfig() ?? readRotationConfig();
+    return writeRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
   } finally {
     rotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function replaceRotationPool(codes: string[]) {
+  if (rotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
+  if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
+  if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
+  const availableSymbols = new Map(readRotationCombinationConfig().symbols.map((symbol) => [symbol.code, symbol]));
+  const symbols = normalizedCodes.map((code) => availableSymbols.get(code));
+  if (symbols.some((symbol) => !symbol)) throw new Error('组合中包含已不在组合池内的 ETF，请重新计算全组合排名');
+  rotationPoolUpdateInFlight = true;
+  try {
+    const current = readRotationPendingConfig() ?? readRotationConfig();
+    return writeRotationPoolDraft({
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+      symbols: symbols as SymbolConfig[],
+    });
+  } finally {
+    rotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateRotationPool() {
+  if (rotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const pending = readRotationPendingConfig();
+  if (!pending || sameSymbolSet(readRotationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的标的池变更');
+  rotationPoolUpdateInFlight = true;
+  try {
+    const snapshot = await rebuildRotationPool('rotation', pending);
+    if (existsSync(rotationPendingConfigPath)) unlinkSync(rotationPendingConfigPath);
+    return { ...snapshot, poolDraft: getRotationPoolDraft() };
+  } finally {
+    rotationPoolUpdateInFlight = false;
+  }
+}
+
+export async function updateRotationCombinationPool(action: 'add' | 'remove', code: string) {
+  if (rotationCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  rotationCombinationPoolUpdateInFlight = true;
+  try {
+    const current = readRotationCombinationPendingConfig() ?? readRotationCombinationConfig();
+    return writeRotationCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+  } finally {
+    rotationCombinationPoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateRotationCombinationPool() {
+  if (rotationCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const pending = readRotationCombinationPendingConfig();
+  if (!pending || sameSymbolSet(readRotationCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
+  rotationCombinationPoolUpdateInFlight = true;
+  const previousFiles = new Map([
+    [rotationCombinationConfigPath, existsSync(rotationCombinationConfigPath) ? readFileSync(rotationCombinationConfigPath, 'utf8') : null],
+    [rotationCombinationsPath, existsSync(rotationCombinationsPath) ? readFileSync(rotationCombinationsPath, 'utf8') : null],
+  ]);
+  const previousHistory = snapshotRotationHistory(rotationHistoryDirectory);
+  writeStrategyConfig(rotationCombinationConfigPath, pending);
+  try {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-history.cjs')], {
+      cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CONFIG_FILE: 'combination-config.json', ROTATION_ONLY_MISSING: '1' },
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-rotation.cjs')], {
+      cwd: process.cwd(),
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    cachedRotationCombinations = null;
+    readRotationCombinations();
+    if (existsSync(rotationCombinationPendingConfigPath)) unlinkSync(rotationCombinationPendingConfigPath);
+    return getRotationCombinationPoolDraft();
+  } catch (error) {
+    for (const [path, content] of previousFiles) restoreFile(path, content);
+    restoreRotationHistory(rotationHistoryDirectory, previousHistory);
+    cachedRotationCombinations = null;
+    throw new Error(`组合池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally {
+    rotationCombinationPoolUpdateInFlight = false;
   }
 }
 
@@ -1792,7 +1976,7 @@ export async function updateDualEtfPool(action: 'add' | 'remove', code: string) 
 
 export async function getRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
   if (!forceRefresh && cachedSnapshot && Date.now() - cachedAt < cacheTtlMs) {
-    return { ...cachedSnapshot, cached: true };
+    return { ...cachedSnapshot, poolDraft: getRotationPoolDraft(), cached: true };
   }
 
   const config = readRotationConfig();
@@ -1837,6 +2021,7 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
   const fetchedAt = new Date().toISOString();
   const snapshot: RotationSnapshot = {
     markets,
+    poolDraft: getRotationPoolDraft(),
     yearPerformance,
     provider,
     fetchedAt,

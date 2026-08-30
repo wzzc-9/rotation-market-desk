@@ -93,6 +93,7 @@ const annualReturns = result.map((item) => ({
 }));
 const backtestDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
 const backtest = {
+  _comment: '页面“宽基 20 日动量轮动”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。',
   version: 'rotation-ma20-daily-v1',
   strategy: 'rotation',
   configVersion: config.version,

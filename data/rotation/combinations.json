@@ -1,0 +1,6026 @@
+{
+  "_comment": "页面“宽基 20 日动量轮动”的“全组合收益排名”表格数据，包括每个 ETF 组合的近10年收益、2026年收益、回撤、综合得分和排名。",
+  "version": "rotation-combinations-daily-v1",
+  "strategy": "rotation",
+  "generatedAt": "2026-08-30T12:53:38.223Z",
+  "rule": {
+    "frequency": "daily",
+    "momentumPeriod": 20,
+    "movingAveragePeriod": 20,
+    "minimumPoolSize": 3
+  },
+  "periods": {
+    "tenYear": {
+      "start": "2016-01-04",
+      "end": "2025-12-31"
+    },
+    "currentYear": {
+      "year": 2026,
+      "start": "2026-01-05",
+      "end": "2026-08-28"
+    }
+  },
+  "universe": [
+    {
+      "code": "512100",
+      "name": "中证1000",
+      "assetClass": "A股",
+      "firstDate": "2016-11-04",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "159949",
+      "name": "创业板50",
+      "assetClass": "A股",
+      "firstDate": "2016-07-22",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "518880",
+      "name": "黄金ETF",
+      "assetClass": "黄金",
+      "firstDate": "2015-01-05",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "513100",
+      "name": "纳指ETF",
+      "assetClass": "美股",
+      "firstDate": "2015-01-05",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "159920",
+      "name": "恒生ETF",
+      "assetClass": "港股",
+      "firstDate": "2015-01-05",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "159628",
+      "name": "国证2000",
+      "assetClass": "A股",
+      "firstDate": "2022-07-18",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "510300",
+      "name": "沪深300",
+      "assetClass": "A股",
+      "firstDate": "2015-01-05",
+      "lastDate": "2026-08-28"
+    },
+    {
+      "code": "588120",
+      "name": "科创100",
+      "assetClass": "A股",
+      "firstDate": "2023-09-15",
+      "lastDate": "2026-08-28"
+    }
+  ],
+  "totalCombinations": 219,
+  "bestTenYearId": "512100-159949-513100-159920",
+  "bestCurrentYearId": "518880-159920-159628-588120",
+  "bestCompositeId": "512100-159949-513100-159920-588120",
+  "scoring": {
+    "formula": "0.50*z(tenYearAnnualizedReturn)+0.20*z(currentYearReturn)-0.20*z(abs(tenYearMaxDrawdown))-0.10*z(abs(currentYearMaxDrawdown))",
+    "population": {
+      "tenYearAnnualizedReturn": {
+        "mean": 13.071447031963467,
+        "standardDeviation": 5.834021431814827
+      },
+      "currentYearReturn": {
+        "mean": 9.525951598173517,
+        "standardDeviation": 11.94776738009235
+      },
+      "tenYearDrawdownAbsolute": {
+        "mean": 35.304445662100456,
+        "standardDeviation": 7.493602788200171
+      },
+      "currentYearDrawdownAbsolute": {
+        "mean": 23.081943378995437,
+        "standardDeviation": 5.386600497996233
+      }
+    }
+  },
+  "combinations": [
+    {
+      "id": "512100-159949-518880",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "518880"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 122.2185,
+      "tenYearAnnualizedReturn": 8.3207,
+      "tenYearMaxDrawdown": -43.2751,
+      "tenYearTrades": 528,
+      "currentYearReturn": 10.9897,
+      "currentYearMaxDrawdown": -27.5915,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 171,
+      "currentYearRank": 105,
+      "compositeScore": -0.679107,
+      "compositeRank": 195
+    },
+    {
+      "id": "512100-159949-513100",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "513100"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 613.6233,
+      "tenYearAnnualizedReturn": 21.7387,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 456,
+      "currentYearReturn": -8.6236,
+      "currentYearMaxDrawdown": -20.8401,
+      "currentYearTrades": 40,
+      "currentHolding": "512100",
+      "tenYearRank": 7,
+      "currentYearRank": 199,
+      "compositeScore": 0.746278,
+      "compositeRank": 7
+    },
+    {
+      "id": "512100-518880-513100",
+      "size": 3,
+      "codes": [
+        "512100",
+        "518880",
+        "513100"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 472.115,
+      "tenYearAnnualizedReturn": 19.0751,
+      "tenYearMaxDrawdown": -42.6473,
+      "tenYearTrades": 452,
+      "currentYearReturn": -0.2111,
+      "currentYearMaxDrawdown": -26.3089,
+      "currentYearTrades": 34,
+      "currentHolding": "518880",
+      "tenYearRank": 43,
+      "currentYearRank": 176,
+      "compositeScore": 0.095661,
+      "compositeRank": 114
+    },
+    {
+      "id": "159949-518880-513100",
+      "size": 3,
+      "codes": [
+        "159949",
+        "518880",
+        "513100"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 641.2652,
+      "tenYearAnnualizedReturn": 22.2027,
+      "tenYearMaxDrawdown": -30.0783,
+      "tenYearTrades": 473,
+      "currentYearReturn": -13.4302,
+      "currentYearMaxDrawdown": -34.1908,
+      "currentYearTrades": 41,
+      "currentHolding": "518880",
+      "tenYearRank": 5,
+      "currentYearRank": 215,
+      "compositeScore": 0.331563,
+      "compositeRank": 75
+    },
+    {
+      "id": "512100-159949-518880-513100",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 604.8217,
+      "tenYearAnnualizedReturn": 21.5876,
+      "tenYearMaxDrawdown": -26.6828,
+      "tenYearTrades": 522,
+      "currentYearReturn": -9.7344,
+      "currentYearMaxDrawdown": -33.3415,
+      "currentYearTrades": 45,
+      "currentHolding": "518880",
+      "tenYearRank": 8,
+      "currentYearRank": 206,
+      "compositeScore": 0.447103,
+      "compositeRank": 43
+    },
+    {
+      "id": "512100-159949-159920",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 232.2499,
+      "tenYearAnnualizedReturn": 12.7708,
+      "tenYearMaxDrawdown": -42.1876,
+      "tenYearTrades": 480,
+      "currentYearReturn": 13.1135,
+      "currentYearMaxDrawdown": -18.3392,
+      "currentYearTrades": 30,
+      "currentHolding": "512100",
+      "tenYearRank": 116,
+      "currentYearRank": 90,
+      "compositeScore": -0.061373,
+      "compositeRank": 125
+    },
+    {
+      "id": "512100-518880-159920",
+      "size": 3,
+      "codes": [
+        "512100",
+        "518880",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 150.071,
+      "tenYearAnnualizedReturn": 9.6086,
+      "tenYearMaxDrawdown": -35.4632,
+      "tenYearTrades": 477,
+      "currentYearReturn": 12.9787,
+      "currentYearMaxDrawdown": -23.483,
+      "currentYearTrades": 24,
+      "currentHolding": "518880",
+      "tenYearRank": 157,
+      "currentYearRank": 94,
+      "compositeScore": -0.250666,
+      "compositeRank": 146
+    },
+    {
+      "id": "159949-518880-159920",
+      "size": 3,
+      "codes": [
+        "159949",
+        "518880",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 291.1465,
+      "tenYearAnnualizedReturn": 14.628,
+      "tenYearMaxDrawdown": -35.7178,
+      "tenYearTrades": 470,
+      "currentYearReturn": 16.1729,
+      "currentYearMaxDrawdown": -24.1805,
+      "currentYearTrades": 23,
+      "currentHolding": "518880",
+      "tenYearRank": 96,
+      "currentYearRank": 71,
+      "compositeScore": 0.213243,
+      "compositeRank": 98
+    },
+    {
+      "id": "512100-159949-518880-159920",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 214.441,
+      "tenYearAnnualizedReturn": 12.1506,
+      "tenYearMaxDrawdown": -41.2759,
+      "tenYearTrades": 544,
+      "currentYearReturn": 16.5867,
+      "currentYearMaxDrawdown": -27.5915,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 123,
+      "currentYearRank": 67,
+      "compositeScore": -0.20382,
+      "compositeRank": 141
+    },
+    {
+      "id": "512100-513100-159920",
+      "size": 3,
+      "codes": [
+        "512100",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 545.3125,
+      "tenYearAnnualizedReturn": 20.5188,
+      "tenYearMaxDrawdown": -32.0582,
+      "tenYearTrades": 453,
+      "currentYearReturn": 4.2492,
+      "currentYearMaxDrawdown": -14.6363,
+      "currentYearTrades": 27,
+      "currentHolding": "512100",
+      "tenYearRank": 23,
+      "currentYearRank": 145,
+      "compositeScore": 0.793369,
+      "compositeRank": 5
+    },
+    {
+      "id": "159949-513100-159920",
+      "size": 3,
+      "codes": [
+        "159949",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 676.8813,
+      "tenYearAnnualizedReturn": 22.7781,
+      "tenYearMaxDrawdown": -29.3546,
+      "tenYearTrades": 466,
+      "currentYearReturn": -21.5469,
+      "currentYearMaxDrawdown": -25.3405,
+      "currentYearTrades": 45,
+      "currentHolding": "513100",
+      "tenYearRank": 3,
+      "currentYearRank": 217,
+      "compositeScore": 0.428625,
+      "compositeRank": 49
+    },
+    {
+      "id": "512100-159949-513100-159920",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 689.096,
+      "tenYearAnnualizedReturn": 22.97,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 514,
+      "currentYearReturn": -8.4839,
+      "currentYearMaxDrawdown": -23.5335,
+      "currentYearTrades": 42,
+      "currentHolding": "512100",
+      "tenYearRank": 1,
+      "currentYearRank": 195,
+      "compositeScore": 0.804142,
+      "compositeRank": 4
+    },
+    {
+      "id": "518880-513100-159920",
+      "size": 3,
+      "codes": [
+        "518880",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 307.6735,
+      "tenYearAnnualizedReturn": 15.1038,
+      "tenYearMaxDrawdown": -32.2431,
+      "tenYearTrades": 491,
+      "currentYearReturn": 12.9807,
+      "currentYearMaxDrawdown": -22.4349,
+      "currentYearTrades": 24,
+      "currentHolding": "518880",
+      "tenYearRank": 92,
+      "currentYearRank": 93,
+      "compositeScore": 0.32573,
+      "compositeRank": 77
+    },
+    {
+      "id": "512100-518880-513100-159920",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 540.8583,
+      "tenYearAnnualizedReturn": 20.4352,
+      "tenYearMaxDrawdown": -33.7868,
+      "tenYearTrades": 513,
+      "currentYearReturn": 5.2376,
+      "currentYearMaxDrawdown": -25.982,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 26,
+      "currentYearRank": 138,
+      "compositeScore": 0.545986,
+      "compositeRank": 25
+    },
+    {
+      "id": "159949-518880-513100-159920",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 681.6244,
+      "tenYearAnnualizedReturn": 22.8529,
+      "tenYearMaxDrawdown": -27.3221,
+      "tenYearTrades": 530,
+      "currentYearReturn": -8.7032,
+      "currentYearMaxDrawdown": -30.5975,
+      "currentYearTrades": 38,
+      "currentHolding": "518880",
+      "tenYearRank": 2,
+      "currentYearRank": 200,
+      "compositeScore": 0.606685,
+      "compositeRank": 18
+    },
+    {
+      "id": "512100-159949-518880-513100-159920",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 665.8854,
+      "tenYearAnnualizedReturn": 22.603,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 561,
+      "currentYearReturn": -4.8056,
+      "currentYearMaxDrawdown": -32.1973,
+      "currentYearTrades": 42,
+      "currentHolding": "518880",
+      "tenYearRank": 4,
+      "currentYearRank": 193,
+      "compositeScore": 0.673422,
+      "compositeRank": 10
+    },
+    {
+      "id": "512100-159949-159628",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 114.7377,
+      "tenYearAnnualizedReturn": 7.95,
+      "tenYearMaxDrawdown": -43.6106,
+      "tenYearTrades": 436,
+      "currentYearReturn": 8.5801,
+      "currentYearMaxDrawdown": -17.1896,
+      "currentYearTrades": 36,
+      "currentHolding": "512100",
+      "tenYearRank": 173,
+      "currentYearRank": 119,
+      "compositeScore": -0.56706,
+      "compositeRank": 186
+    },
+    {
+      "id": "512100-518880-159628",
+      "size": 3,
+      "codes": [
+        "512100",
+        "518880",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 47.5094,
+      "tenYearAnnualizedReturn": 3.9676,
+      "tenYearMaxDrawdown": -38.2307,
+      "tenYearTrades": 501,
+      "currentYearReturn": 7.2497,
+      "currentYearMaxDrawdown": -23.2594,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 202,
+      "currentYearRank": 130,
+      "compositeScore": -0.899736,
+      "compositeRank": 213
+    },
+    {
+      "id": "159949-518880-159628",
+      "size": 3,
+      "codes": [
+        "159949",
+        "518880",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 190.7562,
+      "tenYearAnnualizedReturn": 11.2749,
+      "tenYearMaxDrawdown": -35.782,
+      "tenYearTrades": 464,
+      "currentYearReturn": 10.2422,
+      "currentYearMaxDrawdown": -26.9317,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 133,
+      "currentYearRank": 110,
+      "compositeScore": -0.226197,
+      "compositeRank": 144
+    },
+    {
+      "id": "512100-159949-518880-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 103.3609,
+      "tenYearAnnualizedReturn": 7.3634,
+      "tenYearMaxDrawdown": -44.9831,
+      "tenYearTrades": 563,
+      "currentYearReturn": 9.8251,
+      "currentYearMaxDrawdown": -27.0471,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 181,
+      "currentYearRank": 113,
+      "compositeScore": -0.816125,
+      "compositeRank": 209
+    },
+    {
+      "id": "512100-513100-159628",
+      "size": 3,
+      "codes": [
+        "512100",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 380.2997,
+      "tenYearAnnualizedReturn": 17.0083,
+      "tenYearMaxDrawdown": -38.7731,
+      "tenYearTrades": 430,
+      "currentYearReturn": 1.5009,
+      "currentYearMaxDrawdown": -14.4605,
+      "currentYearTrades": 34,
+      "currentHolding": "512100",
+      "tenYearRank": 71,
+      "currentYearRank": 160,
+      "compositeScore": 0.270546,
+      "compositeRank": 86
+    },
+    {
+      "id": "159949-513100-159628",
+      "size": 3,
+      "codes": [
+        "159949",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 503.3763,
+      "tenYearAnnualizedReturn": 19.7109,
+      "tenYearMaxDrawdown": -26.1897,
+      "tenYearTrades": 426,
+      "currentYearReturn": -10.756,
+      "currentYearMaxDrawdown": -21.857,
+      "currentYearTrades": 42,
+      "currentHolding": "159628",
+      "tenYearRank": 35,
+      "currentYearRank": 213,
+      "compositeScore": 0.495526,
+      "compositeRank": 34
+    },
+    {
+      "id": "512100-159949-513100-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 500.5858,
+      "tenYearAnnualizedReturn": 19.6554,
+      "tenYearMaxDrawdown": -26.9713,
+      "tenYearTrades": 495,
+      "currentYearReturn": -9.9646,
+      "currentYearMaxDrawdown": -22.8729,
+      "currentYearTrades": 47,
+      "currentHolding": "512100",
+      "tenYearRank": 37,
+      "currentYearRank": 208,
+      "compositeScore": 0.464297,
+      "compositeRank": 41
+    },
+    {
+      "id": "518880-513100-159628",
+      "size": 3,
+      "codes": [
+        "518880",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 279.6509,
+      "tenYearAnnualizedReturn": 14.2863,
+      "tenYearMaxDrawdown": -47.2245,
+      "tenYearTrades": 437,
+      "currentYearReturn": 1.8952,
+      "currentYearMaxDrawdown": -25.7879,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 97,
+      "currentYearRank": 154,
+      "compositeScore": -0.391992,
+      "compositeRank": 164
+    },
+    {
+      "id": "512100-518880-513100-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 343.8513,
+      "tenYearAnnualizedReturn": 16.0876,
+      "tenYearMaxDrawdown": -42.6473,
+      "tenYearTrades": 508,
+      "currentYearReturn": 1.5985,
+      "currentYearMaxDrawdown": -25.8404,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 82,
+      "currentYearRank": 158,
+      "compositeScore": -0.121391,
+      "compositeRank": 129
+    },
+    {
+      "id": "159949-518880-513100-159628",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 559.0518,
+      "tenYearAnnualizedReturn": 20.7732,
+      "tenYearMaxDrawdown": -27.166,
+      "tenYearTrades": 504,
+      "currentYearReturn": -8.5863,
+      "currentYearMaxDrawdown": -33.4218,
+      "currentYearTrades": 43,
+      "currentHolding": "518880",
+      "tenYearRank": 18,
+      "currentYearRank": 197,
+      "compositeScore": 0.382137,
+      "compositeRank": 62
+    },
+    {
+      "id": "512100-159949-518880-513100-159628",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 456.5842,
+      "tenYearAnnualizedReturn": 18.7475,
+      "tenYearMaxDrawdown": -28.0745,
+      "tenYearTrades": 556,
+      "currentYearReturn": -8.9321,
+      "currentYearMaxDrawdown": -33.527,
+      "currentYearTrades": 46,
+      "currentHolding": "518880",
+      "tenYearRank": 49,
+      "currentYearRank": 201,
+      "compositeScore": 0.176537,
+      "compositeRank": 102
+    },
+    {
+      "id": "512100-159920-159628",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 136.7779,
+      "tenYearAnnualizedReturn": 9.0109,
+      "tenYearMaxDrawdown": -30.7051,
+      "tenYearTrades": 439,
+      "currentYearReturn": 9.4968,
+      "currentYearMaxDrawdown": -12.9946,
+      "currentYearTrades": 32,
+      "currentHolding": "512100",
+      "tenYearRank": 159,
+      "currentYearRank": 117,
+      "compositeScore": -0.038473,
+      "compositeRank": 121
+    },
+    {
+      "id": "159949-159920-159628",
+      "size": 3,
+      "codes": [
+        "159949",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 238.3941,
+      "tenYearAnnualizedReturn": 12.9778,
+      "tenYearMaxDrawdown": -43.1007,
+      "tenYearTrades": 434,
+      "currentYearReturn": 8.0424,
+      "currentYearMaxDrawdown": -18.1562,
+      "currentYearTrades": 33,
+      "currentHolding": "159628",
+      "tenYearRank": 112,
+      "currentYearRank": 125,
+      "compositeScore": -0.149493,
+      "compositeRank": 132
+    },
+    {
+      "id": "512100-159949-159920-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 211.4412,
+      "tenYearAnnualizedReturn": 12.0431,
+      "tenYearMaxDrawdown": -42.0313,
+      "tenYearTrades": 522,
+      "currentYearReturn": 9.5081,
+      "currentYearMaxDrawdown": -19.2202,
+      "currentYearTrades": 37,
+      "currentHolding": "512100",
+      "tenYearRank": 124,
+      "currentYearRank": 115,
+      "compositeScore": -0.196277,
+      "compositeRank": 138
+    },
+    {
+      "id": "518880-159920-159628",
+      "size": 3,
+      "codes": [
+        "518880",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 114.5087,
+      "tenYearAnnualizedReturn": 7.9385,
+      "tenYearMaxDrawdown": -30.568,
+      "tenYearTrades": 448,
+      "currentYearReturn": 14.9435,
+      "currentYearMaxDrawdown": -23.0782,
+      "currentYearTrades": 19,
+      "currentHolding": "518880",
+      "tenYearRank": 174,
+      "currentYearRank": 78,
+      "compositeScore": -0.222745,
+      "compositeRank": 143
+    },
+    {
+      "id": "512100-518880-159920-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 124.4748,
+      "tenYearAnnualizedReturn": 8.4302,
+      "tenYearMaxDrawdown": -33.6366,
+      "tenYearTrades": 527,
+      "currentYearReturn": 13.3428,
+      "currentYearMaxDrawdown": -23.2594,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 168,
+      "currentYearRank": 89,
+      "compositeScore": -0.292663,
+      "compositeRank": 150
+    },
+    {
+      "id": "159949-518880-159920-159628",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 248.6157,
+      "tenYearAnnualizedReturn": 13.3148,
+      "tenYearMaxDrawdown": -34.2734,
+      "tenYearTrades": 502,
+      "currentYearReturn": 16.5052,
+      "currentYearMaxDrawdown": -26.9317,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 107,
+      "currentYearRank": 69,
+      "compositeScore": 0.093735,
+      "compositeRank": 115
+    },
+    {
+      "id": "512100-159949-518880-159920-159628",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 177.2734,
+      "tenYearAnnualizedReturn": 10.7473,
+      "tenYearMaxDrawdown": -42.3024,
+      "tenYearTrades": 580,
+      "currentYearReturn": 16.0645,
+      "currentYearMaxDrawdown": -27.0471,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 143,
+      "currentYearRank": 72,
+      "compositeScore": -0.35012,
+      "compositeRank": 158
+    },
+    {
+      "id": "513100-159920-159628",
+      "size": 3,
+      "codes": [
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 251.562,
+      "tenYearAnnualizedReturn": 13.4103,
+      "tenYearMaxDrawdown": -25.7387,
+      "tenYearTrades": 447,
+      "currentYearReturn": 0.2886,
+      "currentYearMaxDrawdown": -15.7381,
+      "currentYearTrades": 33,
+      "currentHolding": "159628",
+      "tenYearRank": 106,
+      "currentYearRank": 169,
+      "compositeScore": 0.266052,
+      "compositeRank": 87
+    },
+    {
+      "id": "512100-513100-159920-159628",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 449.4582,
+      "tenYearAnnualizedReturn": 18.5945,
+      "tenYearMaxDrawdown": -32.0582,
+      "tenYearTrades": 499,
+      "currentYearReturn": 3.5103,
+      "currentYearMaxDrawdown": -15.4505,
+      "currentYearTrades": 37,
+      "currentHolding": "512100",
+      "tenYearRank": 52,
+      "currentYearRank": 148,
+      "compositeScore": 0.600965,
+      "compositeRank": 19
+    },
+    {
+      "id": "159949-513100-159920-159628",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 491.0744,
+      "tenYearAnnualizedReturn": 19.4643,
+      "tenYearMaxDrawdown": -30.1968,
+      "tenYearTrades": 506,
+      "currentYearReturn": -10.5977,
+      "currentYearMaxDrawdown": -24.1457,
+      "currentYearTrades": 44,
+      "currentHolding": "159628",
+      "tenYearRank": 39,
+      "currentYearRank": 209,
+      "compositeScore": 0.327606,
+      "compositeRank": 76
+    },
+    {
+      "id": "512100-159949-513100-159920-159628",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 543.5576,
+      "tenYearAnnualizedReturn": 20.4859,
+      "tenYearMaxDrawdown": -30.9359,
+      "tenYearTrades": 550,
+      "currentYearReturn": -9.3848,
+      "currentYearMaxDrawdown": -25.1318,
+      "currentYearTrades": 48,
+      "currentHolding": "512100",
+      "tenYearRank": 25,
+      "currentYearRank": 203,
+      "compositeScore": 0.397432,
+      "compositeRank": 58
+    },
+    {
+      "id": "518880-513100-159920-159628",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 298.5479,
+      "tenYearAnnualizedReturn": 14.8433,
+      "tenYearMaxDrawdown": -32.6904,
+      "tenYearTrades": 521,
+      "currentYearReturn": 7.459,
+      "currentYearMaxDrawdown": -25.2495,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 95,
+      "currentYearRank": 128,
+      "compositeScore": 0.146783,
+      "compositeRank": 107
+    },
+    {
+      "id": "512100-518880-513100-159920-159628",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 412.0397,
+      "tenYearAnnualizedReturn": 17.7602,
+      "tenYearMaxDrawdown": -33.7868,
+      "tenYearTrades": 556,
+      "currentYearReturn": 7.1461,
+      "currentYearMaxDrawdown": -25.4255,
+      "currentYearTrades": 34,
+      "currentHolding": "518880",
+      "tenYearRank": 60,
+      "currentYearRank": 131,
+      "compositeScore": 0.359006,
+      "compositeRank": 68
+    },
+    {
+      "id": "159949-518880-513100-159920-159628",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 548.1559,
+      "tenYearAnnualizedReturn": 20.5718,
+      "tenYearMaxDrawdown": -31.9272,
+      "tenYearTrades": 558,
+      "currentYearReturn": -3.5949,
+      "currentYearMaxDrawdown": -32.279,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 20,
+      "currentYearRank": 185,
+      "compositeScore": 0.342572,
+      "compositeRank": 73
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-159628",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 513.8179,
+      "tenYearAnnualizedReturn": 19.9167,
+      "tenYearMaxDrawdown": -33.1283,
+      "tenYearTrades": 590,
+      "currentYearReturn": -3.9596,
+      "currentYearMaxDrawdown": -32.386,
+      "currentYearTrades": 43,
+      "currentHolding": "518880",
+      "tenYearRank": 30,
+      "currentYearRank": 189,
+      "compositeScore": 0.246279,
+      "compositeRank": 90
+    },
+    {
+      "id": "512100-159949-510300",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 159.9976,
+      "tenYearAnnualizedReturn": 10.0365,
+      "tenYearMaxDrawdown": -48.436,
+      "tenYearTrades": 459,
+      "currentYearReturn": 10.892,
+      "currentYearMaxDrawdown": -16.6377,
+      "currentYearTrades": 29,
+      "currentHolding": "512100",
+      "tenYearRank": 150,
+      "currentYearRank": 107,
+      "compositeScore": -0.46808,
+      "compositeRank": 173
+    },
+    {
+      "id": "512100-518880-510300",
+      "size": 3,
+      "codes": [
+        "512100",
+        "518880",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 49.6303,
+      "tenYearAnnualizedReturn": 4.1163,
+      "tenYearMaxDrawdown": -39.8419,
+      "tenYearTrades": 533,
+      "currentYearReturn": 5.1469,
+      "currentYearMaxDrawdown": -23.6156,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 200,
+      "currentYearRank": 142,
+      "compositeScore": -0.971806,
+      "compositeRank": 215
+    },
+    {
+      "id": "159949-518880-510300",
+      "size": 3,
+      "codes": [
+        "159949",
+        "518880",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 184.0119,
+      "tenYearAnnualizedReturn": 11.0138,
+      "tenYearMaxDrawdown": -39.9238,
+      "tenYearTrades": 497,
+      "currentYearReturn": 8.2254,
+      "currentYearMaxDrawdown": -24.1805,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 134,
+      "currentYearRank": 122,
+      "compositeScore": -0.341802,
+      "compositeRank": 157
+    },
+    {
+      "id": "512100-159949-518880-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 129.3522,
+      "tenYearAnnualizedReturn": 8.6638,
+      "tenYearMaxDrawdown": -48.4948,
+      "tenYearTrades": 563,
+      "currentYearReturn": 10.9897,
+      "currentYearMaxDrawdown": -27.5915,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 166,
+      "currentYearRank": 106,
+      "compositeScore": -0.789012,
+      "compositeRank": 205
+    },
+    {
+      "id": "512100-513100-510300",
+      "size": 3,
+      "codes": [
+        "512100",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 271.1645,
+      "tenYearAnnualizedReturn": 14.0279,
+      "tenYearMaxDrawdown": -25.4826,
+      "tenYearTrades": 488,
+      "currentYearReturn": 0.7078,
+      "currentYearMaxDrawdown": -14.2692,
+      "currentYearTrades": 25,
+      "currentHolding": "512100",
+      "tenYearRank": 100,
+      "currentYearRank": 167,
+      "compositeScore": 0.360105,
+      "compositeRank": 66
+    },
+    {
+      "id": "159949-513100-510300",
+      "size": 3,
+      "codes": [
+        "159949",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 408.3583,
+      "tenYearAnnualizedReturn": 17.6751,
+      "tenYearMaxDrawdown": -26.659,
+      "tenYearTrades": 460,
+      "currentYearReturn": -28.3577,
+      "currentYearMaxDrawdown": -30.2391,
+      "currentYearTrades": 53,
+      "currentHolding": "513100",
+      "tenYearRank": 61,
+      "currentYearRank": 219,
+      "compositeScore": -0.14173,
+      "compositeRank": 130
+    },
+    {
+      "id": "512100-159949-513100-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 478.3444,
+      "tenYearAnnualizedReturn": 19.2043,
+      "tenYearMaxDrawdown": -28.0403,
+      "tenYearTrades": 506,
+      "currentYearReturn": -9.4509,
+      "currentYearMaxDrawdown": -21.5568,
+      "currentYearTrades": 41,
+      "currentHolding": "512100",
+      "tenYearRank": 42,
+      "currentYearRank": 205,
+      "compositeScore": 0.430137,
+      "compositeRank": 46
+    },
+    {
+      "id": "518880-513100-510300",
+      "size": 3,
+      "codes": [
+        "518880",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 432.4164,
+      "tenYearAnnualizedReturn": 18.221,
+      "tenYearMaxDrawdown": -23.4229,
+      "tenYearTrades": 473,
+      "currentYearReturn": 13.0771,
+      "currentYearMaxDrawdown": -22.4349,
+      "currentYearTrades": 25,
+      "currentHolding": "518880",
+      "tenYearRank": 55,
+      "currentYearRank": 92,
+      "compositeScore": 0.829907,
+      "compositeRank": 3
+    },
+    {
+      "id": "512100-518880-513100-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 372.4276,
+      "tenYearAnnualizedReturn": 16.8149,
+      "tenYearMaxDrawdown": -25.8764,
+      "tenYearTrades": 538,
+      "currentYearReturn": -0.2111,
+      "currentYearMaxDrawdown": -26.3089,
+      "currentYearTrades": 34,
+      "currentHolding": "518880",
+      "tenYearRank": 74,
+      "currentYearRank": 177,
+      "compositeScore": 0.349558,
+      "compositeRank": 71
+    },
+    {
+      "id": "159949-518880-513100-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 548.4312,
+      "tenYearAnnualizedReturn": 20.5769,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 523,
+      "currentYearReturn": -15.2856,
+      "currentYearMaxDrawdown": -34.1908,
+      "currentYearTrades": 44,
+      "currentHolding": "518880",
+      "tenYearRank": 19,
+      "currentYearRank": 216,
+      "compositeScore": 0.287338,
+      "compositeRank": 85
+    },
+    {
+      "id": "512100-159949-518880-513100-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 544.4801,
+      "tenYearAnnualizedReturn": 20.5032,
+      "tenYearMaxDrawdown": -26.3651,
+      "tenYearTrades": 556,
+      "currentYearReturn": -9.7344,
+      "currentYearMaxDrawdown": -33.3415,
+      "currentYearTrades": 45,
+      "currentHolding": "518880",
+      "tenYearRank": 24,
+      "currentYearRank": 207,
+      "compositeScore": 0.362645,
+      "compositeRank": 65
+    },
+    {
+      "id": "512100-159920-510300",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 44.7251,
+      "tenYearAnnualizedReturn": 3.7695,
+      "tenYearMaxDrawdown": -39.9126,
+      "tenYearTrades": 492,
+      "currentYearReturn": 9.3046,
+      "currentYearMaxDrawdown": -11.6465,
+      "currentYearTrades": 24,
+      "currentHolding": "512100",
+      "tenYearRank": 205,
+      "currentYearRank": 118,
+      "compositeScore": -0.711616,
+      "compositeRank": 199
+    },
+    {
+      "id": "159949-159920-510300",
+      "size": 3,
+      "codes": [
+        "159949",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 199.3046,
+      "tenYearAnnualizedReturn": 11.5982,
+      "tenYearMaxDrawdown": -45.2947,
+      "tenYearTrades": 462,
+      "currentYearReturn": -3.8244,
+      "currentYearMaxDrawdown": -16.5905,
+      "currentYearTrades": 40,
+      "currentHolding": null,
+      "tenYearRank": 130,
+      "currentYearRank": 188,
+      "compositeScore": -0.495865,
+      "compositeRank": 179
+    },
+    {
+      "id": "512100-159949-159920-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 180.0084,
+      "tenYearAnnualizedReturn": 10.8562,
+      "tenYearMaxDrawdown": -47.5714,
+      "tenYearTrades": 522,
+      "currentYearReturn": 13.1135,
+      "currentYearMaxDrawdown": -18.3392,
+      "currentYearTrades": 30,
+      "currentHolding": "512100",
+      "tenYearRank": 138,
+      "currentYearRank": 91,
+      "compositeScore": -0.369153,
+      "compositeRank": 162
+    },
+    {
+      "id": "518880-159920-510300",
+      "size": 3,
+      "codes": [
+        "518880",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 67.4968,
+      "tenYearAnnualizedReturn": 5.2985,
+      "tenYearMaxDrawdown": -41.7312,
+      "tenYearTrades": 521,
+      "currentYearReturn": 12.9008,
+      "currentYearMaxDrawdown": -20.8565,
+      "currentYearTrades": 19,
+      "currentHolding": "518880",
+      "tenYearRank": 192,
+      "currentYearRank": 95,
+      "compositeScore": -0.739893,
+      "compositeRank": 202
+    },
+    {
+      "id": "512100-518880-159920-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 68.5445,
+      "tenYearAnnualizedReturn": 5.3642,
+      "tenYearMaxDrawdown": -40.4851,
+      "tenYearTrades": 565,
+      "currentYearReturn": 10.0352,
+      "currentYearMaxDrawdown": -23.483,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 191,
+      "currentYearRank": 112,
+      "compositeScore": -0.797733,
+      "compositeRank": 207
+    },
+    {
+      "id": "159949-518880-159920-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 209.78,
+      "tenYearAnnualizedReturn": 11.9831,
+      "tenYearMaxDrawdown": -39.9261,
+      "tenYearTrades": 530,
+      "currentYearReturn": 13.683,
+      "currentYearMaxDrawdown": -24.1805,
+      "currentYearTrades": 26,
+      "currentHolding": "518880",
+      "tenYearRank": 125,
+      "currentYearRank": 88,
+      "compositeScore": -0.167432,
+      "compositeRank": 134
+    },
+    {
+      "id": "512100-159949-518880-159920-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 162.1502,
+      "tenYearAnnualizedReturn": 10.1273,
+      "tenYearMaxDrawdown": -43.2009,
+      "tenYearTrades": 587,
+      "currentYearReturn": 16.5867,
+      "currentYearMaxDrawdown": -27.5915,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 149,
+      "currentYearRank": 68,
+      "compositeScore": -0.428602,
+      "compositeRank": 168
+    },
+    {
+      "id": "513100-159920-510300",
+      "size": 3,
+      "codes": [
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 267.4054,
+      "tenYearAnnualizedReturn": 13.9118,
+      "tenYearMaxDrawdown": -26.4088,
+      "tenYearTrades": 480,
+      "currentYearReturn": 5.5518,
+      "currentYearMaxDrawdown": -15.3855,
+      "currentYearTrades": 27,
+      "currentHolding": "513100",
+      "tenYearRank": 102,
+      "currentYearRank": 137,
+      "compositeScore": 0.385797,
+      "compositeRank": 61
+    },
+    {
+      "id": "512100-513100-159920-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 342.8994,
+      "tenYearAnnualizedReturn": 16.0627,
+      "tenYearMaxDrawdown": -29.1479,
+      "tenYearTrades": 535,
+      "currentYearReturn": 3.5855,
+      "currentYearMaxDrawdown": -14.6363,
+      "currentYearTrades": 28,
+      "currentHolding": "512100",
+      "tenYearRank": 84,
+      "currentYearRank": 147,
+      "compositeScore": 0.478027,
+      "compositeRank": 39
+    },
+    {
+      "id": "159949-513100-159920-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 566.018,
+      "tenYearAnnualizedReturn": 20.9004,
+      "tenYearMaxDrawdown": -28.1504,
+      "tenYearTrades": 509,
+      "currentYearReturn": -24.0715,
+      "currentYearMaxDrawdown": -26.0832,
+      "currentYearTrades": 51,
+      "currentHolding": "513100",
+      "tenYearRank": 16,
+      "currentYearRank": 218,
+      "compositeScore": 0.243789,
+      "compositeRank": 91
+    },
+    {
+      "id": "512100-159949-513100-159920-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 588.0722,
+      "tenYearAnnualizedReturn": 21.2952,
+      "tenYearMaxDrawdown": -27.0563,
+      "tenYearTrades": 550,
+      "currentYearReturn": -8.4839,
+      "currentYearMaxDrawdown": -23.5335,
+      "currentYearTrades": 42,
+      "currentHolding": "512100",
+      "tenYearRank": 10,
+      "currentYearRank": 196,
+      "compositeScore": 0.615089,
+      "compositeRank": 17
+    },
+    {
+      "id": "518880-513100-159920-510300",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 376.797,
+      "tenYearAnnualizedReturn": 16.9226,
+      "tenYearMaxDrawdown": -26.2359,
+      "tenYearTrades": 538,
+      "currentYearReturn": 19.2515,
+      "currentYearMaxDrawdown": -22.4349,
+      "currentYearTrades": 22,
+      "currentHolding": "518880",
+      "tenYearRank": 73,
+      "currentYearRank": 55,
+      "compositeScore": 0.746907,
+      "compositeRank": 6
+    },
+    {
+      "id": "512100-518880-513100-159920-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 400.7036,
+      "tenYearAnnualizedReturn": 17.4966,
+      "tenYearMaxDrawdown": -28.9814,
+      "tenYearTrades": 580,
+      "currentYearReturn": 5.2376,
+      "currentYearMaxDrawdown": -25.982,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 63,
+      "currentYearRank": 139,
+      "compositeScore": 0.422389,
+      "compositeRank": 51
+    },
+    {
+      "id": "159949-518880-513100-159920-510300",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 572.8008,
+      "tenYearAnnualizedReturn": 21.023,
+      "tenYearMaxDrawdown": -28.0602,
+      "tenYearTrades": 569,
+      "currentYearReturn": -10.6599,
+      "currentYearMaxDrawdown": -30.5975,
+      "currentYearTrades": 41,
+      "currentHolding": "518880",
+      "tenYearRank": 13,
+      "currentYearRank": 212,
+      "compositeScore": 0.397401,
+      "compositeRank": 59
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-510300",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 576.4559,
+      "tenYearAnnualizedReturn": 21.0887,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 598,
+      "currentYearReturn": -4.8056,
+      "currentYearMaxDrawdown": -32.1973,
+      "currentYearTrades": 42,
+      "currentHolding": "518880",
+      "tenYearRank": 12,
+      "currentYearRank": 194,
+      "compositeScore": 0.54364,
+      "compositeRank": 26
+    },
+    {
+      "id": "512100-159628-510300",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 50.9751,
+      "tenYearAnnualizedReturn": 4.2096,
+      "tenYearMaxDrawdown": -37.9439,
+      "tenYearTrades": 457,
+      "currentYearReturn": 3.7532,
+      "currentYearMaxDrawdown": -12.4836,
+      "currentYearTrades": 32,
+      "currentHolding": "512100",
+      "tenYearRank": 199,
+      "currentYearRank": 146,
+      "compositeScore": -0.729822,
+      "compositeRank": 201
+    },
+    {
+      "id": "159949-159628-510300",
+      "size": 3,
+      "codes": [
+        "159949",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 177.6165,
+      "tenYearAnnualizedReturn": 10.761,
+      "tenYearMaxDrawdown": -47.4506,
+      "tenYearTrades": 408,
+      "currentYearReturn": 6.8452,
+      "currentYearMaxDrawdown": -16.7073,
+      "currentYearTrades": 32,
+      "currentHolding": "159628",
+      "tenYearRank": 141,
+      "currentYearRank": 133,
+      "compositeScore": -0.448721,
+      "compositeRank": 172
+    },
+    {
+      "id": "512100-159949-159628-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 154.0038,
+      "tenYearAnnualizedReturn": 9.7799,
+      "tenYearMaxDrawdown": -48.3596,
+      "tenYearTrades": 495,
+      "currentYearReturn": 7.7927,
+      "currentYearMaxDrawdown": -17.7901,
+      "currentYearTrades": 36,
+      "currentHolding": "512100",
+      "tenYearRank": 152,
+      "currentYearRank": 127,
+      "compositeScore": -0.561307,
+      "compositeRank": 184
+    },
+    {
+      "id": "518880-159628-510300",
+      "size": 3,
+      "codes": [
+        "518880",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "A股"
+      ],
+      "tenYearReturn": 97.6898,
+      "tenYearAnnualizedReturn": 7.0599,
+      "tenYearMaxDrawdown": -31.5417,
+      "tenYearTrades": 460,
+      "currentYearReturn": 1.6564,
+      "currentYearMaxDrawdown": -25.3868,
+      "currentYearTrades": 34,
+      "currentHolding": "518880",
+      "tenYearRank": 183,
+      "currentYearRank": 155,
+      "compositeScore": -0.58931,
+      "compositeRank": 189
+    },
+    {
+      "id": "512100-518880-159628-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 45.66,
+      "tenYearAnnualizedReturn": 3.8364,
+      "tenYearMaxDrawdown": -41.6626,
+      "tenYearTrades": 576,
+      "currentYearReturn": 4.4555,
+      "currentYearMaxDrawdown": -23.2594,
+      "currentYearTrades": 36,
+      "currentHolding": "518880",
+      "tenYearRank": 204,
+      "currentYearRank": 143,
+      "compositeScore": -1.049349,
+      "compositeRank": 216
+    },
+    {
+      "id": "159949-518880-159628-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 200.6397,
+      "tenYearAnnualizedReturn": 11.6479,
+      "tenYearMaxDrawdown": -39.3831,
+      "tenYearTrades": 514,
+      "currentYearReturn": 10.2422,
+      "currentYearMaxDrawdown": -26.9317,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 128,
+      "currentYearRank": 111,
+      "compositeScore": -0.29034,
+      "compositeRank": 149
+    },
+    {
+      "id": "512100-159949-518880-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 112.4081,
+      "tenYearAnnualizedReturn": 7.8322,
+      "tenYearMaxDrawdown": -49.4462,
+      "tenYearTrades": 594,
+      "currentYearReturn": 9.8251,
+      "currentYearMaxDrawdown": -27.0471,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 177,
+      "currentYearRank": 114,
+      "compositeScore": -0.895065,
+      "compositeRank": 212
+    },
+    {
+      "id": "513100-159628-510300",
+      "size": 3,
+      "codes": [
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 217.2542,
+      "tenYearAnnualizedReturn": 12.2506,
+      "tenYearMaxDrawdown": -28.6458,
+      "tenYearTrades": 450,
+      "currentYearReturn": -4.6985,
+      "currentYearMaxDrawdown": -16.8292,
+      "currentYearTrades": 33,
+      "currentHolding": "159628",
+      "tenYearRank": 122,
+      "currentYearRank": 192,
+      "compositeScore": -0.014666,
+      "compositeRank": 119
+    },
+    {
+      "id": "512100-513100-159628-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 222.8957,
+      "tenYearAnnualizedReturn": 12.4489,
+      "tenYearMaxDrawdown": -25.4826,
+      "tenYearTrades": 536,
+      "currentYearReturn": 0.9155,
+      "currentYearMaxDrawdown": -14.9539,
+      "currentYearTrades": 33,
+      "currentHolding": "512100",
+      "tenYearRank": 118,
+      "currentYearRank": 166,
+      "compositeScore": 0.215543,
+      "compositeRank": 97
+    },
+    {
+      "id": "159949-513100-159628-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 341.099,
+      "tenYearAnnualizedReturn": 16.0153,
+      "tenYearMaxDrawdown": -26.9631,
+      "tenYearTrades": 493,
+      "currentYearReturn": -11.4031,
+      "currentYearMaxDrawdown": -22.4237,
+      "currentYearTrades": 43,
+      "currentHolding": "159628",
+      "tenYearRank": 85,
+      "currentYearRank": 214,
+      "compositeScore": 0.136804,
+      "compositeRank": 110
+    },
+    {
+      "id": "512100-159949-513100-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 377.3916,
+      "tenYearAnnualizedReturn": 16.9372,
+      "tenYearMaxDrawdown": -28.0403,
+      "tenYearTrades": 543,
+      "currentYearReturn": -10.6175,
+      "currentYearMaxDrawdown": -23.4322,
+      "currentYearTrades": 47,
+      "currentHolding": "512100",
+      "tenYearRank": 72,
+      "currentYearRank": 211,
+      "compositeScore": 0.181493,
+      "compositeRank": 101
+    },
+    {
+      "id": "518880-513100-159628-510300",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 365.6311,
+      "tenYearAnnualizedReturn": 16.6456,
+      "tenYearMaxDrawdown": -23.4229,
+      "tenYearTrades": 509,
+      "currentYearReturn": -1.1425,
+      "currentYearMaxDrawdown": -28.0003,
+      "currentYearTrades": 36,
+      "currentHolding": "518880",
+      "tenYearRank": 75,
+      "currentYearRank": 182,
+      "compositeScore": 0.353539,
+      "compositeRank": 69
+    },
+    {
+      "id": "512100-518880-513100-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 270.7673,
+      "tenYearAnnualizedReturn": 14.0157,
+      "tenYearMaxDrawdown": -25.8764,
+      "tenYearTrades": 584,
+      "currentYearReturn": 1.5985,
+      "currentYearMaxDrawdown": -25.8404,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 101,
+      "currentYearRank": 159,
+      "compositeScore": 0.148644,
+      "compositeRank": 106
+    },
+    {
+      "id": "159949-518880-513100-159628-510300",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 470.9438,
+      "tenYearAnnualizedReturn": 19.0507,
+      "tenYearMaxDrawdown": -27.55,
+      "tenYearTrades": 550,
+      "currentYearReturn": -8.5863,
+      "currentYearMaxDrawdown": -33.4218,
+      "currentYearTrades": 43,
+      "currentHolding": "518880",
+      "tenYearRank": 44,
+      "currentYearRank": 198,
+      "compositeScore": 0.224263,
+      "compositeRank": 95
+    },
+    {
+      "id": "512100-159949-518880-513100-159628-510300",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 406.6793,
+      "tenYearAnnualizedReturn": 17.6362,
+      "tenYearMaxDrawdown": -28.8282,
+      "tenYearTrades": 587,
+      "currentYearReturn": -8.9321,
+      "currentYearMaxDrawdown": -33.527,
+      "currentYearTrades": 46,
+      "currentHolding": "518880",
+      "tenYearRank": 62,
+      "currentYearRank": 202,
+      "compositeScore": 0.061178,
+      "compositeRank": 116
+    },
+    {
+      "id": "159920-159628-510300",
+      "size": 3,
+      "codes": [
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 6.4077,
+      "tenYearAnnualizedReturn": 0.6236,
+      "tenYearMaxDrawdown": -49.2668,
+      "tenYearTrades": 467,
+      "currentYearReturn": 0.2588,
+      "currentYearMaxDrawdown": -14.4529,
+      "currentYearTrades": 34,
+      "currentHolding": "159628",
+      "tenYearRank": 217,
+      "currentYearRank": 172,
+      "compositeScore": -1.434413,
+      "compositeRank": 219
+    },
+    {
+      "id": "512100-159920-159628-510300",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 48.764,
+      "tenYearAnnualizedReturn": 4.0558,
+      "tenYearMaxDrawdown": -37.6752,
+      "tenYearTrades": 538,
+      "currentYearReturn": 6.6394,
+      "currentYearMaxDrawdown": -12.9984,
+      "currentYearTrades": 35,
+      "currentHolding": "512100",
+      "tenYearRank": 201,
+      "currentYearRank": 134,
+      "compositeScore": -0.697075,
+      "compositeRank": 198
+    },
+    {
+      "id": "159949-159920-159628-510300",
+      "size": 4,
+      "codes": [
+        "159949",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 163.0096,
+      "tenYearAnnualizedReturn": 10.1634,
+      "tenYearMaxDrawdown": -46.8942,
+      "tenYearTrades": 496,
+      "currentYearReturn": 8.0424,
+      "currentYearMaxDrawdown": -18.1562,
+      "currentYearTrades": 33,
+      "currentHolding": "159628",
+      "tenYearRank": 148,
+      "currentYearRank": 126,
+      "compositeScore": -0.491945,
+      "compositeRank": 177
+    },
+    {
+      "id": "512100-159949-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 164.4647,
+      "tenYearAnnualizedReturn": 10.2243,
+      "tenYearMaxDrawdown": -47.0305,
+      "tenYearTrades": 562,
+      "currentYearReturn": 9.5081,
+      "currentYearMaxDrawdown": -19.2202,
+      "currentYearTrades": 37,
+      "currentHolding": "512100",
+      "tenYearRank": 147,
+      "currentYearRank": 116,
+      "compositeScore": -0.485581,
+      "compositeRank": 176
+    },
+    {
+      "id": "518880-159920-159628-510300",
+      "size": 4,
+      "codes": [
+        "518880",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 76.5044,
+      "tenYearAnnualizedReturn": 5.852,
+      "tenYearMaxDrawdown": -37.3674,
+      "tenYearTrades": 526,
+      "currentYearReturn": 7.4317,
+      "currentYearMaxDrawdown": -24.1061,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 188,
+      "currentYearRank": 129,
+      "compositeScore": -0.727866,
+      "compositeRank": 200
+    },
+    {
+      "id": "512100-518880-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 54.4349,
+      "tenYearAnnualizedReturn": 4.4462,
+      "tenYearMaxDrawdown": -38.8007,
+      "tenYearTrades": 608,
+      "currentYearReturn": 10.3898,
+      "currentYearMaxDrawdown": -23.2594,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 196,
+      "currentYearRank": 109,
+      "compositeScore": -0.821367,
+      "compositeRank": 210
+    },
+    {
+      "id": "159949-518880-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 182.7794,
+      "tenYearAnnualizedReturn": 10.9655,
+      "tenYearMaxDrawdown": -36.8544,
+      "tenYearTrades": 557,
+      "currentYearReturn": 16.5052,
+      "currentYearMaxDrawdown": -26.9317,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 135,
+      "currentYearRank": 70,
+      "compositeScore": -0.176496,
+      "compositeRank": 137
+    },
+    {
+      "id": "512100-159949-518880-159920-159628-510300",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 131.6533,
+      "tenYearAnnualizedReturn": 8.7724,
+      "tenYearMaxDrawdown": -44.268,
+      "tenYearTrades": 622,
+      "currentYearReturn": 16.0645,
+      "currentYearMaxDrawdown": -27.0471,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 163,
+      "currentYearRank": 73,
+      "compositeScore": -0.571838,
+      "compositeRank": 187
+    },
+    {
+      "id": "513100-159920-159628-510300",
+      "size": 4,
+      "codes": [
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 242.7866,
+      "tenYearAnnualizedReturn": 13.1237,
+      "tenYearMaxDrawdown": -26.4088,
+      "tenYearTrades": 513,
+      "currentYearReturn": -2.7054,
+      "currentYearMaxDrawdown": -17.4494,
+      "currentYearTrades": 36,
+      "currentHolding": "159628",
+      "tenYearRank": 110,
+      "currentYearRank": 184,
+      "compositeScore": 0.141717,
+      "compositeRank": 109
+    },
+    {
+      "id": "512100-513100-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 278.1312,
+      "tenYearAnnualizedReturn": 14.2404,
+      "tenYearMaxDrawdown": -29.1479,
+      "tenYearTrades": 580,
+      "currentYearReturn": 3.5059,
+      "currentYearMaxDrawdown": -15.4541,
+      "currentYearTrades": 36,
+      "currentHolding": "512100",
+      "tenYearRank": 98,
+      "currentYearRank": 149,
+      "compositeScore": 0.305334,
+      "compositeRank": 82
+    },
+    {
+      "id": "159949-513100-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 392.6608,
+      "tenYearAnnualizedReturn": 17.3063,
+      "tenYearMaxDrawdown": -30.9057,
+      "tenYearTrades": 547,
+      "currentYearReturn": -10.5977,
+      "currentYearMaxDrawdown": -24.1457,
+      "currentYearTrades": 44,
+      "currentHolding": "159628",
+      "tenYearRank": 68,
+      "currentYearRank": 210,
+      "compositeScore": 0.123736,
+      "compositeRank": 111
+    },
+    {
+      "id": "512100-159949-513100-159920-159628-510300",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 459.0246,
+      "tenYearAnnualizedReturn": 18.7995,
+      "tenYearMaxDrawdown": -31.6373,
+      "tenYearTrades": 586,
+      "currentYearReturn": -9.3848,
+      "currentYearMaxDrawdown": -25.1318,
+      "currentYearTrades": 48,
+      "currentHolding": "512100",
+      "tenYearRank": 47,
+      "currentYearRank": 204,
+      "compositeScore": 0.23418,
+      "compositeRank": 94
+    },
+    {
+      "id": "518880-513100-159920-159628-510300",
+      "size": 5,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 358.5616,
+      "tenYearAnnualizedReturn": 16.4671,
+      "tenYearMaxDrawdown": -26.2359,
+      "tenYearTrades": 560,
+      "currentYearReturn": 4.2554,
+      "currentYearMaxDrawdown": -26.7645,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 77,
+      "currentYearRank": 144,
+      "compositeScore": 0.376464,
+      "compositeRank": 63
+    },
+    {
+      "id": "512100-518880-513100-159920-159628-510300",
+      "size": 6,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 302.3366,
+      "tenYearAnnualizedReturn": 14.9521,
+      "tenYearMaxDrawdown": -28.9814,
+      "tenYearTrades": 620,
+      "currentYearReturn": 7.1461,
+      "currentYearMaxDrawdown": -25.4255,
+      "currentYearTrades": 34,
+      "currentHolding": "518880",
+      "tenYearRank": 93,
+      "currentYearRank": 132,
+      "compositeScore": 0.246594,
+      "compositeRank": 89
+    },
+    {
+      "id": "159949-518880-513100-159920-159628-510300",
+      "size": 6,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 459.4092,
+      "tenYearAnnualizedReturn": 18.8077,
+      "tenYearMaxDrawdown": -32.6186,
+      "tenYearTrades": 595,
+      "currentYearReturn": -3.5949,
+      "currentYearMaxDrawdown": -32.279,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 46,
+      "currentYearRank": 186,
+      "compositeScore": 0.172928,
+      "compositeRank": 103
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-159628-510300",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 443.2936,
+      "tenYearAnnualizedReturn": 18.4606,
+      "tenYearMaxDrawdown": -33.8074,
+      "tenYearTrades": 626,
+      "currentYearReturn": -3.9596,
+      "currentYearMaxDrawdown": -32.386,
+      "currentYearTrades": 43,
+      "currentHolding": "518880",
+      "tenYearRank": 53,
+      "currentYearRank": 190,
+      "compositeScore": 0.10336,
+      "compositeRank": 112
+    },
+    {
+      "id": "512100-159949-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159949",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 127.4722,
+      "tenYearAnnualizedReturn": 8.5743,
+      "tenYearMaxDrawdown": -43.1207,
+      "tenYearTrades": 405,
+      "currentYearReturn": 20.9191,
+      "currentYearMaxDrawdown": -18.1064,
+      "currentYearTrades": 29,
+      "currentHolding": "512100",
+      "tenYearRank": 167,
+      "currentYearRank": 41,
+      "compositeScore": -0.310951,
+      "compositeRank": 152
+    },
+    {
+      "id": "512100-518880-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "518880",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 24.6985,
+      "tenYearAnnualizedReturn": 2.234,
+      "tenYearMaxDrawdown": -38.9395,
+      "tenYearTrades": 488,
+      "currentYearReturn": 24.0929,
+      "currentYearMaxDrawdown": -23.5917,
+      "currentYearTrades": 26,
+      "currentHolding": "518880",
+      "tenYearRank": 214,
+      "currentYearRank": 25,
+      "compositeScore": -0.791452,
+      "compositeRank": 206
+    },
+    {
+      "id": "159949-518880-588120",
+      "size": 3,
+      "codes": [
+        "159949",
+        "518880",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 151.2838,
+      "tenYearAnnualizedReturn": 9.6617,
+      "tenYearMaxDrawdown": -39.8627,
+      "tenYearTrades": 460,
+      "currentYearReturn": 19.8436,
+      "currentYearMaxDrawdown": -28.1909,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 153,
+      "currentYearRank": 50,
+      "compositeScore": -0.33602,
+      "compositeRank": 155
+    },
+    {
+      "id": "512100-159949-518880-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 114.0198,
+      "tenYearAnnualizedReturn": 7.9138,
+      "tenYearMaxDrawdown": -43.7551,
+      "tenYearTrades": 549,
+      "currentYearReturn": 21.1934,
+      "currentYearMaxDrawdown": -27.3821,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 175,
+      "currentYearRank": 39,
+      "compositeScore": -0.552098,
+      "compositeRank": 183
+    },
+    {
+      "id": "512100-513100-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 380.4863,
+      "tenYearAnnualizedReturn": 17.0128,
+      "tenYearMaxDrawdown": -38.7731,
+      "tenYearTrades": 394,
+      "currentYearReturn": 15.5105,
+      "currentYearMaxDrawdown": -14.1562,
+      "currentYearTrades": 28,
+      "currentHolding": "512100",
+      "tenYearRank": 70,
+      "currentYearRank": 75,
+      "compositeScore": 0.511095,
+      "compositeRank": 32
+    },
+    {
+      "id": "159949-513100-588120",
+      "size": 3,
+      "codes": [
+        "159949",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 536.0639,
+      "tenYearAnnualizedReturn": 20.3447,
+      "tenYearMaxDrawdown": -30.6391,
+      "tenYearTrades": 407,
+      "currentYearReturn": -4.6445,
+      "currentYearMaxDrawdown": -23.0474,
+      "currentYearTrades": 38,
+      "currentHolding": "513100",
+      "tenYearRank": 27,
+      "currentYearRank": 191,
+      "compositeScore": 0.511298,
+      "compositeRank": 31
+    },
+    {
+      "id": "512100-159949-513100-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 564.9202,
+      "tenYearAnnualizedReturn": 20.8804,
+      "tenYearMaxDrawdown": -25.3509,
+      "tenYearTrades": 476,
+      "currentYearReturn": 1.2026,
+      "currentYearMaxDrawdown": -20.3595,
+      "currentYearTrades": 37,
+      "currentHolding": "512100",
+      "tenYearRank": 17,
+      "currentYearRank": 163,
+      "compositeScore": 0.846126,
+      "compositeRank": 2
+    },
+    {
+      "id": "518880-513100-588120",
+      "size": 3,
+      "codes": [
+        "518880",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 315.8611,
+      "tenYearAnnualizedReturn": 15.3332,
+      "tenYearMaxDrawdown": -43.3187,
+      "tenYearTrades": 414,
+      "currentYearReturn": 11.3927,
+      "currentYearMaxDrawdown": -26.4644,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 89,
+      "currentYearRank": 103,
+      "compositeScore": -0.0516,
+      "compositeRank": 123
+    },
+    {
+      "id": "512100-518880-513100-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 357.8106,
+      "tenYearAnnualizedReturn": 16.448,
+      "tenYearMaxDrawdown": -42.6473,
+      "tenYearTrades": 475,
+      "currentYearReturn": 12.5599,
+      "currentYearMaxDrawdown": -25.6939,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 78,
+      "currentYearRank": 97,
+      "compositeScore": 0.095705,
+      "compositeRank": 113
+    },
+    {
+      "id": "159949-518880-513100-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 631.4524,
+      "tenYearAnnualizedReturn": 22.0398,
+      "tenYearMaxDrawdown": -30.0783,
+      "tenYearTrades": 485,
+      "currentYearReturn": -0.0997,
+      "currentYearMaxDrawdown": -30.1666,
+      "currentYearTrades": 39,
+      "currentHolding": "518880",
+      "tenYearRank": 6,
+      "currentYearRank": 174,
+      "compositeScore": 0.615456,
+      "compositeRank": 16
+    },
+    {
+      "id": "512100-159949-518880-513100-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 567.1126,
+      "tenYearAnnualizedReturn": 20.9202,
+      "tenYearMaxDrawdown": -26.6828,
+      "tenYearTrades": 537,
+      "currentYearReturn": 1.0256,
+      "currentYearMaxDrawdown": -29.38,
+      "currentYearTrades": 39,
+      "currentHolding": "518880",
+      "tenYearRank": 15,
+      "currentYearRank": 164,
+      "compositeScore": 0.643565,
+      "compositeRank": 15
+    },
+    {
+      "id": "512100-159920-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 93.5216,
+      "tenYearAnnualizedReturn": 6.8318,
+      "tenYearMaxDrawdown": -34.9784,
+      "tenYearTrades": 430,
+      "currentYearReturn": 29.3123,
+      "currentYearMaxDrawdown": -13.4578,
+      "currentYearTrades": 24,
+      "currentHolding": "512100",
+      "tenYearRank": 184,
+      "currentYearRank": 6,
+      "compositeScore": -0.016179,
+      "compositeRank": 120
+    },
+    {
+      "id": "159949-159920-588120",
+      "size": 3,
+      "codes": [
+        "159949",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 177.2829,
+      "tenYearAnnualizedReturn": 10.7477,
+      "tenYearMaxDrawdown": -43.809,
+      "tenYearTrades": 446,
+      "currentYearReturn": 14.3122,
+      "currentYearMaxDrawdown": -22.1027,
+      "currentYearTrades": 31,
+      "currentHolding": "588120",
+      "tenYearRank": 142,
+      "currentYearRank": 85,
+      "compositeScore": -0.327838,
+      "compositeRank": 154
+    },
+    {
+      "id": "512100-159949-159920-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 179.6936,
+      "tenYearAnnualizedReturn": 10.8437,
+      "tenYearMaxDrawdown": -44.9474,
+      "tenYearTrades": 518,
+      "currentYearReturn": 22.5623,
+      "currentYearMaxDrawdown": -20.1793,
+      "currentYearTrades": 33,
+      "currentHolding": "512100",
+      "tenYearRank": 139,
+      "currentYearRank": 31,
+      "compositeScore": -0.176183,
+      "compositeRank": 136
+    },
+    {
+      "id": "518880-159920-588120",
+      "size": 3,
+      "codes": [
+        "518880",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 54.3472,
+      "tenYearAnnualizedReturn": 4.4403,
+      "tenYearMaxDrawdown": -29.6495,
+      "tenYearTrades": 461,
+      "currentYearReturn": 28.8286,
+      "currentYearMaxDrawdown": -24.384,
+      "currentYearTrades": 23,
+      "currentHolding": "518880",
+      "tenYearRank": 197,
+      "currentYearRank": 8,
+      "compositeScore": -0.289853,
+      "compositeRank": 148
+    },
+    {
+      "id": "512100-518880-159920-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 87.1902,
+      "tenYearAnnualizedReturn": 6.4767,
+      "tenYearMaxDrawdown": -35.4632,
+      "tenYearTrades": 517,
+      "currentYearReturn": 30.1785,
+      "currentYearMaxDrawdown": -23.5917,
+      "currentYearTrades": 24,
+      "currentHolding": "518880",
+      "tenYearRank": 185,
+      "currentYearRank": 5,
+      "compositeScore": -0.233184,
+      "compositeRank": 145
+    },
+    {
+      "id": "159949-518880-159920-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 192.1122,
+      "tenYearAnnualizedReturn": 11.3268,
+      "tenYearMaxDrawdown": -38.2384,
+      "tenYearTrades": 511,
+      "currentYearReturn": 25.7209,
+      "currentYearMaxDrawdown": -28.1909,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 132,
+      "currentYearRank": 18,
+      "compositeScore": -0.051579,
+      "compositeRank": 122
+    },
+    {
+      "id": "512100-159949-518880-159920-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 167.5942,
+      "tenYearAnnualizedReturn": 10.3541,
+      "tenYearMaxDrawdown": -42.3861,
+      "tenYearTrades": 574,
+      "currentYearReturn": 27.1369,
+      "currentYearMaxDrawdown": -27.3821,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 145,
+      "currentYearRank": 15,
+      "compositeScore": -0.206925,
+      "compositeRank": 142
+    },
+    {
+      "id": "513100-159920-588120",
+      "size": 3,
+      "codes": [
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 203.0738,
+      "tenYearAnnualizedReturn": 11.738,
+      "tenYearMaxDrawdown": -28.6717,
+      "tenYearTrades": 439,
+      "currentYearReturn": 12.4513,
+      "currentYearMaxDrawdown": -16.438,
+      "currentYearTrades": 27,
+      "currentHolding": "513100",
+      "tenYearRank": 126,
+      "currentYearRank": 99,
+      "compositeScore": 0.235053,
+      "compositeRank": 93
+    },
+    {
+      "id": "512100-513100-159920-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 400.5184,
+      "tenYearAnnualizedReturn": 17.4922,
+      "tenYearMaxDrawdown": -32.0582,
+      "tenYearTrades": 483,
+      "currentYearReturn": 16.6864,
+      "currentYearMaxDrawdown": -15.8388,
+      "currentYearTrades": 30,
+      "currentHolding": "512100",
+      "tenYearRank": 65,
+      "currentYearRank": 66,
+      "compositeScore": 0.719846,
+      "compositeRank": 8
+    },
+    {
+      "id": "159949-513100-159920-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 512.9828,
+      "tenYearAnnualizedReturn": 19.9003,
+      "tenYearMaxDrawdown": -35.2606,
+      "tenYearTrades": 503,
+      "currentYearReturn": -3.7266,
+      "currentYearMaxDrawdown": -24.2459,
+      "currentYearTrades": 41,
+      "currentHolding": "513100",
+      "tenYearRank": 31,
+      "currentYearRank": 187,
+      "compositeScore": 0.342982,
+      "compositeRank": 72
+    },
+    {
+      "id": "512100-159949-513100-159920-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 592.4373,
+      "tenYearAnnualizedReturn": 21.372,
+      "tenYearMaxDrawdown": -25.6651,
+      "tenYearTrades": 544,
+      "currentYearReturn": 1.6372,
+      "currentYearMaxDrawdown": -22.3754,
+      "currentYearTrades": 41,
+      "currentHolding": "512100",
+      "tenYearRank": 9,
+      "currentYearRank": 156,
+      "compositeScore": 0.849723,
+      "compositeRank": 1
+    },
+    {
+      "id": "518880-513100-159920-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 245.4648,
+      "tenYearAnnualizedReturn": 13.2119,
+      "tenYearMaxDrawdown": -32.2431,
+      "tenYearTrades": 516,
+      "currentYearReturn": 17.3199,
+      "currentYearMaxDrawdown": -26.4644,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 108,
+      "currentYearRank": 63,
+      "compositeScore": 0.161416,
+      "compositeRank": 105
+    },
+    {
+      "id": "512100-518880-513100-159920-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 392.5559,
+      "tenYearAnnualizedReturn": 17.3038,
+      "tenYearMaxDrawdown": -33.7868,
+      "tenYearTrades": 537,
+      "currentYearReturn": 18.5493,
+      "currentYearMaxDrawdown": -25.6939,
+      "currentYearTrades": 30,
+      "currentHolding": "518880",
+      "tenYearRank": 69,
+      "currentYearRank": 57,
+      "compositeScore": 0.505792,
+      "compositeRank": 33
+    },
+    {
+      "id": "159949-518880-513100-159920-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 547.2506,
+      "tenYearAnnualizedReturn": 20.5549,
+      "tenYearMaxDrawdown": -33.5161,
+      "tenYearTrades": 559,
+      "currentYearReturn": 5.2161,
+      "currentYearMaxDrawdown": -30.1666,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 21,
+      "currentYearRank": 140,
+      "compositeScore": 0.485425,
+      "compositeRank": 37
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 578.3017,
+      "tenYearAnnualizedReturn": 21.1217,
+      "tenYearMaxDrawdown": -27.9778,
+      "tenYearTrades": 584,
+      "currentYearReturn": 6.4012,
+      "currentYearMaxDrawdown": -29.38,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 11,
+      "currentYearRank": 135,
+      "compositeScore": 0.716257,
+      "compositeRank": 9
+    },
+    {
+      "id": "512100-159628-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 57.4518,
+      "tenYearAnnualizedReturn": 4.6487,
+      "tenYearMaxDrawdown": -29.2835,
+      "tenYearTrades": 320,
+      "currentYearReturn": 24.9957,
+      "currentYearMaxDrawdown": -13.0745,
+      "currentYearTrades": 28,
+      "currentHolding": "512100",
+      "tenYearRank": 195,
+      "currentYearRank": 21,
+      "compositeScore": -0.116429,
+      "compositeRank": 128
+    },
+    {
+      "id": "159949-159628-588120",
+      "size": 3,
+      "codes": [
+        "159949",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 133.3048,
+      "tenYearAnnualizedReturn": 8.8498,
+      "tenYearMaxDrawdown": -43.7704,
+      "tenYearTrades": 332,
+      "currentYearReturn": 17.9729,
+      "currentYearMaxDrawdown": -18.1271,
+      "currentYearTrades": 31,
+      "currentHolding": "159628",
+      "tenYearRank": 161,
+      "currentYearRank": 62,
+      "compositeScore": -0.354382,
+      "compositeRank": 159
+    },
+    {
+      "id": "512100-159949-159628-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 118.1246,
+      "tenYearAnnualizedReturn": 8.1192,
+      "tenYearMaxDrawdown": -43.9871,
+      "tenYearTrades": 434,
+      "currentYearReturn": 19.4083,
+      "currentYearMaxDrawdown": -19.1915,
+      "currentYearTrades": 36,
+      "currentHolding": "512100",
+      "tenYearRank": 172,
+      "currentYearRank": 54,
+      "compositeScore": -0.418513,
+      "compositeRank": 166
+    },
+    {
+      "id": "518880-159628-588120",
+      "size": 3,
+      "codes": [
+        "518880",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "A股"
+      ],
+      "tenYearReturn": 82.048,
+      "tenYearAnnualizedReturn": 6.1802,
+      "tenYearMaxDrawdown": -30.6329,
+      "tenYearTrades": 379,
+      "currentYearReturn": 25.0054,
+      "currentYearMaxDrawdown": -22.8355,
+      "currentYearTrades": 25,
+      "currentHolding": "518880",
+      "tenYearRank": 187,
+      "currentYearRank": 20,
+      "compositeScore": -0.202234,
+      "compositeRank": 140
+    },
+    {
+      "id": "512100-518880-159628-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 22.3158,
+      "tenYearAnnualizedReturn": 2.0368,
+      "tenYearMaxDrawdown": -40.5219,
+      "tenYearTrades": 502,
+      "currentYearReturn": 24.7111,
+      "currentYearMaxDrawdown": -23.0172,
+      "currentYearTrades": 28,
+      "currentHolding": "518880",
+      "tenYearRank": 215,
+      "currentYearRank": 23,
+      "compositeScore": -0.829572,
+      "compositeRank": 211
+    },
+    {
+      "id": "159949-518880-159628-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 180.1661,
+      "tenYearAnnualizedReturn": 10.8625,
+      "tenYearMaxDrawdown": -35.6718,
+      "tenYearTrades": 476,
+      "currentYearReturn": 21.9899,
+      "currentYearMaxDrawdown": -26.7203,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 137,
+      "currentYearRank": 34,
+      "compositeScore": -0.058024,
+      "compositeRank": 124
+    },
+    {
+      "id": "512100-159949-518880-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 98.969,
+      "tenYearAnnualizedReturn": 7.129,
+      "tenYearMaxDrawdown": -44.6373,
+      "tenYearTrades": 564,
+      "currentYearReturn": 21.7972,
+      "currentYearMaxDrawdown": -26.8361,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 182,
+      "currentYearRank": 36,
+      "compositeScore": -0.622661,
+      "compositeRank": 191
+    },
+    {
+      "id": "513100-159628-588120",
+      "size": 3,
+      "codes": [
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 236.5592,
+      "tenYearAnnualizedReturn": 12.9163,
+      "tenYearMaxDrawdown": -32.1402,
+      "tenYearTrades": 339,
+      "currentYearReturn": 11.4324,
+      "currentYearMaxDrawdown": -15.7281,
+      "currentYearTrades": 30,
+      "currentHolding": "159628",
+      "tenYearRank": 113,
+      "currentYearRank": 102,
+      "compositeScore": 0.239589,
+      "compositeRank": 92
+    },
+    {
+      "id": "512100-513100-159628-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 354.7803,
+      "tenYearAnnualizedReturn": 16.3706,
+      "tenYearMaxDrawdown": -38.7731,
+      "tenYearTrades": 417,
+      "currentYearReturn": 14.6291,
+      "currentYearMaxDrawdown": -15.4661,
+      "currentYearTrades": 35,
+      "currentHolding": "512100",
+      "tenYearRank": 81,
+      "currentYearRank": 81,
+      "compositeScore": 0.416984,
+      "compositeRank": 54
+    },
+    {
+      "id": "159949-513100-159628-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 505.963,
+      "tenYearAnnualizedReturn": 19.7622,
+      "tenYearMaxDrawdown": -27.8827,
+      "tenYearTrades": 437,
+      "currentYearReturn": -0.5746,
+      "currentYearMaxDrawdown": -20.3797,
+      "currentYearTrades": 40,
+      "currentHolding": "159628",
+      "tenYearRank": 33,
+      "currentYearRank": 180,
+      "compositeScore": 0.652595,
+      "compositeRank": 13
+    },
+    {
+      "id": "512100-159949-513100-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 507.8375,
+      "tenYearAnnualizedReturn": 19.7992,
+      "tenYearMaxDrawdown": -28.17,
+      "tenYearTrades": 495,
+      "currentYearReturn": 0.6351,
+      "currentYearMaxDrawdown": -21.4147,
+      "currentYearTrades": 45,
+      "currentHolding": "512100",
+      "tenYearRank": 32,
+      "currentYearRank": 168,
+      "compositeScore": 0.649134,
+      "compositeRank": 14
+    },
+    {
+      "id": "518880-513100-159628-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 220.6662,
+      "tenYearAnnualizedReturn": 12.3709,
+      "tenYearMaxDrawdown": -47.2245,
+      "tenYearTrades": 449,
+      "currentYearReturn": 14.638,
+      "currentYearMaxDrawdown": -24.9585,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 119,
+      "currentYearRank": 79,
+      "compositeScore": -0.327443,
+      "compositeRank": 153
+    },
+    {
+      "id": "512100-518880-513100-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 301.2756,
+      "tenYearAnnualizedReturn": 14.9217,
+      "tenYearMaxDrawdown": -42.6473,
+      "tenYearTrades": 493,
+      "currentYearReturn": 14.368,
+      "currentYearMaxDrawdown": -25.1352,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 94,
+      "currentYearRank": 83,
+      "compositeScore": 0.005534,
+      "compositeRank": 118
+    },
+    {
+      "id": "159949-518880-513100-159628-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 568.8281,
+      "tenYearAnnualizedReturn": 20.9513,
+      "tenYearMaxDrawdown": -30.1698,
+      "tenYearTrades": 512,
+      "currentYearReturn": 2.8109,
+      "currentYearMaxDrawdown": -28.7365,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 14,
+      "currentYearRank": 150,
+      "compositeScore": 0.594996,
+      "compositeRank": 20
+    },
+    {
+      "id": "512100-159949-518880-513100-159628-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 470.8996,
+      "tenYearAnnualizedReturn": 19.0498,
+      "tenYearMaxDrawdown": -30.9439,
+      "tenYearTrades": 554,
+      "currentYearReturn": 2.6484,
+      "currentYearMaxDrawdown": -28.849,
+      "currentYearTrades": 42,
+      "currentHolding": "518880",
+      "tenYearRank": 45,
+      "currentYearRank": 152,
+      "compositeScore": 0.40656,
+      "compositeRank": 55
+    },
+    {
+      "id": "159920-159628-588120",
+      "size": 3,
+      "codes": [
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 12.7566,
+      "tenYearAnnualizedReturn": 1.209,
+      "tenYearMaxDrawdown": -45.0131,
+      "tenYearTrades": 388,
+      "currentYearReturn": 22.0924,
+      "currentYearMaxDrawdown": -15.2793,
+      "currentYearTrades": 29,
+      "currentHolding": "159628",
+      "tenYearRank": 216,
+      "currentYearRank": 33,
+      "compositeScore": -0.92057,
+      "compositeRank": 214
+    },
+    {
+      "id": "512100-159920-159628-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 112.1748,
+      "tenYearAnnualizedReturn": 7.8203,
+      "tenYearMaxDrawdown": -32.9451,
+      "tenYearTrades": 448,
+      "currentYearReturn": 26.2181,
+      "currentYearMaxDrawdown": -14.9902,
+      "currentYearTrades": 32,
+      "currentHolding": "512100",
+      "tenYearRank": 178,
+      "currentYearRank": 17,
+      "compositeScore": 0.042563,
+      "compositeRank": 117
+    },
+    {
+      "id": "159949-159920-159628-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 199.8716,
+      "tenYearAnnualizedReturn": 11.6193,
+      "tenYearMaxDrawdown": -44.8404,
+      "tenYearTrades": 461,
+      "currentYearReturn": 18.3923,
+      "currentYearMaxDrawdown": -20.0544,
+      "currentYearTrades": 35,
+      "currentHolding": "159628",
+      "tenYearRank": 129,
+      "currentYearRank": 60,
+      "compositeScore": -0.174341,
+      "compositeRank": 135
+    },
+    {
+      "id": "512100-159949-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 179.4557,
+      "tenYearAnnualizedReturn": 10.8343,
+      "tenYearMaxDrawdown": -43.7327,
+      "tenYearTrades": 539,
+      "currentYearReturn": 20.3909,
+      "currentYearMaxDrawdown": -21.0937,
+      "currentYearTrades": 39,
+      "currentHolding": "512100",
+      "tenYearRank": 140,
+      "currentYearRank": 48,
+      "compositeScore": -0.197893,
+      "compositeRank": 139
+    },
+    {
+      "id": "518880-159920-159628-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 75.1557,
+      "tenYearAnnualizedReturn": 5.7708,
+      "tenYearMaxDrawdown": -31.4101,
+      "tenYearTrades": 473,
+      "currentYearReturn": 31.9328,
+      "currentYearMaxDrawdown": -22.8355,
+      "currentYearTrades": 23,
+      "currentHolding": "518880",
+      "tenYearRank": 190,
+      "currentYearRank": 1,
+      "compositeScore": -0.142103,
+      "compositeRank": 131
+    },
+    {
+      "id": "512100-518880-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 87.0826,
+      "tenYearAnnualizedReturn": 6.4705,
+      "tenYearMaxDrawdown": -33.6366,
+      "tenYearTrades": 530,
+      "currentYearReturn": 31.6221,
+      "currentYearMaxDrawdown": -23.0172,
+      "currentYearTrades": 26,
+      "currentHolding": "518880",
+      "tenYearRank": 186,
+      "currentYearRank": 2,
+      "compositeScore": -0.150134,
+      "compositeRank": 133
+    },
+    {
+      "id": "159949-518880-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 219.6635,
+      "tenYearAnnualizedReturn": 12.3357,
+      "tenYearMaxDrawdown": -36.1572,
+      "tenYearTrades": 522,
+      "currentYearReturn": 28.7502,
+      "currentYearMaxDrawdown": -26.7203,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 120,
+      "currentYearRank": 9,
+      "compositeScore": 0.168444,
+      "compositeRank": 104
+    },
+    {
+      "id": "512100-159949-518880-159920-159628-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 150.846,
+      "tenYearAnnualizedReturn": 9.6425,
+      "tenYearMaxDrawdown": -43.2649,
+      "tenYearTrades": 592,
+      "currentYearReturn": 28.5468,
+      "currentYearMaxDrawdown": -26.8361,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 154,
+      "currentYearRank": 11,
+      "compositeScore": -0.257629,
+      "compositeRank": 147
+    },
+    {
+      "id": "513100-159920-159628-588120",
+      "size": 4,
+      "codes": [
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 181.5233,
+      "tenYearAnnualizedReturn": 10.9161,
+      "tenYearMaxDrawdown": -28.117,
+      "tenYearTrades": 472,
+      "currentYearReturn": 11.7325,
+      "currentYearMaxDrawdown": -17.6102,
+      "currentYearTrades": 36,
+      "currentHolding": "159628",
+      "tenYearRank": 136,
+      "currentYearRank": 100,
+      "compositeScore": 0.145624,
+      "compositeRank": 108
+    },
+    {
+      "id": "512100-513100-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 356.9863,
+      "tenYearAnnualizedReturn": 16.427,
+      "tenYearMaxDrawdown": -32.0582,
+      "tenYearTrades": 505,
+      "currentYearReturn": 15.5081,
+      "currentYearMaxDrawdown": -17.329,
+      "currentYearTrades": 39,
+      "currentHolding": "512100",
+      "tenYearRank": 79,
+      "currentYearRank": 76,
+      "compositeScore": 0.581165,
+      "compositeRank": 21
+    },
+    {
+      "id": "159949-513100-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 450.857,
+      "tenYearAnnualizedReturn": 18.6247,
+      "tenYearMaxDrawdown": -31.7297,
+      "tenYearTrades": 529,
+      "currentYearReturn": -0.4297,
+      "currentYearMaxDrawdown": -22.2539,
+      "currentYearTrades": 44,
+      "currentHolding": "159628",
+      "tenYearRank": 51,
+      "currentYearRank": 178,
+      "compositeScore": 0.420064,
+      "compositeRank": 52
+    },
+    {
+      "id": "512100-159949-513100-159920-159628-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 501.7125,
+      "tenYearAnnualizedReturn": 19.6778,
+      "tenYearMaxDrawdown": -32.0016,
+      "tenYearTrades": 565,
+      "currentYearReturn": 1.2511,
+      "currentYearMaxDrawdown": -23.2646,
+      "currentYearTrades": 48,
+      "currentHolding": "512100",
+      "tenYearRank": 36,
+      "currentYearRank": 161,
+      "compositeScore": 0.512435,
+      "compositeRank": 30
+    },
+    {
+      "id": "518880-513100-159920-159628-588120",
+      "size": 5,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 235.2358,
+      "tenYearAnnualizedReturn": 12.8718,
+      "tenYearMaxDrawdown": -32.6904,
+      "tenYearTrades": 534,
+      "currentYearReturn": 20.7379,
+      "currentYearMaxDrawdown": -24.9585,
+      "currentYearTrades": 30,
+      "currentHolding": "518880",
+      "tenYearRank": 114,
+      "currentYearRank": 44,
+      "compositeScore": 0.205502,
+      "compositeRank": 99
+    },
+    {
+      "id": "512100-518880-513100-159920-159628-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 337.4556,
+      "tenYearAnnualizedReturn": 15.9191,
+      "tenYearMaxDrawdown": -33.7868,
+      "tenYearTrades": 550,
+      "currentYearReturn": 20.4536,
+      "currentYearMaxDrawdown": -25.1352,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 86,
+      "currentYearRank": 46,
+      "compositeScore": 0.429367,
+      "compositeRank": 47
+    },
+    {
+      "id": "159949-518880-513100-159920-159628-588120",
+      "size": 6,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 523.5336,
+      "tenYearAnnualizedReturn": 20.1053,
+      "tenYearMaxDrawdown": -33.3786,
+      "tenYearTrades": 575,
+      "currentYearReturn": 8.2815,
+      "currentYearMaxDrawdown": -28.7365,
+      "currentYearTrades": 38,
+      "currentHolding": "518880",
+      "tenYearRank": 28,
+      "currentYearRank": 120,
+      "compositeScore": 0.528424,
+      "compositeRank": 28
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-159628-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 479.9299,
+      "tenYearAnnualizedReturn": 19.2369,
+      "tenYearMaxDrawdown": -34.1171,
+      "tenYearTrades": 600,
+      "currentYearReturn": 8.1104,
+      "currentYearMaxDrawdown": -28.849,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 41,
+      "currentYearRank": 123,
+      "compositeScore": 0.429336,
+      "compositeRank": 48
+    },
+    {
+      "id": "512100-510300-588120",
+      "size": 3,
+      "codes": [
+        "512100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 46.354,
+      "tenYearAnnualizedReturn": 3.8858,
+      "tenYearMaxDrawdown": -39.797,
+      "tenYearTrades": 425,
+      "currentYearReturn": 24.326,
+      "currentYearMaxDrawdown": -12.8546,
+      "currentYearTrades": 22,
+      "currentHolding": "512100",
+      "tenYearRank": 203,
+      "currentYearRank": 24,
+      "compositeScore": -0.46954,
+      "compositeRank": 174
+    },
+    {
+      "id": "159949-510300-588120",
+      "size": 3,
+      "codes": [
+        "159949",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 138.4601,
+      "tenYearAnnualizedReturn": 9.0882,
+      "tenYearMaxDrawdown": -49.0908,
+      "tenYearTrades": 406,
+      "currentYearReturn": 20.9065,
+      "currentYearMaxDrawdown": -17.5146,
+      "currentYearTrades": 29,
+      "currentHolding": "588120",
+      "tenYearRank": 158,
+      "currentYearRank": 42,
+      "compositeScore": -0.41547,
+      "compositeRank": 165
+    },
+    {
+      "id": "512100-159949-510300-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159949",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 150.1897,
+      "tenYearAnnualizedReturn": 9.6138,
+      "tenYearMaxDrawdown": -49.6006,
+      "tenYearTrades": 478,
+      "currentYearReturn": 19.8243,
+      "currentYearMaxDrawdown": -18.8478,
+      "currentYearTrades": 30,
+      "currentHolding": "512100",
+      "tenYearRank": 156,
+      "currentYearRank": 52,
+      "compositeScore": -0.426896,
+      "compositeRank": 167
+    },
+    {
+      "id": "518880-510300-588120",
+      "size": 3,
+      "codes": [
+        "518880",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "A股"
+      ],
+      "tenYearReturn": 61.6632,
+      "tenYearAnnualizedReturn": 4.9255,
+      "tenYearMaxDrawdown": -37.8189,
+      "tenYearTrades": 462,
+      "currentYearReturn": 21.5423,
+      "currentYearMaxDrawdown": -24.384,
+      "currentYearTrades": 26,
+      "currentHolding": "518880",
+      "tenYearRank": 193,
+      "currentYearRank": 38,
+      "compositeScore": -0.588275,
+      "compositeRank": 188
+    },
+    {
+      "id": "512100-518880-510300-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "518880",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 32.8571,
+      "tenYearAnnualizedReturn": 2.8846,
+      "tenYearMaxDrawdown": -40.5851,
+      "tenYearTrades": 553,
+      "currentYearReturn": 22.8159,
+      "currentYearMaxDrawdown": -23.5917,
+      "currentYearTrades": 27,
+      "currentHolding": "518880",
+      "tenYearRank": 211,
+      "currentYearRank": 30,
+      "compositeScore": -0.800989,
+      "compositeRank": 208
+    },
+    {
+      "id": "159949-518880-510300-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "518880",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 164.814,
+      "tenYearAnnualizedReturn": 10.2388,
+      "tenYearMaxDrawdown": -43.0635,
+      "tenYearTrades": 513,
+      "currentYearReturn": 19.8436,
+      "currentYearMaxDrawdown": -28.1909,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 146,
+      "currentYearRank": 51,
+      "compositeScore": -0.371988,
+      "compositeRank": 163
+    },
+    {
+      "id": "512100-159949-518880-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 124.3981,
+      "tenYearAnnualizedReturn": 8.4265,
+      "tenYearMaxDrawdown": -48.6026,
+      "tenYearTrades": 578,
+      "currentYearReturn": 21.1934,
+      "currentYearMaxDrawdown": -27.3821,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 169,
+      "currentYearRank": 40,
+      "compositeScore": -0.637535,
+      "compositeRank": 193
+    },
+    {
+      "id": "513100-510300-588120",
+      "size": 3,
+      "codes": [
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 243.3768,
+      "tenYearAnnualizedReturn": 13.1432,
+      "tenYearMaxDrawdown": -28.6458,
+      "tenYearTrades": 423,
+      "currentYearReturn": 12.8938,
+      "currentYearMaxDrawdown": -14.2765,
+      "currentYearTrades": 28,
+      "currentHolding": "513100",
+      "tenYearRank": 109,
+      "currentYearRank": 96,
+      "compositeScore": 0.403711,
+      "compositeRank": 56
+    },
+    {
+      "id": "512100-513100-510300-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 255.4258,
+      "tenYearAnnualizedReturn": 13.5345,
+      "tenYearMaxDrawdown": -25.4826,
+      "tenYearTrades": 494,
+      "currentYearReturn": 14.4025,
+      "currentYearMaxDrawdown": -14.9797,
+      "currentYearTrades": 27,
+      "currentHolding": "512100",
+      "tenYearRank": 105,
+      "currentYearRank": 82,
+      "compositeScore": 0.533871,
+      "compositeRank": 27
+    },
+    {
+      "id": "159949-513100-510300-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 396.6692,
+      "tenYearAnnualizedReturn": 17.4015,
+      "tenYearMaxDrawdown": -29.4799,
+      "tenYearTrades": 470,
+      "currentYearReturn": -0.6007,
+      "currentYearMaxDrawdown": -19.784,
+      "currentYearTrades": 39,
+      "currentHolding": "513100",
+      "tenYearRank": 66,
+      "currentYearRank": 181,
+      "compositeScore": 0.418267,
+      "compositeRank": 53
+    },
+    {
+      "id": "512100-159949-513100-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 453.5695,
+      "tenYearAnnualizedReturn": 18.683,
+      "tenYearMaxDrawdown": -28.0403,
+      "tenYearTrades": 519,
+      "currentYearReturn": 0.2863,
+      "currentYearMaxDrawdown": -21.0805,
+      "currentYearTrades": 38,
+      "currentHolding": "512100",
+      "tenYearRank": 50,
+      "currentYearRank": 170,
+      "compositeScore": 0.557298,
+      "compositeRank": 24
+    },
+    {
+      "id": "518880-513100-510300-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 400.5208,
+      "tenYearAnnualizedReturn": 17.4923,
+      "tenYearMaxDrawdown": -23.8447,
+      "tenYearTrades": 484,
+      "currentYearReturn": 11.3927,
+      "currentYearMaxDrawdown": -26.4644,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 64,
+      "currentYearRank": 104,
+      "compositeScore": 0.653194,
+      "compositeRank": 12
+    },
+    {
+      "id": "512100-518880-513100-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 317.109,
+      "tenYearAnnualizedReturn": 15.3678,
+      "tenYearMaxDrawdown": -26.9045,
+      "tenYearTrades": 545,
+      "currentYearReturn": 12.5599,
+      "currentYearMaxDrawdown": -25.6939,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 88,
+      "currentYearRank": 98,
+      "compositeScore": 0.423294,
+      "compositeRank": 50
+    },
+    {
+      "id": "159949-518880-513100-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 545.7104,
+      "tenYearAnnualizedReturn": 20.5262,
+      "tenYearMaxDrawdown": -30.0626,
+      "tenYearTrades": 531,
+      "currentYearReturn": -0.0997,
+      "currentYearMaxDrawdown": -30.1666,
+      "currentYearTrades": 39,
+      "currentHolding": "518880",
+      "tenYearRank": 22,
+      "currentYearRank": 175,
+      "compositeScore": 0.486153,
+      "compositeRank": 36
+    },
+    {
+      "id": "512100-159949-518880-513100-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 513.9181,
+      "tenYearAnnualizedReturn": 19.9186,
+      "tenYearMaxDrawdown": -26.5768,
+      "tenYearTrades": 567,
+      "currentYearReturn": 1.0256,
+      "currentYearMaxDrawdown": -29.38,
+      "currentYearTrades": 39,
+      "currentHolding": "518880",
+      "tenYearRank": 29,
+      "currentYearRank": 165,
+      "compositeScore": 0.560553,
+      "compositeRank": 23
+    },
+    {
+      "id": "159920-510300-588120",
+      "size": 3,
+      "codes": [
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": -14.5606,
+      "tenYearAnnualizedReturn": -1.5628,
+      "tenYearMaxDrawdown": -55.0427,
+      "tenYearTrades": 485,
+      "currentYearReturn": 22.9908,
+      "currentYearMaxDrawdown": -12.979,
+      "currentYearTrades": 26,
+      "currentHolding": "588120",
+      "tenYearRank": 219,
+      "currentYearRank": 29,
+      "compositeScore": -1.368067,
+      "compositeRank": 218
+    },
+    {
+      "id": "512100-159920-510300-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 28.914,
+      "tenYearAnnualizedReturn": 2.5748,
+      "tenYearMaxDrawdown": -42.8162,
+      "tenYearTrades": 525,
+      "currentYearReturn": 27.1668,
+      "currentYearMaxDrawdown": -14.0087,
+      "currentYearTrades": 26,
+      "currentHolding": "512100",
+      "tenYearRank": 213,
+      "currentYearRank": 14,
+      "compositeScore": -0.63635,
+      "compositeRank": 192
+    },
+    {
+      "id": "159949-159920-510300-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 113.63,
+      "tenYearAnnualizedReturn": 7.8941,
+      "tenYearMaxDrawdown": -48.6455,
+      "tenYearTrades": 513,
+      "currentYearReturn": 19.0591,
+      "currentYearMaxDrawdown": -18.8679,
+      "currentYearTrades": 32,
+      "currentHolding": "588120",
+      "tenYearRank": 176,
+      "currentYearRank": 56,
+      "compositeScore": -0.561973,
+      "compositeRank": 185
+    },
+    {
+      "id": "512100-159949-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 131.1572,
+      "tenYearAnnualizedReturn": 8.7491,
+      "tenYearMaxDrawdown": -50.0742,
+      "tenYearTrades": 561,
+      "currentYearReturn": 22.5623,
+      "currentYearMaxDrawdown": -20.1793,
+      "currentYearTrades": 33,
+      "currentHolding": "512100",
+      "tenYearRank": 164,
+      "currentYearRank": 32,
+      "compositeScore": -0.492531,
+      "compositeRank": 178
+    },
+    {
+      "id": "518880-159920-510300-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 31.8723,
+      "tenYearAnnualizedReturn": 2.808,
+      "tenYearMaxDrawdown": -42.0483,
+      "tenYearTrades": 546,
+      "currentYearReturn": 27.5029,
+      "currentYearMaxDrawdown": -24.384,
+      "currentYearTrades": 24,
+      "currentHolding": "518880",
+      "tenYearRank": 212,
+      "currentYearRank": 13,
+      "compositeScore": -0.782856,
+      "compositeRank": 204
+    },
+    {
+      "id": "512100-518880-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 34.7151,
+      "tenYearAnnualizedReturn": 3.0277,
+      "tenYearMaxDrawdown": -40.4851,
+      "tenYearTrades": 594,
+      "currentYearReturn": 28.8389,
+      "currentYearMaxDrawdown": -23.5917,
+      "currentYearTrades": 25,
+      "currentHolding": "518880",
+      "tenYearRank": 209,
+      "currentYearRank": 7,
+      "compositeScore": -0.685234,
+      "compositeRank": 197
+    },
+    {
+      "id": "159949-518880-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 134.0555,
+      "tenYearAnnualizedReturn": 8.8848,
+      "tenYearMaxDrawdown": -41.8069,
+      "tenYearTrades": 568,
+      "currentYearReturn": 25.7209,
+      "currentYearMaxDrawdown": -28.1909,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 160,
+      "currentYearRank": 19,
+      "compositeScore": -0.35611,
+      "compositeRank": 160
+    },
+    {
+      "id": "512100-159949-518880-159920-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 123.0939,
+      "tenYearAnnualizedReturn": 8.3633,
+      "tenYearMaxDrawdown": -44.4665,
+      "tenYearTrades": 616,
+      "currentYearReturn": 27.1369,
+      "currentYearMaxDrawdown": -27.3821,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 170,
+      "currentYearRank": 16,
+      "compositeScore": -0.43307,
+      "compositeRank": 170
+    },
+    {
+      "id": "513100-159920-510300-588120",
+      "size": 4,
+      "codes": [
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 227.8422,
+      "tenYearAnnualizedReturn": 12.6201,
+      "tenYearMaxDrawdown": -27.456,
+      "tenYearTrades": 507,
+      "currentYearReturn": 13.8842,
+      "currentYearMaxDrawdown": -15.3732,
+      "currentYearTrades": 33,
+      "currentHolding": "513100",
+      "tenYearRank": 117,
+      "currentYearRank": 87,
+      "compositeScore": 0.386853,
+      "compositeRank": 60
+    },
+    {
+      "id": "512100-513100-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 276.7244,
+      "tenYearAnnualizedReturn": 14.1978,
+      "tenYearMaxDrawdown": -29.1479,
+      "tenYearTrades": 557,
+      "currentYearReturn": 15.9436,
+      "currentYearMaxDrawdown": -16.3746,
+      "currentYearTrades": 31,
+      "currentHolding": "512100",
+      "tenYearRank": 99,
+      "currentYearRank": 74,
+      "compositeScore": 0.492795,
+      "compositeRank": 35
+    },
+    {
+      "id": "159949-513100-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 425.5083,
+      "tenYearAnnualizedReturn": 18.0666,
+      "tenYearMaxDrawdown": -34.1571,
+      "tenYearTrades": 544,
+      "currentYearReturn": 0.2713,
+      "currentYearMaxDrawdown": -21.1001,
+      "currentYearTrades": 42,
+      "currentHolding": "513100",
+      "tenYearRank": 56,
+      "currentYearRank": 171,
+      "compositeScore": 0.340601,
+      "compositeRank": 74
+    },
+    {
+      "id": "512100-159949-513100-159920-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 503.7882,
+      "tenYearAnnualizedReturn": 19.7191,
+      "tenYearMaxDrawdown": -27.0563,
+      "tenYearTrades": 579,
+      "currentYearReturn": 1.6372,
+      "currentYearMaxDrawdown": -22.3754,
+      "currentYearTrades": 41,
+      "currentHolding": "512100",
+      "tenYearRank": 34,
+      "currentYearRank": 157,
+      "compositeScore": 0.670933,
+      "compositeRank": 11
+    },
+    {
+      "id": "518880-513100-159920-510300-588120",
+      "size": 5,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 322.3205,
+      "tenYearAnnualizedReturn": 15.5112,
+      "tenYearMaxDrawdown": -27.4936,
+      "tenYearTrades": 553,
+      "currentYearReturn": 17.3199,
+      "currentYearMaxDrawdown": -26.4644,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 87,
+      "currentYearRank": 64,
+      "compositeScore": 0.485237,
+      "compositeRank": 38
+    },
+    {
+      "id": "512100-518880-513100-159920-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 311.6711,
+      "tenYearAnnualizedReturn": 15.2163,
+      "tenYearMaxDrawdown": -29.0274,
+      "tenYearTrades": 595,
+      "currentYearReturn": 18.5493,
+      "currentYearMaxDrawdown": -25.6939,
+      "currentYearTrades": 30,
+      "currentHolding": "518880",
+      "tenYearRank": 91,
+      "currentYearRank": 58,
+      "compositeScore": 0.45391,
+      "compositeRank": 42
+    },
+    {
+      "id": "159949-518880-513100-159920-510300-588120",
+      "size": 6,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 457.1355,
+      "tenYearAnnualizedReturn": 18.7593,
+      "tenYearMaxDrawdown": -34.1913,
+      "tenYearTrades": 596,
+      "currentYearReturn": 5.2161,
+      "currentYearMaxDrawdown": -30.1666,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 48,
+      "currentYearRank": 141,
+      "compositeScore": 0.313513,
+      "compositeRank": 80
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-510300-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 499.099,
+      "tenYearAnnualizedReturn": 19.6257,
+      "tenYearMaxDrawdown": -28.7092,
+      "tenYearTrades": 620,
+      "currentYearReturn": 6.4012,
+      "currentYearMaxDrawdown": -29.38,
+      "currentYearTrades": 37,
+      "currentHolding": "518880",
+      "tenYearRank": 38,
+      "currentYearRank": 136,
+      "compositeScore": 0.568523,
+      "compositeRank": 22
+    },
+    {
+      "id": "159628-510300-588120",
+      "size": 3,
+      "codes": [
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 33.6853,
+      "tenYearAnnualizedReturn": 2.9486,
+      "tenYearMaxDrawdown": -39.5556,
+      "tenYearTrades": 352,
+      "currentYearReturn": 19.5297,
+      "currentYearMaxDrawdown": -14.2783,
+      "currentYearTrades": 25,
+      "currentHolding": "159628",
+      "tenYearRank": 210,
+      "currentYearRank": 53,
+      "compositeScore": -0.650137,
+      "compositeRank": 194
+    },
+    {
+      "id": "512100-159628-510300-588120",
+      "size": 4,
+      "codes": [
+        "512100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 60.7823,
+      "tenYearAnnualizedReturn": 4.8682,
+      "tenYearMaxDrawdown": -37.6236,
+      "tenYearTrades": 442,
+      "currentYearReturn": 22.9959,
+      "currentYearMaxDrawdown": -13.5759,
+      "currentYearTrades": 28,
+      "currentHolding": "512100",
+      "tenYearRank": 194,
+      "currentYearRank": 28,
+      "compositeScore": -0.362993,
+      "compositeRank": 161
+    },
+    {
+      "id": "159949-159628-510300-588120",
+      "size": 4,
+      "codes": [
+        "159949",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 171.6988,
+      "tenYearAnnualizedReturn": 10.5224,
+      "tenYearMaxDrawdown": -47.5325,
+      "tenYearTrades": 417,
+      "currentYearReturn": 17.1175,
+      "currentYearMaxDrawdown": -18.7208,
+      "currentYearTrades": 32,
+      "currentHolding": "159628",
+      "tenYearRank": 144,
+      "currentYearRank": 65,
+      "compositeScore": -0.336782,
+      "compositeRank": 156
+    },
+    {
+      "id": "512100-159949-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159949",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股"
+      ],
+      "tenYearReturn": 150.8451,
+      "tenYearAnnualizedReturn": 9.6425,
+      "tenYearMaxDrawdown": -48.3749,
+      "tenYearTrades": 494,
+      "currentYearReturn": 18.5424,
+      "currentYearMaxDrawdown": -19.7775,
+      "currentYearTrades": 36,
+      "currentHolding": "512100",
+      "tenYearRank": 155,
+      "currentYearRank": 59,
+      "compositeScore": -0.430441,
+      "compositeRank": 169
+    },
+    {
+      "id": "518880-159628-510300-588120",
+      "size": 4,
+      "codes": [
+        "518880",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "A股"
+      ],
+      "tenYearReturn": 75.9499,
+      "tenYearAnnualizedReturn": 5.8187,
+      "tenYearMaxDrawdown": -32.6896,
+      "tenYearTrades": 474,
+      "currentYearReturn": 23.7191,
+      "currentYearMaxDrawdown": -22.8355,
+      "currentYearTrades": 26,
+      "currentHolding": "518880",
+      "tenYearRank": 189,
+      "currentYearRank": 26,
+      "compositeScore": -0.30964,
+      "compositeRank": 151
+    },
+    {
+      "id": "512100-518880-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "518880",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 35.4978,
+      "tenYearAnnualizedReturn": 3.0875,
+      "tenYearMaxDrawdown": -41.0108,
+      "tenYearTrades": 562,
+      "currentYearReturn": 23.4277,
+      "currentYearMaxDrawdown": -23.0172,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 208,
+      "currentYearRank": 27,
+      "compositeScore": -0.774055,
+      "compositeRank": 203
+    },
+    {
+      "id": "159949-518880-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "518880",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 195.26,
+      "tenYearAnnualizedReturn": 11.4463,
+      "tenYearMaxDrawdown": -38.6877,
+      "tenYearTrades": 521,
+      "currentYearReturn": 21.9899,
+      "currentYearMaxDrawdown": -26.7203,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 131,
+      "currentYearRank": 35,
+      "compositeScore": -0.088483,
+      "compositeRank": 127
+    },
+    {
+      "id": "512100-159949-518880-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金"
+      ],
+      "tenYearReturn": 111.121,
+      "tenYearAnnualizedReturn": 7.7666,
+      "tenYearMaxDrawdown": -48.8016,
+      "tenYearTrades": 592,
+      "currentYearReturn": 21.7972,
+      "currentYearMaxDrawdown": -26.8361,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 179,
+      "currentYearRank": 37,
+      "compositeScore": -0.679158,
+      "compositeRank": 196
+    },
+    {
+      "id": "513100-159628-510300-588120",
+      "size": 4,
+      "codes": [
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 217.7764,
+      "tenYearAnnualizedReturn": 12.2691,
+      "tenYearMaxDrawdown": -28.6458,
+      "tenYearTrades": 454,
+      "currentYearReturn": 10.7561,
+      "currentYearMaxDrawdown": -16.2395,
+      "currentYearTrades": 31,
+      "currentHolding": "159628",
+      "tenYearRank": 121,
+      "currentYearRank": 108,
+      "compositeScore": 0.25657,
+      "compositeRank": 88
+    },
+    {
+      "id": "512100-513100-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 233.2251,
+      "tenYearAnnualizedReturn": 12.8038,
+      "tenYearMaxDrawdown": -25.4826,
+      "tenYearTrades": 515,
+      "currentYearReturn": 13.9679,
+      "currentYearMaxDrawdown": -15.9536,
+      "currentYearTrades": 34,
+      "currentHolding": "512100",
+      "tenYearRank": 115,
+      "currentYearRank": 86,
+      "compositeScore": 0.445892,
+      "compositeRank": 44
+    },
+    {
+      "id": "159949-513100-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 356.5707,
+      "tenYearAnnualizedReturn": 16.4164,
+      "tenYearMaxDrawdown": -28.6384,
+      "tenYearTrades": 498,
+      "currentYearReturn": -1.2956,
+      "currentYearMaxDrawdown": -20.957,
+      "currentYearTrades": 41,
+      "currentHolding": "159628",
+      "tenYearRank": 80,
+      "currentYearRank": 183,
+      "compositeScore": 0.32289,
+      "compositeRank": 78
+    },
+    {
+      "id": "512100-159949-513100-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股"
+      ],
+      "tenYearReturn": 396.3321,
+      "tenYearAnnualizedReturn": 17.3935,
+      "tenYearMaxDrawdown": -28.9227,
+      "tenYearTrades": 539,
+      "currentYearReturn": -0.0947,
+      "currentYearMaxDrawdown": -21.9846,
+      "currentYearTrades": 45,
+      "currentHolding": "512100",
+      "tenYearRank": 67,
+      "currentYearRank": 173,
+      "compositeScore": 0.40007,
+      "compositeRank": 57
+    },
+    {
+      "id": "518880-513100-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "518880",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "A股"
+      ],
+      "tenYearReturn": 343.6104,
+      "tenYearAnnualizedReturn": 16.0813,
+      "tenYearMaxDrawdown": -27.2451,
+      "tenYearTrades": 509,
+      "currentYearReturn": 14.638,
+      "currentYearMaxDrawdown": -24.9585,
+      "currentYearTrades": 32,
+      "currentHolding": "518880",
+      "tenYearRank": 83,
+      "currentYearRank": 80,
+      "compositeScore": 0.523792,
+      "compositeRank": 29
+    },
+    {
+      "id": "512100-518880-513100-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 267.3855,
+      "tenYearAnnualizedReturn": 13.9112,
+      "tenYearMaxDrawdown": -28.0516,
+      "tenYearTrades": 559,
+      "currentYearReturn": 14.368,
+      "currentYearMaxDrawdown": -25.1352,
+      "currentYearTrades": 35,
+      "currentHolding": "518880",
+      "tenYearRank": 103,
+      "currentYearRank": 84,
+      "compositeScore": 0.30848,
+      "compositeRank": 81
+    },
+    {
+      "id": "159949-518880-513100-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 485.0571,
+      "tenYearAnnualizedReturn": 19.342,
+      "tenYearMaxDrawdown": -30.9015,
+      "tenYearTrades": 555,
+      "currentYearReturn": 2.8109,
+      "currentYearMaxDrawdown": -28.7365,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 40,
+      "currentYearRank": 151,
+      "compositeScore": 0.437543,
+      "compositeRank": 45
+    },
+    {
+      "id": "512100-159949-518880-513100-159628-510300-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股"
+      ],
+      "tenYearReturn": 423.0497,
+      "tenYearAnnualizedReturn": 18.0112,
+      "tenYearMaxDrawdown": -31.6675,
+      "tenYearTrades": 584,
+      "currentYearReturn": 2.6484,
+      "currentYearMaxDrawdown": -28.849,
+      "currentYearTrades": 42,
+      "currentHolding": "518880",
+      "tenYearRank": 57,
+      "currentYearRank": 153,
+      "compositeScore": 0.298235,
+      "compositeRank": 83
+    },
+    {
+      "id": "159920-159628-510300-588120",
+      "size": 4,
+      "codes": [
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": -2.3857,
+      "tenYearAnnualizedReturn": -0.2414,
+      "tenYearMaxDrawdown": -51.9435,
+      "tenYearTrades": 494,
+      "currentYearReturn": 20.8308,
+      "currentYearMaxDrawdown": -15.283,
+      "currentYearTrades": 29,
+      "currentHolding": "159628",
+      "tenYearRank": 218,
+      "currentYearRank": 43,
+      "compositeScore": -1.251032,
+      "compositeRank": 217
+    },
+    {
+      "id": "512100-159920-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "512100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 41.107,
+      "tenYearAnnualizedReturn": 3.5069,
+      "tenYearMaxDrawdown": -39.433,
+      "tenYearTrades": 540,
+      "currentYearReturn": 24.9139,
+      "currentYearMaxDrawdown": -14.9938,
+      "currentYearTrades": 32,
+      "currentHolding": "512100",
+      "tenYearRank": 206,
+      "currentYearRank": 22,
+      "compositeScore": -0.52217,
+      "compositeRank": 181
+    },
+    {
+      "id": "159949-159920-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "159949",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 129.6279,
+      "tenYearAnnualizedReturn": 8.6769,
+      "tenYearMaxDrawdown": -48.5179,
+      "tenYearTrades": 523,
+      "currentYearReturn": 18.3923,
+      "currentYearMaxDrawdown": -20.0544,
+      "currentYearTrades": 35,
+      "currentHolding": "159628",
+      "tenYearRank": 165,
+      "currentYearRank": 61,
+      "compositeScore": -0.524667,
+      "compositeRank": 182
+    },
+    {
+      "id": "512100-159949-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "159949",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "港股"
+      ],
+      "tenYearReturn": 132.7143,
+      "tenYearAnnualizedReturn": 8.8222,
+      "tenYearMaxDrawdown": -48.5851,
+      "tenYearTrades": 580,
+      "currentYearReturn": 20.3909,
+      "currentYearMaxDrawdown": -21.0937,
+      "currentYearTrades": 39,
+      "currentHolding": "512100",
+      "tenYearRank": 162,
+      "currentYearRank": 49,
+      "compositeScore": -0.499846,
+      "compositeRank": 180
+    },
+    {
+      "id": "518880-159920-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "518880",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 54.1145,
+      "tenYearAnnualizedReturn": 4.4245,
+      "tenYearMaxDrawdown": -37.3674,
+      "tenYearTrades": 544,
+      "currentYearReturn": 30.5752,
+      "currentYearMaxDrawdown": -22.8355,
+      "currentYearTrades": 24,
+      "currentHolding": "518880",
+      "tenYearRank": 198,
+      "currentYearRank": 3,
+      "compositeScore": -0.439209,
+      "compositeRank": 171
+    },
+    {
+      "id": "512100-518880-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "518880",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 36.9868,
+      "tenYearAnnualizedReturn": 3.2003,
+      "tenYearMaxDrawdown": -38.8007,
+      "tenYearTrades": 602,
+      "currentYearReturn": 30.2677,
+      "currentYearMaxDrawdown": -23.0172,
+      "currentYearTrades": 27,
+      "currentHolding": "518880",
+      "tenYearRank": 207,
+      "currentYearRank": 4,
+      "compositeScore": -0.590903,
+      "compositeRank": 190
+    },
+    {
+      "id": "159949-518880-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 159.2949,
+      "tenYearAnnualizedReturn": 10.0067,
+      "tenYearMaxDrawdown": -37.9862,
+      "tenYearTrades": 576,
+      "currentYearReturn": 28.7502,
+      "currentYearMaxDrawdown": -26.7203,
+      "currentYearTrades": 29,
+      "currentHolding": "518880",
+      "tenYearRank": 151,
+      "currentYearRank": 10,
+      "compositeScore": -0.079976,
+      "compositeRank": 126
+    },
+    {
+      "id": "512100-159949-518880-159920-159628-510300-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "港股"
+      ],
+      "tenYearReturn": 109.574,
+      "tenYearAnnualizedReturn": 7.6873,
+      "tenYearMaxDrawdown": -45.1977,
+      "tenYearTrades": 633,
+      "currentYearReturn": 28.5468,
+      "currentYearMaxDrawdown": -26.8361,
+      "currentYearTrades": 31,
+      "currentHolding": "518880",
+      "tenYearRank": 180,
+      "currentYearRank": 12,
+      "compositeScore": -0.476784,
+      "compositeRank": 175
+    },
+    {
+      "id": "513100-159920-159628-510300-588120",
+      "size": 5,
+      "codes": [
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 201.4269,
+      "tenYearAnnualizedReturn": 11.6771,
+      "tenYearMaxDrawdown": -28.847,
+      "tenYearTrades": 533,
+      "currentYearReturn": 11.7277,
+      "currentYearMaxDrawdown": -17.6138,
+      "currentYearTrades": 35,
+      "currentHolding": "159628",
+      "tenYearRank": 127,
+      "currentYearRank": 101,
+      "compositeScore": 0.191214,
+      "compositeRank": 100
+    },
+    {
+      "id": "512100-513100-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "512100",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 242.1252,
+      "tenYearAnnualizedReturn": 13.1019,
+      "tenYearMaxDrawdown": -29.1479,
+      "tenYearTrades": 578,
+      "currentYearReturn": 15.5031,
+      "currentYearMaxDrawdown": -17.3326,
+      "currentYearTrades": 38,
+      "currentHolding": "512100",
+      "tenYearRank": 111,
+      "currentYearRank": 77,
+      "compositeScore": 0.373713,
+      "compositeRank": 64
+    },
+    {
+      "id": "159949-513100-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 359.1396,
+      "tenYearAnnualizedReturn": 16.4818,
+      "tenYearMaxDrawdown": -32.423,
+      "tenYearTrades": 569,
+      "currentYearReturn": -0.4297,
+      "currentYearMaxDrawdown": -22.2539,
+      "currentYearTrades": 44,
+      "currentHolding": "159628",
+      "tenYearRank": 76,
+      "currentYearRank": 179,
+      "compositeScore": 0.217905,
+      "compositeRank": 96
+    },
+    {
+      "id": "512100-159949-513100-159920-159628-510300-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "159949",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 422.676,
+      "tenYearAnnualizedReturn": 18.0028,
+      "tenYearMaxDrawdown": -32.6922,
+      "tenYearTrades": 600,
+      "currentYearReturn": 1.2511,
+      "currentYearMaxDrawdown": -23.2646,
+      "currentYearTrades": 48,
+      "currentHolding": "512100",
+      "tenYearRank": 58,
+      "currentYearRank": 162,
+      "compositeScore": 0.350449,
+      "compositeRank": 70
+    },
+    {
+      "id": "518880-513100-159920-159628-510300-588120",
+      "size": 6,
+      "codes": [
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "黄金",
+        "美股",
+        "港股",
+        "A股"
+      ],
+      "tenYearReturn": 312.4546,
+      "tenYearAnnualizedReturn": 15.2382,
+      "tenYearMaxDrawdown": -30.5656,
+      "tenYearTrades": 567,
+      "currentYearReturn": 20.7379,
+      "currentYearMaxDrawdown": -24.9585,
+      "currentYearTrades": 30,
+      "currentHolding": "518880",
+      "tenYearRank": 90,
+      "currentYearRank": 45,
+      "compositeScore": 0.465022,
+      "compositeRank": 40
+    },
+    {
+      "id": "512100-518880-513100-159920-159628-510300-588120",
+      "size": 7,
+      "codes": [
+        "512100",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 265.8366,
+      "tenYearAnnualizedReturn": 13.863,
+      "tenYearMaxDrawdown": -31.3353,
+      "tenYearTrades": 606,
+      "currentYearReturn": 20.4536,
+      "currentYearMaxDrawdown": -25.1352,
+      "currentYearTrades": 33,
+      "currentHolding": "518880",
+      "tenYearRank": 104,
+      "currentYearRank": 47,
+      "compositeScore": 0.318579,
+      "compositeRank": 79
+    },
+    {
+      "id": "159949-518880-513100-159920-159628-510300-588120",
+      "size": 7,
+      "codes": [
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 438.1583,
+      "tenYearAnnualizedReturn": 18.3481,
+      "tenYearMaxDrawdown": -34.0552,
+      "tenYearTrades": 611,
+      "currentYearReturn": 8.2815,
+      "currentYearMaxDrawdown": -28.7365,
+      "currentYearTrades": 38,
+      "currentHolding": "518880",
+      "tenYearRank": 54,
+      "currentYearRank": 121,
+      "compositeScore": 0.359767,
+      "compositeRank": 67
+    },
+    {
+      "id": "512100-159949-518880-513100-159920-159628-510300-588120",
+      "size": 8,
+      "codes": [
+        "512100",
+        "159949",
+        "518880",
+        "513100",
+        "159920",
+        "159628",
+        "510300",
+        "588120"
+      ],
+      "assetClasses": [
+        "A股",
+        "黄金",
+        "美股",
+        "港股"
+      ],
+      "tenYearReturn": 413.2991,
+      "tenYearAnnualizedReturn": 17.7891,
+      "tenYearMaxDrawdown": -34.7862,
+      "tenYearTrades": 635,
+      "currentYearReturn": 8.1104,
+      "currentYearMaxDrawdown": -28.849,
+      "currentYearTrades": 40,
+      "currentHolding": "518880",
+      "tenYearRank": 59,
+      "currentYearRank": 124,
+      "compositeScore": 0.287396,
+      "compositeRank": 84
+    }
+  ]
+}

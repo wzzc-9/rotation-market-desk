@@ -1010,7 +1010,9 @@ function Screener({
   );
 }
 
-function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
+function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { strategy: 'rotation' | 'asset-rotation'; rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
+  const isAssetRotation = strategy === 'asset-rotation';
+  const endpointBase = `/api/strategy/${strategy}/combinations`;
   type CombinationSortKey = 'score' | 'ten-year' | 'current-year';
   type CombinationSort = { key: CombinationSortKey; direction: 'asc' | 'desc' };
   const [sort, setSort] = useState<CombinationSort>({ key: 'score', direction: 'desc' });
@@ -1028,7 +1030,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void apiFetch(`/api/strategy/asset-rotation/combinations?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25`, {
+    void apiFetch(`${endpointBase}?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25`, {
       cache: 'no-store',
       signal: controller.signal,
     }).then(async (response) => {
@@ -1042,7 +1044,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [page, sort.direction, sort.key]);
+  }, [endpointBase, page, sort.direction, sort.key]);
   useEffect(() => {
     if (result) setPageInput(String(result.page));
   }, [result]);
@@ -1069,7 +1071,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
     setPoolUpdating(true);
     setPoolError('');
     try {
-      const response = await apiFetch(action === 'add' ? '/api/strategy/asset-rotation/combinations/symbols' : `/api/strategy/asset-rotation/combinations/symbols/${encodeURIComponent(item.code)}`, {
+      const response = await apiFetch(action === 'add' ? `${endpointBase}/symbols` : `${endpointBase}/symbols/${encodeURIComponent(item.code)}`, {
         method: action === 'add' ? 'POST' : 'DELETE',
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
@@ -1085,12 +1087,12 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
     } finally {
       setPoolUpdating(false);
     }
-  }, []);
+  }, [endpointBase]);
   const recalculatePool = useCallback(async () => {
     setPoolCalculating(true);
     setPoolError('');
     try {
-      const response = await apiFetch(`/api/strategy/asset-rotation/combinations/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25`, {
+      const response = await apiFetch(`${endpointBase}/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -1106,7 +1108,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
     } finally {
       setPoolCalculating(false);
     }
-  }, [sort.direction, sort.key]);
+  }, [endpointBase, sort.direction, sort.key]);
   const poolSymbols = result?.poolDraft.symbols ?? [];
   const calculatedCodes = useMemo(() => new Set(result?.universe.map((item) => item.code) ?? []), [result]);
   const activeRotationPoolKey = useMemo(() => [...rotationPoolCodes].sort().join(','), [rotationPoolCodes]);
@@ -1125,7 +1127,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
   return (
     <section className="panel asset-combination-panel">
       <div className="panel-title-row combination-title-row">
-        <div><span className="eyebrow">COMBINATION REPLAY</span><h3>全组合收益排名</h3></div>
+        <div><span className="eyebrow">{isAssetRotation ? 'ASSET COMBINATION REPLAY' : 'INDEX COMBINATION REPLAY'}</span><h3>全组合收益排名</h3></div>
         <div className="combination-toolbar">
           {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {result.totalCombinations.toLocaleString()} 个组合</span>}
         </div>
@@ -1142,7 +1144,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
           onAdd={(item) => updatePool('add', item)}
         />
         <div className="combination-pool-strip">
-          <div className="combination-pool-label"><span>组合池</span><small>{poolSymbols.length} / 16</small></div>
+          <div className="combination-pool-label"><span>组合池</span><small>{poolSymbols.length} 只</small></div>
           <div className="combination-pool-symbols">
             {poolSymbols.map((symbol) => <div className={`combination-pool-chip${calculatedCodes.has(symbol.code) ? '' : ' is-pending'}`} key={symbol.code}>
               <span><strong>{symbol.name}</strong><small>{symbol.code}</small></span>
@@ -1168,7 +1170,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
         </div>
         <div className="combination-table-wrap">
           <table className="combination-table">
-            <thead><tr><th>排名</th><th>ETF 组合</th><th>资产覆盖</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>年化收益</th><th>10年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>周度交易</th><th>当前持仓</th><th>操作</th></tr></thead>
+            <thead><tr><th>排名</th><th>ETF 组合</th><th>资产覆盖</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>年化收益</th><th>10年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>{isAssetRotation ? '周度交易' : '每日交易'}</th><th>当前持仓</th><th>操作</th></tr></thead>
             <tbody>{result.combinations.map((item) => (
               <tr key={item.id}>
                 <td><RankBadge rank={item.displayRank} /></td>
@@ -1202,7 +1204,7 @@ function AssetCombinationExplorer({ rotationPoolCodes, rotationPoolUpdating = fa
           </form>
           <button type="button" className="icon-button" title="下一页" aria-label="组合排名下一页" disabled={result.page >= result.totalPages || loading} onClick={() => goToPage(result.page + 1)}><ChevronRight size={16} /></button>
         </div>
-        <div className="method-note">综合得分 = 50% × 标准化近 10 年年化收益 + 20% × 标准化 {result.periods.currentYear.year} 年收益 − 20% × 标准化近 10 年最大回撤绝对值 − 10% × 标准化 {result.periods.currentYear.year} 年最大回撤绝对值；标准化使用全部组合的总体均值与总体标准差。候选全集取自独立组合池，完整枚举 3—{result.universe.length} 只 ETF 的所有组合，并排除仅含 2 只 ETF 的组合。所有组合均使用每周最后一个交易日收盘信号、20 日涨幅排名、MA28 与前 2 名持有规则，未计手续费、滑点与冲击成本。组合排名属于历史参数搜索，不代表未来收益。</div>
+        <div className="method-note">综合得分 = 50% × 标准化近 10 年年化收益 + 20% × 标准化 {result.periods.currentYear.year} 年收益 − 20% × 标准化近 10 年最大回撤绝对值 − 10% × 标准化 {result.periods.currentYear.year} 年最大回撤绝对值；标准化使用全部组合的总体均值与总体标准差。候选全集取自独立组合池，完整枚举 3—{result.universe.length} 只 ETF 的所有组合，并排除仅含 2 只 ETF 的组合。{isAssetRotation ? '所有组合均使用每周最后一个交易日收盘信号、20 日涨幅排名、MA28 与前 2 名持有规则' : '所有组合均使用每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有规则'}，未计手续费、滑点与冲击成本。组合排名属于历史参数搜索，不代表未来收益。</div>
       </>}
     </section>
   );
@@ -1405,7 +1407,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           </div>
         </section>
 
-        {isAssetRotation && onReplaceCombination && <AssetCombinationExplorer rotationPoolCodes={(poolSymbols ?? markets).map((item) => item.code)} rotationPoolUpdating={poolUpdating} onReplaceRotationPool={onReplaceCombination} />}
+        {onReplaceCombination && <RotationCombinationExplorer strategy={isAssetRotation ? 'asset-rotation' : 'rotation'} rotationPoolCodes={(poolSymbols ?? markets).map((item) => item.code)} rotationPoolUpdating={poolUpdating} onReplaceRotationPool={onReplaceCombination} />}
 
         <section className="panel notes-panel">
           <div className="panel-title-row"><div><span className="eyebrow">RISK CONTROL</span><h3>执行约束</h3></div></div>
@@ -2756,6 +2758,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [rotationPoolUpdating, setRotationPoolUpdating] = useState(false);
+  const [rotationPoolCalculating, setRotationPoolCalculating] = useState(false);
   const [rotationPoolError, setRotationPoolError] = useState('');
   const [pendingRotationRemoval, setPendingRotationRemoval] = useState<PoolSymbol | null>(null);
   const [watchlist, setWatchlist] = useState(new Set(['512100', '518880', '513100']));
@@ -2791,14 +2794,56 @@ export default function App() {
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
       });
-      const payload = await response.json() as RotationResponse & { message?: string };
+      const payload = await response.json() as NonNullable<RotationResponse['poolDraft']> & { message?: string };
       if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移除'} ETF 失败`);
-      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('重算完成，但返回的数据不完整');
+      if (!Array.isArray(payload.symbols) || payload.symbols.length < 2) throw new Error('标的池变更已保存，但返回的数据不完整');
+      setMarketMeta((current) => current ? { ...current, poolDraft: payload } : current);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setRotationPoolError(message);
+      throw reason;
+    } finally {
+      setRotationPoolUpdating(false);
+    }
+  }, []);
+
+  const recalculateRotationPool = useCallback(async () => {
+    setRotationPoolCalculating(true);
+    setRotationPoolError('');
+    try {
+      const response = await apiFetch('/api/strategy/rotation/recalculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || '重新计算失败');
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length || payload.poolDraft?.dirty) throw new Error('重新计算完成，但返回的数据不完整');
       setMarkets(payload.markets);
       setMarketMeta(payload);
       setSelectedCode((current) => payload.markets.some((market) => market.code === current) ? current : payload.markets[0].code);
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setRotationPoolError(reason instanceof Error ? reason.message : '重新计算失败');
+    } finally {
+      setRotationPoolCalculating(false);
+    }
+  }, []);
+
+  const replaceRotationPool = useCallback(async (codes: string[]) => {
+    setRotationPoolUpdating(true);
+    setRotationPoolError('');
+    try {
+      const response = await apiFetch('/api/strategy/rotation/symbols', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes }),
+      });
+      const payload = await response.json() as NonNullable<RotationResponse['poolDraft']> & { message?: string };
+      if (!response.ok) throw new Error(payload.message || '轮动标的池替换失败');
+      if (!Array.isArray(payload.symbols) || payload.symbols.length < 2) throw new Error('标的池替换已保存，但返回的数据不完整');
+      setMarketMeta((current) => current ? { ...current, poolDraft: payload } : current);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '轮动标的池替换失败';
       setRotationPoolError(message);
       throw reason;
     } finally {
@@ -2994,7 +3039,25 @@ export default function App() {
         )}
         {selected && view === 'dashboard' && <Dashboard markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
         {selected && view === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
-        {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter markets={markets} yearPerformance={marketMeta.yearPerformance} strategyBacktest={marketMeta.backtest} poolEditor={<AssetPoolEditor markets={markets} updating={rotationPoolUpdating} onAdd={(item) => updateRotationPool('add', item)} />} poolUpdating={rotationPoolUpdating} onRemoveMarket={setPendingRotationRemoval} refreshing={loading || rotationPoolUpdating} onRefresh={() => void loadMarkets(true)} />}
+        {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter
+          markets={markets}
+          yearPerformance={marketMeta.yearPerformance}
+          strategyBacktest={marketMeta.backtest}
+          poolEditor={<AssetPoolEditor
+            markets={marketMeta.poolDraft?.symbols ?? markets}
+            updating={rotationPoolUpdating || rotationPoolCalculating}
+            deferred
+            statusText={rotationPoolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
+            action={<button type="button" className={`pool-recalculate-button${rotationPoolCalculating ? ' is-calculating' : ''}`} disabled={!marketMeta.poolDraft?.dirty || rotationPoolUpdating || rotationPoolCalculating} title={marketMeta.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '当前没有待计算的变更'} onClick={() => void recalculateRotationPool()}><RefreshCw className={rotationPoolCalculating ? 'spin-icon' : undefined} size={14} />{rotationPoolCalculating ? '正在计算' : '重新计算'}</button>}
+            onAdd={(item) => updateRotationPool('add', item)}
+          />}
+          poolSymbols={marketMeta.poolDraft?.symbols}
+          poolUpdating={rotationPoolUpdating || rotationPoolCalculating}
+          onRemoveMarket={setPendingRotationRemoval}
+          onReplaceCombination={replaceRotationPool}
+          refreshing={loading || rotationPoolUpdating || rotationPoolCalculating}
+          onRefresh={() => void loadMarkets(true)}
+        />}
         {view === 'strategy' && strategyId === 'asset-rotation' && <AssetRotationStrategy />}
         {view === 'strategy' && strategyId === 'dual-etf' && <DualEtfStrategy />}
         {view === 'strategy' && strategyId === 'macd' && <MacdConfluenceStrategy />}
@@ -3005,7 +3068,7 @@ export default function App() {
         {view === 'strategy' && strategyId === 'intersection' && <StrategyIntersection latestTradingDate={marketMeta?.lastTradingDate} />}
       </main>
 
-      {pendingRotationRemoval && <PoolRemovalDialog market={pendingRotationRemoval} strategyName="宽基 20 日动量轮动" onCancel={() => setPendingRotationRemoval(null)} onConfirm={confirmRotationRemoval} />}
+      {pendingRotationRemoval && <PoolRemovalDialog market={pendingRotationRemoval} strategyName="宽基 20 日动量轮动" deferred onCancel={() => setPendingRotationRemoval(null)} onConfirm={confirmRotationRemoval} />}
 
       <nav className="mobile-nav" aria-label="移动端导航">
         {menuItems.map((item) => {

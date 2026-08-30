@@ -6,6 +6,4 @@ vite.config.d.ts
 vite.log
 vite-error.log
 .env.local
-data/asset-rotation/pending-config.json
-data/asset-rotation/combination-pending-config.json
 /.idea
