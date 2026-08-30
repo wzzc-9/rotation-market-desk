@@ -106,6 +106,7 @@ function run() {
 
 const selected = run();
 const backtest = {
+  _comment: '页面“全球大类资产 ETF 轮动”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。',
   version: 'asset-rotation-return20-ma28-weekly-v1',
   strategy: 'asset-rotation',
   configVersion: config.version,

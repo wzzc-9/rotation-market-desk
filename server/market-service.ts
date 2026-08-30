@@ -480,7 +480,12 @@ function writeTextAtomic(path: string, content: string) {
 }
 
 function writeStrategyConfig(path: string, config: AssetRotationConfig) {
-  writeTextAtomic(path, `${JSON.stringify(config, null, 2)}\n`);
+  const comment = path === assetRotationConfigPath || path === assetRotationPendingConfigPath
+    ? '页面“全球大类资产 ETF 轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
+    : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
+      ? '页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
+      : null;
+  writeTextAtomic(path, `${JSON.stringify(comment ? { _comment: comment, ...config } : config, null, 2)}\n`);
 }
 
 function writeRotationConfig(config: AssetRotationConfig) {

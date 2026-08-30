@@ -186,6 +186,7 @@ const compositeOrder = [...combinations].sort((left, right) => right.compositeSc
 compositeOrder.forEach((item, index) => { item.compositeRank = index + 1; });
 
 const result = {
+  _comment: '页面“全组合收益排名”表格的数据，包括每个 ETF 组合的近10年收益、2026年收益、回撤、综合得分和排名。',
   version: 'asset-rotation-combinations-weekly-v3',
   strategy: 'asset-rotation',
   generatedAt: new Date().toISOString(),
