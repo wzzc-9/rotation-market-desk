@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationSnapshot, getBullPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, updateRotationPool, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, searchEtfs, updateAssetRotationPool, updateDualEtfPool, updateRotationPool, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
 const allowedCorsOrigins = new Set([
@@ -49,6 +49,20 @@ app.get<{ Querystring: { refresh?: string } }>('/api/strategy/asset-rotation', a
     return reply.code(502).send({
       error: 'UPSTREAM_MARKET_DATA_ERROR',
       message: error instanceof Error ? error.message : '大类资产轮动行情暂时不可用',
+    });
+  }
+});
+
+app.get<{ Querystring: { refresh?: string } }>('/api/strategy/dual-etf', async (request, reply) => {
+  try {
+    const snapshot = await getDualEtfSnapshot(request.query.refresh === '1');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message: error instanceof Error ? error.message : '双 ETF 动量轮动行情暂时不可用',
     });
   }
 });
@@ -109,6 +123,30 @@ app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation/symbols/:
     request.log.error(error);
     const message = error instanceof Error ? error.message : 'ETF 移除失败';
     return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/dual-etf/symbols', async (request, reply) => {
+  try {
+    const snapshot = await updateDualEtfPool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'DUAL_ETF_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/dual-etf/symbols/:code', async (request, reply) => {
+  try {
+    const snapshot = await updateDualEtfPool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移除失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'DUAL_ETF_POOL_UPDATE_ERROR', message });
   }
 });
 

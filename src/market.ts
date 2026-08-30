@@ -9,7 +9,7 @@ export type EtfSearchResult = {
 
 export type RotationBacktestResponse = {
   version: string;
-  strategy: 'rotation' | 'asset-rotation';
+  strategy: 'rotation' | 'asset-rotation' | 'dual-etf';
   configVersion: number;
   generatedAt: string;
   period: { start: string; end: string };

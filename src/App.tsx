@@ -33,12 +33,12 @@ import {
 import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
-import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, type AnnualReturn } from './backtest';
+import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, dualEtfAnnualReturns, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
 import { formatPct, formatVolume, movingAverage, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
-type StrategyId = 'rotation' | 'asset-rotation' | 'intersection' | ScreeningStrategyId;
+type StrategyId = 'rotation' | 'asset-rotation' | 'dual-etf' | 'intersection' | ScreeningStrategyId;
 type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
 
@@ -917,14 +917,15 @@ function Screener({
   );
 }
 
-function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset'; refreshing?: boolean; onRefresh?: () => void }) {
+function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolUpdating = false, onRemoveMarket, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolUpdating?: boolean; onRemoveMarket?: (market: RankedMarket) => void; variant?: 'broad' | 'asset' | 'dual'; refreshing?: boolean; onRefresh?: () => void }) {
   const isAssetRotation = variant === 'asset';
+  const isDualEtf = variant === 'dual';
   const leader = markets[0];
   const second = markets[1];
   const holding = markets.find((market) => market.name === yearPerformance.currentHolding) ?? null;
   const trendPeriod = isAssetRotation ? 28 : 20;
   const poolSize = markets.length;
-  const performanceReturns = strategyBacktest?.annualReturns ?? (isAssetRotation ? assetRotationAnnualReturns : annualReturns);
+  const performanceReturns = strategyBacktest?.annualReturns ?? (isAssetRotation ? assetRotationAnnualReturns : isDualEtf ? dualEtfAnnualReturns : annualReturns);
   const [backtestStartYear, setBacktestStartYear] = useState(performanceReturns[0].year);
   const filteredPerformanceReturns = useMemo(
     () => performanceReturns.filter((item) => item.year >= backtestStartYear),
@@ -958,6 +959,11 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
     { title: '执行买入', copy: '20 日涨幅排名第 1，且收盘价站上 MA28，两个条件同时满足才买入。', icon: TrendingUp },
     { title: '持续持有', copy: '持仓保持在涨幅前 2 名，同时收盘价不低于 MA28，则继续持有。', icon: Check },
     { title: '卖出避险', copy: '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
+  ] : isDualEtf ? [
+    { title: '比较强弱', copy: `每日收盘后计算标的池内 ${poolSize} 只 ETF 的近 20 个交易日涨跌幅并排序。`, icon: Activity },
+    { title: '执行买入', copy: '只选择 20 日涨幅排名第 1 的 ETF，并要求收盘价不低于 MA20。', icon: TrendingUp },
+    { title: '强者恒强', copy: '排名第 1 且保持在 MA20 上方则继续持有，始终跟随当前更强标的。', icon: Check },
+    { title: '轮换空仓', copy: '第一名改变时立即轮换；领先 ETF 跌破 MA20 时清仓，全部不满足则保持现金。', icon: TrendingDown },
   ] : [
     { title: '计算动量', copy: '每日收盘后计算：收盘价 ÷ 20日均线 - 1。', icon: Activity },
     { title: '执行买入', copy: `收盘价有效站上 MA20，且动量在标的池内 ${poolSize} 只 ETF 中排名第 1。`, icon: TrendingUp },
@@ -968,9 +974,13 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
     <div className="workspace-view strategy-view">
       <section className="view-heading strategy-heading">
         <div>
-          <span className="eyebrow">STRATEGY / {isAssetRotation ? 'GLOBAL ASSET ROTATION' : 'ACTIVE'}</span>
-          <h1>{isAssetRotation ? '全球大类资产 ETF 轮动' : '宽基 20 日动量轮动'}</h1>
-          <p>{isAssetRotation ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。` : `当前 ${poolSize} 只宽基与跨市场 ETF 每日单标的轮动，可按名称或代码调整标的池。`}</p>
+          <span className="eyebrow">STRATEGY / {isAssetRotation ? 'GLOBAL ASSET ROTATION' : isDualEtf ? 'DUAL ETF MOMENTUM' : 'ACTIVE'}</span>
+          <h1>{isAssetRotation ? '全球大类资产 ETF 轮动' : isDualEtf ? '双 ETF 20 日动量轮动' : '宽基 20 日动量轮动'}</h1>
+          <p>{isAssetRotation
+            ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。`
+            : isDualEtf
+              ? `默认跟踪创业板与纳指两条成长主线，当前 ${poolSize} 只 ETF 每日强弱轮动，可调整标的池。`
+              : `当前 ${poolSize} 只宽基与跨市场 ETF 每日单标的轮动，可按名称或代码调整标的池。`}</p>
         </div>
         <div className="strategy-heading-actions">
           {onRefresh && <button className={`text-button ${refreshing ? 'is-spinning' : ''}`} type="button" disabled={refreshing} onClick={onRefresh}><RefreshCw size={14} />刷新行情</button>}
@@ -985,7 +995,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           <p>{holding ? `${holding.code} · 策略仓位 100%` : '当前无有效买入信号'}</p>
         </div>
         <div className="signal-stat">
-          <span>{isAssetRotation ? '领先 20 日涨幅' : '领先动量'}</span>
+          <span>{isAssetRotation || isDualEtf ? '领先 20 日涨幅' : '领先动量'}</span>
           <strong className="up">{formatPct(leader.momentum)}</strong>
           <small>高于第二名 {(leader.momentum - second.momentum).toFixed(2)} pct</small>
         </div>
@@ -1020,7 +1030,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           </div>
         </section>
 
-        <StrategyUniverse markets={markets} trendPeriod={trendPeriod} momentumLabel={isAssetRotation ? '20日涨幅' : '20日动量'} editor={poolEditor} updating={poolUpdating} onRemove={onRemoveMarket} />
+        <StrategyUniverse markets={markets} trendPeriod={trendPeriod} momentumLabel={isAssetRotation || isDualEtf ? '20日涨幅' : '20日动量'} editor={poolEditor} updating={poolUpdating} onRemove={onRemoveMarket} />
 
         <section className="panel year-performance-panel">
           <div className="panel-title-row">
@@ -1074,6 +1084,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
             <div><span>最大回撤</span><strong className="down">{performanceSummary.worstDrawdown.toFixed(2)}%</strong></div>
           </div>
           {isAssetRotation && <div className="video-benchmark-bar"><strong>视频展示口径</strong><span>累计收益 <b>+{assetRotationVideoBenchmark.cumulativeReturn.toFixed(2)}%</b></span><span>年化 <b>+{assetRotationVideoBenchmark.annualizedReturn.toFixed(2)}%</b></span><span>当前回撤 <b>{assetRotationVideoBenchmark.currentDrawdown.toFixed(2)}%</b></span><span>最大回撤 <b>{assetRotationVideoBenchmark.worstDrawdown.toFixed(2)}%</b></span><span>卡玛 <b>{assetRotationVideoBenchmark.calmarRatio.toFixed(2)}</b></span><span>夏普 <b>{assetRotationVideoBenchmark.sharpeRatio.toFixed(2)}</b></span></div>}
+          {isDualEtf && <div className="video-benchmark-bar"><strong>视频展示口径</strong><span>累计收益 <b>+{dualEtfVideoBenchmark.cumulativeReturn.toFixed(2)}%</b></span><span>年化 <b>+{dualEtfVideoBenchmark.annualizedReturn.toFixed(2)}%</b></span><span>当前回撤 <b>{dualEtfVideoBenchmark.currentDrawdown.toFixed(2)}%</b></span><span>最大回撤 <b>{dualEtfVideoBenchmark.worstDrawdown.toFixed(2)}%</b></span><span>卡玛 <b>{dualEtfVideoBenchmark.calmarRatio.toFixed(2)}</b></span><span>夏普 <b>{dualEtfVideoBenchmark.sharpeRatio.toFixed(2)}</b></span></div>}
           <div className="performance-content">
             <AnnualReturnChart data={filteredPerformanceReturns} />
             <div className="performance-table-wrap">
@@ -1097,7 +1108,9 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           <div className="method-note">
             {isAssetRotation
               ? '本地复算区间：2016-01-04 至 2025-12-31；ETF 上市满 28 个交易日后进入排名，每周最后一个交易日收盘计算信号，持有下一交易周收益。视频与本地复算因行情源、ETF复权和交易费用口径不同，结果会有差异。'
-              : '数据源：腾讯证券公开前复权日线。ETF 上市满 20 个交易日后才进入排名；T 日收盘计算信号，持有 T+1 日收益。结果未计手续费、滑点与冲击成本。'}
+              : isDualEtf
+                ? '本地复算区间：2016-01-04 至 2025-12-31；每日比较前复权收盘价的 20 日涨幅，领先 ETF 站上 MA20 才持有。视频区间为 2019-11-20 至 2026-07-24，行情源与执行口径不同，结果不会完全一致。'
+                : '数据源：腾讯证券公开前复权日线。ETF 上市满 20 个交易日后才进入排名；T 日收盘计算信号，持有 T+1 日收益。结果未计手续费、滑点与冲击成本。'}
           </div>
         </section>
 
@@ -1220,6 +1233,71 @@ function AssetRotationStrategy() {
     {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
     <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} strategyBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="asset" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
     {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="全球大类资产轮动" onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
+  </> : null;
+}
+
+function DualEtfStrategy() {
+  const [snapshot, setSnapshot] = useState<RotationResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [poolUpdating, setPoolUpdating] = useState(false);
+  const [poolError, setPoolError] = useState('');
+  const [pendingRemoval, setPendingRemoval] = useState<RankedMarket | null>(null);
+  const [error, setError] = useState('');
+  const didLoad = useRef(false);
+  const loadSnapshot = useCallback(async (refresh = false) => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiFetch(`/api/strategy/dual-etf${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `双 ETF 动量轮动行情返回 HTTP ${response.status}`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('双 ETF 动量轮动行情数据不完整');
+      setSnapshot(payload);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '双 ETF 动量轮动行情加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (didLoad.current) return;
+    didLoad.current = true;
+    void loadSnapshot();
+  }, [loadSnapshot]);
+  const updatePool = useCallback(async (action: 'add' | 'remove', item: Pick<RankedMarket, 'code' | 'name'> | EtfSearchResult) => {
+    setPoolUpdating(true);
+    setPoolError('');
+    try {
+      const response = await apiFetch(action === 'add' ? '/api/strategy/dual-etf/symbols' : `/api/strategy/dual-etf/symbols/${encodeURIComponent(item.code)}`, {
+        method: action === 'add' ? 'POST' : 'DELETE',
+        headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
+        body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
+      });
+      const payload = await response.json() as RotationResponse & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移除'} ETF 失败`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2 || !payload.backtest?.annualReturns?.length) throw new Error('重算完成，但返回的数据不完整');
+      setSnapshot(payload);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移除'} ETF 失败`;
+      setPoolError(message);
+      throw reason;
+    } finally {
+      setPoolUpdating(false);
+    }
+  }, []);
+  const confirmRemoval = useCallback(() => {
+    if (!pendingRemoval) return;
+    const market = pendingRemoval;
+    setPendingRemoval(null);
+    void updatePool('remove', market).catch(() => undefined);
+  }, [pendingRemoval, updatePool]);
+  if (loading && !snapshot) return <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在计算双 ETF 动量轮动</strong><span>读取标的池前复权日线，计算 20 日涨幅、MA20 与每日持仓。</span></section>;
+  if (error && !snapshot) return <section className="data-state error-state"><AlertTriangle size={26} /><strong>双 ETF 动量轮动加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadSnapshot(true)}><RefreshCw size={15} />重新加载</button></section>;
+  return snapshot ? <>
+    {error && <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>}
+    {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
+    <StrategyCenter markets={snapshot.markets} yearPerformance={snapshot.yearPerformance} strategyBacktest={snapshot.backtest} poolEditor={<AssetPoolEditor markets={snapshot.markets} updating={poolUpdating} onAdd={(item) => updatePool('add', item)} />} poolUpdating={poolUpdating} onRemoveMarket={setPendingRemoval} variant="dual" refreshing={loading || poolUpdating} onRefresh={() => void loadSnapshot(true)} />
+    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="双 ETF 20 日动量轮动" onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
   </> : null;
 }
 
@@ -2409,7 +2487,7 @@ export default function App() {
   };
 
   const openStrategy = (next: StrategyId) => {
-    const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' ? 'index' : 'stock';
+    const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' || next === 'dual-etf' ? 'index' : 'stock';
     setExpandedStrategyGroups((current) => current.has(group) ? current : new Set(current).add(group));
     setStrategyId(next);
     navigate('strategy');
@@ -2481,7 +2559,7 @@ export default function App() {
           <div className="strategy-menu-title"><span>策略菜单</span><Settings2 size={14} /></div>
           <section className="strategy-group">
             <button className="strategy-group-toggle" type="button" aria-expanded={expandedStrategyGroups.has('index')} aria-controls="index-strategy-menu" onClick={() => toggleStrategyGroup('index')}>
-              <span><BarChart3 size={15} /><strong>指数策略</strong><small>2</small></span>
+              <span><BarChart3 size={15} /><strong>指数策略</strong><small>3</small></span>
               <ChevronRight className={expandedStrategyGroups.has('index') ? 'is-open' : ''} size={15} />
             </button>
             <div id="index-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('index')}>
@@ -2493,6 +2571,11 @@ export default function App() {
               <button className={view === 'strategy' && strategyId === 'asset-rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('asset-rotation')}>
                 <span className="strategy-icon"><GitMerge size={16} /></span>
                 <span><strong>全球大类资产轮动</strong><small>20日涨幅 · MA28 · 动态标的池</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'dual-etf' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('dual-etf')}>
+                <span className="strategy-icon"><ArrowUpDown size={16} /></span>
+                <span><strong>双 ETF 动量轮动</strong><small>20日涨幅 · MA20 · 每日轮动</small></span>
                 <span className="live-dot" />
               </button>
             </div>
@@ -2560,6 +2643,7 @@ export default function App() {
         {selected && view === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
         {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter markets={markets} yearPerformance={marketMeta.yearPerformance} strategyBacktest={marketMeta.backtest} poolEditor={<AssetPoolEditor markets={markets} updating={rotationPoolUpdating} onAdd={(item) => updateRotationPool('add', item)} />} poolUpdating={rotationPoolUpdating} onRemoveMarket={setPendingRotationRemoval} refreshing={loading || rotationPoolUpdating} onRefresh={() => void loadMarkets(true)} />}
         {view === 'strategy' && strategyId === 'asset-rotation' && <AssetRotationStrategy />}
+        {view === 'strategy' && strategyId === 'dual-etf' && <DualEtfStrategy />}
         {view === 'strategy' && strategyId === 'macd' && <MacdConfluenceStrategy />}
         {view === 'strategy' && strategyId === 'macd-pullback' && <MacdPullbackStrategy />}
         {view === 'strategy' && strategyId === 'macd-kdj' && <MacdKdjStrategy />}
