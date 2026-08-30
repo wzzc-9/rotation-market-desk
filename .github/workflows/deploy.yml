@@ -35,6 +35,8 @@ jobs:
 
       - name: Build project
         run: pnpm run build
+        env:
+          VITE_BASE_URL: /rotation-market-desk/
 
       # 升级到 v4（关键！）
       - name: Deploy to GitHub Pages
