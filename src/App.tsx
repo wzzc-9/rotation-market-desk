@@ -1028,7 +1028,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
     };
   }, [backtestStartYear, filteredPerformanceReturns, isAssetRotation, performanceReturns, yearPerformance.lastTradingDate]);
   const rules = isAssetRotation ? [
-    { title: '计算涨幅', copy: `每周收盘后计算标的池内 ${poolSize} 只 ETF 的 20 日涨幅并从高到低排名。`, icon: Activity },
+    { title: '计算涨幅', copy: `每周最后一个交易日收盘后计算标的池内 ${poolSize} 只 ETF 的 20 日涨幅并从高到低排名。`, icon: Activity },
     { title: '执行买入', copy: '20 日涨幅排名第 1，且收盘价站上 MA28，两个条件同时满足才买入。', icon: TrendingUp },
     { title: '持续持有', copy: '持仓保持在涨幅前 2 名，同时收盘价不低于 MA28，则继续持有。', icon: Check },
     { title: '卖出避险', copy: '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
@@ -1080,7 +1080,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
         <div className="signal-stat">
           <span>下次检查</span>
           <strong>{isAssetRotation ? '周五 15:00' : '15:00'}</strong>
-          <small>{isAssetRotation ? '每周最后一个交易日' : '下一个交易日收盘'}</small>
+          <small>{isAssetRotation ? '本周最后一个交易日' : '下一个交易日收盘'}</small>
         </div>
       </section>
 

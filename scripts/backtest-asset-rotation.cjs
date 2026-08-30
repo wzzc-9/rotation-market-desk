@@ -23,7 +23,7 @@ for (const code of codes) {
 if (missingCodes.length > 0) throw new Error(`缺少 ETF 历史行情：${missingCodes.join(', ')}`);
 const names = Object.fromEntries(config.symbols.map((item) => [item.code, item.name]));
 
-function run(frequency) {
+function run() {
   const series = {};
   const allDates = new Set();
   for (const code of codes) {
@@ -43,12 +43,14 @@ function run(frequency) {
     series[code] = { closes, indicators };
   }
   const dates = [...allDates].filter((date) => date >= '2016-01-01' && date <= '2025-12-31').sort();
-  const rebalanceDates = new Set(frequency === 'daily' ? dates : dates.filter((date, index) => {
+  const rebalanceDates = new Set(dates.filter((date, index) => {
     const nextDate = dates[index + 1];
     if (!nextDate) return true;
     const current = new Date(`${date}T00:00:00Z`);
     const next = new Date(`${nextDate}T00:00:00Z`);
-    return current.getUTCDay() >= next.getUTCDay();
+    current.setUTCDate(current.getUTCDate() - ((current.getUTCDay() + 6) % 7));
+    next.setUTCDate(next.getUTCDate() - ((next.getUTCDay() + 6) % 7));
+    return current.getTime() !== next.getTime();
   }));
   let value = 1;
   let peak = 1;
@@ -99,11 +101,10 @@ function run(frequency) {
     yearEndHolding: item.holding ? names[item.holding] : '空仓',
   }));
   const yearsElapsed = (new Date(`${dates.at(-1)}T00:00:00Z`) - new Date(`${dates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
-  return { frequency, start: dates[0], end: dates.at(-1), cumulativeReturn: (value - 1) * 100, annualizedReturn: (value ** (1 / yearsElapsed) - 1) * 100, maxDrawdown: maxDrawdown * 100, trades, holding: position ? names[position] : '空仓', years };
+  return { start: dates[0], end: dates.at(-1), cumulativeReturn: (value - 1) * 100, annualizedReturn: (value ** (1 / yearsElapsed) - 1) * 100, maxDrawdown: maxDrawdown * 100, trades, holding: position ? names[position] : '空仓', years };
 }
 
-const comparisons = [run('daily'), run('weekly')];
-const selected = comparisons[1];
+const selected = run();
 const backtest = {
   version: 'asset-rotation-return20-ma28-weekly-v1',
   strategy: 'asset-rotation',
@@ -123,4 +124,4 @@ const outputPath = path.join(strategyDirectory, 'backtest.json');
 const temporaryPath = `${outputPath}.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(backtest, null, 2)}\n`, 'utf8');
 fs.renameSync(temporaryPath, outputPath);
-console.log(JSON.stringify({ backtest, comparisons }, null, 2));
+console.log(JSON.stringify(backtest, null, 2));

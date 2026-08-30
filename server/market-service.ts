@@ -377,8 +377,14 @@ function writeDualEtfConfig(config: AssetRotationConfig) {
 
 function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
   const backtest = JSON.parse(readFileSync(path, 'utf8')) as AssetRotationBacktest;
+  const expectedVersion = strategy === 'asset-rotation'
+    ? 'asset-rotation-return20-ma28-weekly-v1'
+    : strategy === 'dual-etf'
+      ? 'dual-etf-return20-ma20-daily-v1'
+      : 'rotation-ma20-daily-v1';
   if (
-    backtest.strategy !== strategy
+    backtest.version !== expectedVersion
+    || backtest.strategy !== strategy
     || backtest.configVersion !== config.version
     || !Array.isArray(backtest.symbols)
     || backtest.symbols.map((item) => item.code).join(',') !== config.symbols.map((item) => item.code).join(',')
@@ -1170,7 +1176,11 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
     if (day === 5) return true;
     const nextDate = dates[index + 1];
     if (!nextDate) return false;
-    return new Date(`${nextDate}T00:00:00Z`).getUTCDay() < day;
+    const currentWeek = new Date(`${date}T00:00:00Z`);
+    const nextWeek = new Date(`${nextDate}T00:00:00Z`);
+    currentWeek.setUTCDate(currentWeek.getUTCDate() - ((currentWeek.getUTCDay() + 6) % 7));
+    nextWeek.setUTCDate(nextWeek.getUTCDate() - ((nextWeek.getUTCDay() + 6) % 7));
+    return currentWeek.getTime() !== nextWeek.getTime();
   }));
   const rankingFor = (date: string) => markets
     .map((market) => ({ code: market.code, ...indicators.get(market.code)?.get(date) }))

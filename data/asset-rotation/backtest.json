@@ -1,7 +1,7 @@
 {
   "version": "asset-rotation-return20-ma28-weekly-v1",
   "strategy": "asset-rotation",
-  "configVersion": 19,
+  "configVersion": 23,
   "symbols": [
     {
       "marketCode": "sh510300",
@@ -28,31 +28,19 @@
       "category": "商品"
     },
     {
-      "marketCode": "sh515180",
-      "code": "515180",
-      "name": "红利ETF易方达",
-      "category": "A股宽基"
-    },
-    {
       "marketCode": "sh511260",
       "code": "511260",
       "name": "十年国债ETF国泰",
       "category": "债券"
     },
     {
-      "marketCode": "sh588000",
-      "code": "588000",
-      "name": "科创50ETF华夏",
-      "category": "A股宽基"
-    },
-    {
-      "marketCode": "sh588080",
-      "code": "588080",
-      "name": "科创50ETF易方达",
-      "category": "A股宽基"
+      "marketCode": "sh513050",
+      "code": "513050",
+      "name": "中概互联网ETF易方达",
+      "category": "海外指数"
     }
   ],
-  "generatedAt": "2026-08-30T08:13:13.251Z",
+  "generatedAt": "2026-08-30T09:47:12.066Z",
   "period": {
     "start": "2016-01-04",
     "end": "2025-12-31"
@@ -68,81 +56,81 @@
     },
     {
       "year": 2017,
-      "returnRate": 12.735029902853402,
-      "maxDrawdown": -11.419964170950891,
-      "trades": 13,
-      "availableAssets": 5,
+      "returnRate": 28.11984828370353,
+      "maxDrawdown": -11.579413652084492,
+      "trades": 12,
+      "availableAssets": 6,
       "yearEndHolding": "空仓"
     },
     {
       "year": 2018,
-      "returnRate": -13.148008569759007,
-      "maxDrawdown": -24.400838059407715,
-      "trades": 14,
-      "availableAssets": 5,
+      "returnRate": -20.403743616419735,
+      "maxDrawdown": -28.01860234171093,
+      "trades": 16,
+      "availableAssets": 6,
       "yearEndHolding": "十年国债ETF国泰"
     },
     {
       "year": 2019,
-      "returnRate": 48.43953556953675,
+      "returnRate": 47.286335318643346,
       "maxDrawdown": -11.955212953270689,
-      "trades": 12,
-      "availableAssets": 5,
-      "yearEndHolding": "创业板ETF"
+      "trades": 14,
+      "availableAssets": 6,
+      "yearEndHolding": "中概互联网ETF易方达"
     },
     {
       "year": 2020,
-      "returnRate": 40.63247445035658,
-      "maxDrawdown": -17.90434157121976,
+      "returnRate": 34.915493652731186,
+      "maxDrawdown": -21.706630568252105,
       "trades": 19,
-      "availableAssets": 8,
+      "availableAssets": 6,
       "yearEndHolding": "创业板ETF"
     },
     {
       "year": 2021,
-      "returnRate": 12.136129194613776,
-      "maxDrawdown": -17.017086169591032,
-      "trades": 17,
-      "availableAssets": 8,
+      "returnRate": 8.900197235117835,
+      "maxDrawdown": -12.882328046099955,
+      "trades": 15,
+      "availableAssets": 6,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2022,
-      "returnRate": -11.723785253693631,
-      "maxDrawdown": -18.912446607635868,
+      "returnRate": 7.619178910733848,
+      "maxDrawdown": -16.46338069316765,
       "trades": 18,
-      "availableAssets": 8,
-      "yearEndHolding": "十年国债ETF国泰"
+      "availableAssets": 6,
+      "yearEndHolding": "中概互联网ETF易方达"
     },
     {
       "year": 2023,
-      "returnRate": 15.199432085959753,
-      "maxDrawdown": -11.498780257611951,
-      "trades": 15,
-      "availableAssets": 8,
+      "returnRate": 18.135378057535156,
+      "maxDrawdown": -11.305596123826135,
+      "trades": 13,
+      "availableAssets": 6,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2024,
-      "returnRate": 37.08699536426781,
-      "maxDrawdown": -25.504107542942457,
-      "trades": 18,
-      "availableAssets": 8,
+      "returnRate": 39.98342113838134,
+      "maxDrawdown": -25.504107542942467,
+      "trades": 14,
+      "availableAssets": 6,
       "yearEndHolding": "纳指ETF"
     },
     {
       "year": 2025,
-      "returnRate": 22.713746273259105,
-      "maxDrawdown": -21.09983752157095,
-      "trades": 18,
-      "availableAssets": 8,
+      "returnRate": 60.547228054226096,
+      "maxDrawdown": -20.978041386179925,
+      "trades": 13,
+      "availableAssets": 6,
       "yearEndHolding": "创业板ETF"
     }
   ],
   "summary": {
-    "cumulativeReturn": 274.1735349151697,
-    "annualizedReturn": 14.120134268398864,
-    "positiveYears": 7,
-    "worstDrawdown": -25.504107542942457
+    "cumulativeReturn": 501.7016394691186,
+    "annualizedReturn": 19.677601054710724,
+    "positiveYears": 8,
+    "worstDrawdown": -30.49750358481055
   }
 }
