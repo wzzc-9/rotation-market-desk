@@ -2,33 +2,38 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # 当 main 分支有推送时触发
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      # 升级到 v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      # 升级到 v4
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '24.19.0' # 或你的项目使用的版本
+          node-version: '24.19.0'
 
+      # 升级到 v3（这个最新就是 v3）
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v3
         with:
-          version: 11.21.0 # 或你的项目使用的 pnpm 版本
+          version: 11.21.0
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pnpm install
 
-      - name: Build Project
+      - name: Build project
         run: pnpm run build
 
+      # 升级到 v4（关键！）
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4   # 从 @v3 改为 @v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist # 你的构建输出目录，也可能是 build
+          publish_dir: ./dist
