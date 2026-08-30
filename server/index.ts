@@ -229,4 +229,5 @@ app.get<{ Params: { code: string }; Querystring: { period?: HistoryPeriod; refre
 });
 
 const port = Number(process.env.PORT ?? 3001);
-await app.listen({ port, host: '127.0.0.1' });
+const host = process.env.HOST ?? '0.0.0.0';
+await app.listen({ port, host });
