@@ -14,12 +14,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18' # 或你的项目使用的版本
+          node-version: '24.19.0' # 或你的项目使用的版本
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8 # 或你的项目使用的 pnpm 版本
+          version: 11.21.0 # 或你的项目使用的 pnpm 版本
 
       - name: Install Dependencies
         run: pnpm install
