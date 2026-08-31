@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -44,8 +44,15 @@ export type AssetRotationBacktest = {
   };
 };
 
-export type AssetRotationCombinationSort = 'score' | 'ten-year' | 'current-year';
+export type AssetRotationCombinationSort = 'score' | 'ten-year' | 'five-year' | 'current-year';
 export type AssetRotationCombinationDirection = 'asc' | 'desc';
+
+type AssetRotationCombinationFilters = {
+  size?: number;
+  tenYearDrawdown?: number;
+  fiveYearDrawdown?: number;
+  currentYearDrawdown?: number;
+};
 
 export type AssetRotationCombination = {
   id: string;
@@ -53,8 +60,11 @@ export type AssetRotationCombination = {
   codes: string[];
   assetClasses: string[];
   tenYearReturn: number;
+  fiveYearReturn: number;
   tenYearAnnualizedReturn: number;
+  fiveYearAnnualizedReturn: number;
   tenYearMaxDrawdown: number;
+  fiveYearMaxDrawdown: number;
   tenYearTrades: number;
   currentYearReturn: number;
   currentYearMaxDrawdown: number;
@@ -66,18 +76,37 @@ export type AssetRotationCombination = {
   compositeRank: number;
 };
 
+type AssetRotationScoreMetricPopulation = {
+  mean: number;
+  standardDeviation: number;
+};
+
+type AssetRotationScoring = {
+  formula: string;
+  population: {
+    tenYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+    fiveYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+    currentYearReturn: AssetRotationScoreMetricPopulation;
+    tenYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+    fiveYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+    currentYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+  };
+};
+
 export type AssetRotationCombinations = {
   version: string;
   strategy: 'rotation' | 'asset-rotation';
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
+    fiveYear: { start: string; end: string };
     currentYear: { year: number; start: string; end: string };
   };
   universe: Array<{ code: string; name: string; assetClass: string; firstDate: string; lastDate: string }>;
   totalCombinations: number;
   bestTenYearId: string;
   bestCurrentYearId: string;
+  scoring: AssetRotationScoring;
   combinations: AssetRotationCombination[];
 };
 
@@ -139,6 +168,11 @@ export type RotationTradeNode = {
   cumulativeReturn: number;
 };
 
+export type RotationEquityPoint = {
+  date: string;
+  returnRate: number;
+};
+
 export type RotationYearPerformance = {
   year: number;
   startDate: string;
@@ -147,6 +181,7 @@ export type RotationYearPerformance = {
   nodeCount: number;
   currentHolding: string | null;
   currentTradeReturn: number | null;
+  equityCurve: RotationEquityPoint[];
   nodes: RotationTradeNode[];
 };
 
@@ -543,10 +578,43 @@ function readDualEtfConfig() {
   return readStrategyConfig(dualEtfConfigPath, '双 ETF 动量轮动');
 }
 
+const replaceableFileErrorCodes = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST', 'ENOTEMPTY']);
+
+function isReplaceableFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && replaceableFileErrorCodes.has(String(error.code));
+}
+
+function pauseFileOperation(milliseconds: number) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function replaceFileSync(temporaryPath: string, path: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      renameSync(temporaryPath, path);
+      return;
+    } catch (error) {
+      if (!isReplaceableFileError(error)) throw error;
+      lastError = error;
+    }
+    try {
+      copyFileSync(temporaryPath, path);
+      unlinkSync(temporaryPath);
+      return;
+    } catch (error) {
+      if (!isReplaceableFileError(error)) throw error;
+      lastError = error;
+    }
+    pauseFileOperation(Math.min(50 * 2 ** attempt, 500));
+  }
+  throw lastError;
+}
+
 function writeTextAtomic(path: string, content: string) {
-  const temporaryPath = `${path}.tmp`;
+  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporaryPath, content, 'utf8');
-  renameSync(temporaryPath, path);
+  replaceFileSync(temporaryPath, path);
 }
 
 function writeStrategyConfig(path: string, config: AssetRotationConfig) {
@@ -606,17 +674,21 @@ function applyAssetCombinationScores(combinations: AssetRotationCombination[]) {
     const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
     return { mean, standardDeviation: Math.sqrt(variance) || 1 };
   };
-  const annualized = stats(combinations.map((item) => item.tenYearAnnualizedReturn));
+  const tenYearAnnualized = stats(combinations.map((item) => item.tenYearAnnualizedReturn));
+  const fiveYearAnnualized = stats(combinations.map((item) => item.fiveYearAnnualizedReturn));
   const currentReturn = stats(combinations.map((item) => item.currentYearReturn));
   const tenYearDrawdown = stats(combinations.map((item) => Math.abs(item.tenYearMaxDrawdown)));
+  const fiveYearDrawdown = stats(combinations.map((item) => Math.abs(item.fiveYearMaxDrawdown)));
   const currentDrawdown = stats(combinations.map((item) => Math.abs(item.currentYearMaxDrawdown)));
   const zScore = (value: number, metric: { mean: number; standardDeviation: number }) => (value - metric.mean) / metric.standardDeviation;
   for (const item of combinations) {
     item.compositeScore = round(
-      0.5 * zScore(item.tenYearAnnualizedReturn, annualized)
-      + 0.2 * zScore(item.currentYearReturn, currentReturn)
+      0.3 * zScore(item.tenYearAnnualizedReturn, tenYearAnnualized)
+      + 0.25 * zScore(item.fiveYearAnnualizedReturn, fiveYearAnnualized)
+      + 0.1 * zScore(item.currentYearReturn, currentReturn)
       - 0.2 * zScore(Math.abs(item.tenYearMaxDrawdown), tenYearDrawdown)
-      - 0.1 * zScore(Math.abs(item.currentYearMaxDrawdown), currentDrawdown),
+      - 0.1 * zScore(Math.abs(item.fiveYearMaxDrawdown), fiveYearDrawdown)
+      - 0.05 * zScore(Math.abs(item.currentYearMaxDrawdown), currentDrawdown),
       6,
     );
   }
@@ -625,16 +697,30 @@ function applyAssetCombinationScores(combinations: AssetRotationCombination[]) {
     .forEach((item, index) => { item.compositeRank = index + 1; });
 }
 
-function paginateRotationCombinations(record: AssetRotationCombinations, sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, poolDraft: AssetRotationPoolDraft) {
+function paginateRotationCombinations(record: AssetRotationCombinations, sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, poolDraft: AssetRotationPoolDraft, filters: AssetRotationCombinationFilters = {}) {
   const normalizedPageSize = Math.min(Math.max(Math.trunc(pageSize) || 25, 10), 100);
-  const totalPages = Math.max(Math.ceil(record.totalCombinations / normalizedPageSize), 1);
+  const normalizedSize = Number.isInteger(filters.size) && Number(filters.size) > 0 ? Number(filters.size) : null;
+  const normalizeDrawdown = (value?: number) => Number.isFinite(value) ? -Math.abs(Number(value)) : null;
+  const tenYearDrawdown = normalizeDrawdown(filters.tenYearDrawdown);
+  const fiveYearDrawdown = normalizeDrawdown(filters.fiveYearDrawdown);
+  const currentYearDrawdown = normalizeDrawdown(filters.currentYearDrawdown);
+  const matchingCombinations = record.combinations.filter((item) => (
+    (normalizedSize === null || item.size === normalizedSize)
+    && (tenYearDrawdown === null || item.tenYearMaxDrawdown >= tenYearDrawdown)
+    && (fiveYearDrawdown === null || item.fiveYearMaxDrawdown >= fiveYearDrawdown)
+    && (currentYearDrawdown === null || item.currentYearMaxDrawdown >= currentYearDrawdown)
+  ));
+  const totalCombinations = matchingCombinations.length;
+  const totalPages = Math.max(Math.ceil(totalCombinations / normalizedPageSize), 1);
   const normalizedPage = Math.min(Math.max(Math.trunc(page) || 1, 1), totalPages);
   const metric = (item: AssetRotationCombination) => sort === 'score'
     ? item.compositeScore
     : sort === 'current-year'
       ? item.currentYearReturn
-      : item.tenYearReturn;
-  const sorted = [...record.combinations].sort((left, right) => {
+      : sort === 'five-year'
+        ? item.fiveYearReturn
+        : item.tenYearReturn;
+  const sorted = [...matchingCombinations].sort((left, right) => {
     const difference = metric(left) - metric(right);
     return (direction === 'asc' ? difference : -difference) || left.id.localeCompare(right.id);
   });
@@ -646,13 +732,21 @@ function paginateRotationCombinations(record: AssetRotationCombinations, sort: A
     generatedAt: record.generatedAt,
     periods: record.periods,
     universe: record.universe,
-    totalCombinations: record.totalCombinations,
+    totalCombinations,
+    allCombinations: record.totalCombinations,
+    filters: {
+      size: normalizedSize,
+      tenYearDrawdown,
+      fiveYearDrawdown,
+      currentYearDrawdown,
+    },
+    scoring: record.scoring,
     sort,
     direction,
     page: normalizedPage,
     pageSize: normalizedPageSize,
     totalPages,
-    best: { ...sorted[0], displayRank: 1 },
+    best: sorted[0] ? { ...sorted[0], displayRank: 1 } : null,
     combinations: pageCombinations,
     poolDraft,
   };
@@ -662,12 +756,12 @@ function readRotationCombinations() {
   if (cachedRotationCombinations) return cachedRotationCombinations;
   const record = JSON.parse(readFileSync(rotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
   if (
-    record.version !== 'rotation-combinations-daily-v1'
+    record.version !== 'rotation-combinations-daily-v3'
     || record.strategy !== 'rotation'
     || !Array.isArray(record.universe)
     || !Array.isArray(record.combinations)
     || record.totalCombinations !== record.combinations.length
-    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
+    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3 || !Number.isFinite(item.fiveYearReturn) || !Number.isFinite(item.fiveYearAnnualizedReturn) || !Number.isFinite(item.fiveYearMaxDrawdown))
     || !sameSymbolSet(readRotationCombinationConfig().symbols, record.universe)
   ) throw new Error('策略 1 组合回测数据无效，请重新计算');
   applyAssetCombinationScores(record.combinations);
@@ -675,20 +769,20 @@ function readRotationCombinations() {
   return record;
 }
 
-export function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
-  return paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft());
+export function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters?: AssetRotationCombinationFilters) {
+  return paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft(), filters);
 }
 
 function readAssetRotationCombinations() {
   if (cachedAssetRotationCombinations) return cachedAssetRotationCombinations;
   const record = JSON.parse(readFileSync(assetRotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
   if (
-    !['asset-rotation-combinations-weekly-v2', 'asset-rotation-combinations-weekly-v3'].includes(record.version)
+    record.version !== 'asset-rotation-combinations-weekly-v5'
     || record.strategy !== 'asset-rotation'
     || !Array.isArray(record.universe)
     || !Array.isArray(record.combinations)
     || record.totalCombinations !== record.combinations.length
-    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3)
+    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3 || !Number.isFinite(item.fiveYearReturn) || !Number.isFinite(item.fiveYearAnnualizedReturn) || !Number.isFinite(item.fiveYearMaxDrawdown))
     || !sameSymbolSet(readAssetCombinationConfig().symbols, record.universe)
   ) throw new Error('策略 2 组合回测数据无效，请重新计算');
   applyAssetCombinationScores(record.combinations);
@@ -696,8 +790,8 @@ function readAssetRotationCombinations() {
   return record;
 }
 
-export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number) {
-  return paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft());
+export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters?: AssetRotationCombinationFilters) {
+  return paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft(), filters);
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
@@ -748,10 +842,10 @@ function writeRotationYearPerformance(
   const temporaryPath = `${path}.tmp`;
   const record = {
     version: strategy === 'asset-rotation'
-      ? 'asset-rotation-year-performance-v4'
+      ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
-        ? 'dual-etf-year-performance-v1'
-        : 'rotation-year-performance-v4',
+        ? 'dual-etf-year-performance-v2'
+        : 'rotation-year-performance-v5',
     strategy,
     configVersion: strategyConfig.version,
     symbols: strategyConfig.symbols,
@@ -774,10 +868,10 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
   try {
     const record = JSON.parse(readFileSync(path, 'utf8')) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
     const expectedVersion = strategy === 'asset-rotation'
-      ? 'asset-rotation-year-performance-v4'
+      ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
-        ? 'dual-etf-year-performance-v1'
-        : 'rotation-year-performance-v4';
+        ? 'dual-etf-year-performance-v2'
+        : 'rotation-year-performance-v5';
     const expectedConfigVersion = strategy === 'asset-rotation'
       ? readAssetRotationConfig().version
       : strategy === 'dual-etf'
@@ -789,8 +883,10 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
       || record.configVersion !== expectedConfigVersion
       || record.year !== year
       || !Array.isArray(record.nodes)
+      || !Array.isArray(record.equityCurve)
       || typeof record.lastTradingDate !== 'string'
       || record.nodeCount !== record.nodes.length
+      || record.equityCurve.some((point) => typeof point.date !== 'string' || typeof point.returnRate !== 'number')
       || (record.currentTradeReturn !== null && typeof record.currentTradeReturn !== 'number')
       || record.nodes.some((node) => node.tradeReturn !== null && typeof node.tradeReturn !== 'number')
     ) return null;
@@ -1318,6 +1414,7 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
   let position = previousYearDate ? positionFor(previousYearDate) : null;
   let value = 1;
   let operationStartValue = value;
+  const equityCurve: RotationEquityPoint[] = [];
   const nodes: RotationTradeNode[] = [];
 
   for (const date of yearDates) {
@@ -1326,6 +1423,7 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
       const currentClose = closes.get(position)?.get(date);
       if (previousClose && currentClose) value *= currentClose / previousClose;
     }
+    equityCurve.push({ date, returnRate: round((value - 1) * 100, 4) });
 
     const nextPosition = positionFor(date);
     if (nextPosition !== position) {
@@ -1355,6 +1453,7 @@ function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fet
     nodeCount: nodes.length,
     currentHolding: position ? names.get(position) ?? position : null,
     currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
+    equityCurve,
     nodes,
   };
 }
@@ -1398,6 +1497,7 @@ function calculateDualEtfYearPerformance(markets: Awaited<ReturnType<typeof fetc
   let position = previousYearDate ? positionFor(previousYearDate) : null;
   let value = 1;
   let operationStartValue = value;
+  const equityCurve: RotationEquityPoint[] = [];
   const nodes: RotationTradeNode[] = [];
 
   for (const date of yearDates) {
@@ -1406,6 +1506,7 @@ function calculateDualEtfYearPerformance(markets: Awaited<ReturnType<typeof fetc
       const currentClose = closes.get(position)?.get(date);
       if (previousClose && currentClose) value *= currentClose / previousClose;
     }
+    equityCurve.push({ date, returnRate: round((value - 1) * 100, 4) });
 
     const nextPosition = positionFor(date);
     if (nextPosition !== position) {
@@ -1441,6 +1542,7 @@ function calculateDualEtfYearPerformance(markets: Awaited<ReturnType<typeof fetc
     nodeCount: nodes.length,
     currentHolding: position ? names.get(position) ?? position : null,
     currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
+    equityCurve,
     nodes,
   };
 }
@@ -1504,6 +1606,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
   let previousDate = dates.filter((date) => date < yearStart).at(-1) ?? null;
   let value = 1;
   let operationStartValue = value;
+  const equityCurve: RotationEquityPoint[] = [];
   const nodes: RotationTradeNode[] = [];
   for (const date of yearDates) {
     if (position && previousDate) {
@@ -1511,6 +1614,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
       const currentClose = closes.get(position)?.get(date);
       if (previousClose && currentClose) value *= currentClose / previousClose;
     }
+    equityCurve.push({ date, returnRate: round((value - 1) * 100, 4) });
     if (reviewDates.has(date)) {
       const nextPosition = positionFor(date, position);
       if (nextPosition !== position) {
@@ -1547,6 +1651,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
     nodeCount: nodes.length,
     currentHolding: position ? names.get(position) ?? position : null,
     currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
+    equityCurve,
     nodes,
   };
 }
@@ -1843,7 +1948,7 @@ export async function recalculateRotationCombinationPool() {
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-rotation.cjs')], {
       cwd: process.cwd(),
-      timeout: 180_000,
+      timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     cachedRotationCombinations = null;
@@ -1945,7 +2050,7 @@ export async function recalculateAssetCombinationPool() {
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-asset-rotation.cjs')], {
       cwd: process.cwd(),
-      timeout: 180_000,
+      timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     cachedAssetRotationCombinations = null;

@@ -38,8 +38,11 @@ export type AssetRotationCombination = {
   codes: string[];
   assetClasses: string[];
   tenYearReturn: number;
+  fiveYearReturn: number;
   tenYearAnnualizedReturn: number;
+  fiveYearAnnualizedReturn: number;
   tenYearMaxDrawdown: number;
+  fiveYearMaxDrawdown: number;
   tenYearTrades: number;
   currentYearReturn: number;
   currentYearMaxDrawdown: number;
@@ -52,21 +55,45 @@ export type AssetRotationCombination = {
   displayRank: number;
 };
 
+type AssetRotationScoreMetricPopulation = {
+  mean: number;
+  standardDeviation: number;
+};
+
 export type AssetRotationCombinationsResponse = {
   version: string;
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
+    fiveYear: { start: string; end: string };
     currentYear: { year: number; start: string; end: string };
   };
   universe: Array<{ code: string; name: string; assetClass: string; firstDate: string; lastDate: string }>;
   totalCombinations: number;
-  sort: 'score' | 'ten-year' | 'current-year';
+  allCombinations: number;
+  filters: {
+    size: number | null;
+    tenYearDrawdown: number | null;
+    fiveYearDrawdown: number | null;
+    currentYearDrawdown: number | null;
+  };
+  scoring: {
+    formula: string;
+    population: {
+      tenYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+      fiveYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+      currentYearReturn: AssetRotationScoreMetricPopulation;
+      tenYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+      fiveYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+      currentYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+    };
+  };
+  sort: 'score' | 'ten-year' | 'five-year' | 'current-year';
   direction: 'asc' | 'desc';
   page: number;
   pageSize: number;
   totalPages: number;
-  best: AssetRotationCombination;
+  best: AssetRotationCombination | null;
   combinations: AssetRotationCombination[];
   poolDraft: AssetRotationPoolDraft;
 };
@@ -127,6 +154,11 @@ export type RotationTradeNode = {
   cumulativeReturn: number;
 };
 
+export type RotationEquityPoint = {
+  date: string;
+  returnRate: number;
+};
+
 export type RotationYearPerformance = {
   year: number;
   startDate: string;
@@ -135,6 +167,7 @@ export type RotationYearPerformance = {
   nodeCount: number;
   currentHolding: string | null;
   currentTradeReturn: number | null;
+  equityCurve: RotationEquityPoint[];
   nodes: RotationTradeNode[];
 };
 

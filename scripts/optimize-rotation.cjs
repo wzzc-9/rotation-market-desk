@@ -72,13 +72,22 @@ function nextPositionFor(codes, date) {
   return leader && leader.close > leader.ma20 ? leader.code : null;
 }
 
-function simulate(codes, periodDates, initialPosition, previousDate) {
+function simulate(codes, periodDates, initialPosition, previousDate, captureBeforeDate = null) {
   let position = initialPosition;
   let value = 1;
+  let capturedValue = 1;
+  let capturedPeak = 1;
+  let capturedMaxDrawdown = 0;
+  let captureStarted = false;
   let peak = 1;
   let maxDrawdown = 0;
   let trades = 0;
   for (const date of periodDates) {
+    if (captureBeforeDate && !captureStarted && date >= captureBeforeDate) {
+      captureStarted = true;
+      capturedValue = value;
+      capturedPeak = value;
+    }
     if (position && previousDate) {
       const previousClose = series[position].closes.get(previousDate);
       const currentClose = series[position].closes.get(date);
@@ -86,19 +95,27 @@ function simulate(codes, periodDates, initialPosition, previousDate) {
     }
     peak = Math.max(peak, value);
     maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
+    if (captureBeforeDate && date < captureBeforeDate) capturedValue = value;
+    if (captureStarted) {
+      capturedPeak = Math.max(capturedPeak, value);
+      capturedMaxDrawdown = Math.min(capturedMaxDrawdown, value / capturedPeak - 1);
+    }
     const nextPosition = nextPositionFor(codes, date);
     if (nextPosition !== position) trades += 1;
     position = nextPosition;
     previousDate = date;
   }
-  return { cumulativeReturn: (value - 1) * 100, maxDrawdown: maxDrawdown * 100, trades, holding: position };
+  return { value, capturedValue, capturedMaxDrawdown: capturedMaxDrawdown * 100, cumulativeReturn: (value - 1) * 100, maxDrawdown: maxDrawdown * 100, trades, holding: position };
 }
 
 const tenYearDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
+const fiveYearStart = '2021-01-01';
+const fiveYearDates = tenYearDates.filter((date) => date >= fiveYearStart);
 const currentYear = Number(dates.at(-1).slice(0, 4));
 const currentYearDates = dates.filter((date) => date >= `${currentYear}-01-01`);
 const previousYearDate = dates.filter((date) => date < `${currentYear}-01-01`).at(-1) ?? null;
 const yearsElapsed = (new Date(`${tenYearDates.at(-1)}T00:00:00Z`) - new Date(`${tenYearDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
+const fiveYearsElapsed = (new Date(`${fiveYearDates.at(-1)}T00:00:00Z`) - new Date(`${fiveYearDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
 const combinations = [];
 
 for (let mask = 1; mask < 2 ** universe.length; mask += 1) {
@@ -106,7 +123,8 @@ for (let mask = 1; mask < 2 ** universe.length; mask += 1) {
   if (size < 3) continue;
   const selected = universe.filter((_, index) => mask & (1 << index));
   const codes = selected.map((item) => item.code);
-  const tenYear = simulate(codes, tenYearDates, null, null);
+  const tenYear = simulate(codes, tenYearDates, null, null, fiveYearStart);
+  const fiveYearReturn = (tenYear.value / tenYear.capturedValue - 1) * 100;
   const current = simulate(codes, currentYearDates, tenYear.holding, previousYearDate);
   combinations.push({
     id: codes.join('-'),
@@ -114,8 +132,11 @@ for (let mask = 1; mask < 2 ** universe.length; mask += 1) {
     codes,
     assetClasses: [...new Set(selected.map((item) => item.assetClass))],
     tenYearReturn: round(tenYear.cumulativeReturn),
+    fiveYearReturn: round(fiveYearReturn),
     tenYearAnnualizedReturn: round(((1 + tenYear.cumulativeReturn / 100) ** (1 / yearsElapsed) - 1) * 100),
+    fiveYearAnnualizedReturn: round(((1 + fiveYearReturn / 100) ** (1 / fiveYearsElapsed) - 1) * 100),
     tenYearMaxDrawdown: round(tenYear.maxDrawdown),
+    fiveYearMaxDrawdown: round(tenYear.capturedMaxDrawdown),
     tenYearTrades: tenYear.trades,
     currentYearReturn: round(current.cumulativeReturn),
     currentYearMaxDrawdown: round(current.maxDrawdown),
@@ -137,17 +158,21 @@ function populationStats(values) {
 
 const scoreMetrics = {
   tenYearAnnualizedReturn: populationStats(combinations.map((item) => item.tenYearAnnualizedReturn)),
+  fiveYearAnnualizedReturn: populationStats(combinations.map((item) => item.fiveYearAnnualizedReturn)),
   currentYearReturn: populationStats(combinations.map((item) => item.currentYearReturn)),
   tenYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.tenYearMaxDrawdown))),
+  fiveYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.fiveYearMaxDrawdown))),
   currentYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.currentYearMaxDrawdown))),
 };
 const zScore = (value, stats) => (value - stats.mean) / stats.standardDeviation;
 for (const item of combinations) {
   item.compositeScore = round(
-    0.5 * zScore(item.tenYearAnnualizedReturn, scoreMetrics.tenYearAnnualizedReturn)
-    + 0.2 * zScore(item.currentYearReturn, scoreMetrics.currentYearReturn)
+    0.3 * zScore(item.tenYearAnnualizedReturn, scoreMetrics.tenYearAnnualizedReturn)
+    + 0.25 * zScore(item.fiveYearAnnualizedReturn, scoreMetrics.fiveYearAnnualizedReturn)
+    + 0.1 * zScore(item.currentYearReturn, scoreMetrics.currentYearReturn)
     - 0.2 * zScore(Math.abs(item.tenYearMaxDrawdown), scoreMetrics.tenYearDrawdownAbsolute)
-    - 0.1 * zScore(Math.abs(item.currentYearMaxDrawdown), scoreMetrics.currentYearDrawdownAbsolute),
+    - 0.1 * zScore(Math.abs(item.fiveYearMaxDrawdown), scoreMetrics.fiveYearDrawdownAbsolute)
+    - 0.05 * zScore(Math.abs(item.currentYearMaxDrawdown), scoreMetrics.currentYearDrawdownAbsolute),
     6,
   );
 }
@@ -155,13 +180,14 @@ const compositeOrder = [...combinations].sort((left, right) => right.compositeSc
 compositeOrder.forEach((item, index) => { item.compositeRank = index + 1; });
 
 const result = {
-  _comment: '页面“宽基 20 日动量轮动”的“全组合收益排名”表格数据，包括每个 ETF 组合的近10年收益、2026年收益、回撤、综合得分和排名。',
-  version: 'rotation-combinations-daily-v1',
+  _comment: '页面“宽基 20 日动量轮动”的“全组合收益排名”表格数据，包括每个 ETF 组合的近10年、近5年、2026年收益、回撤、综合得分和排名。',
+  version: 'rotation-combinations-daily-v3',
   strategy: 'rotation',
   generatedAt: new Date().toISOString(),
   rule: { frequency: 'daily', momentumPeriod: 20, movingAveragePeriod: 20, minimumPoolSize: 3 },
   periods: {
     tenYear: { start: tenYearDates[0], end: tenYearDates.at(-1) },
+    fiveYear: { start: fiveYearDates[0], end: fiveYearDates.at(-1) },
     currentYear: { year: currentYear, start: currentYearDates[0], end: currentYearDates.at(-1) },
   },
   universe,
@@ -170,15 +196,40 @@ const result = {
   bestCurrentYearId: currentYearOrder[0].id,
   bestCompositeId: compositeOrder[0].id,
   scoring: {
-    formula: '0.50*z(tenYearAnnualizedReturn)+0.20*z(currentYearReturn)-0.20*z(abs(tenYearMaxDrawdown))-0.10*z(abs(currentYearMaxDrawdown))',
+    formula: '0.30*z(tenYearAnnualizedReturn)+0.25*z(fiveYearAnnualizedReturn)+0.10*z(currentYearReturn)-0.20*z(abs(tenYearMaxDrawdown))-0.10*z(abs(fiveYearMaxDrawdown))-0.05*z(abs(currentYearMaxDrawdown))',
     population: scoreMetrics,
   },
   combinations,
 };
 
-const temporaryPath = `${outputPath}.tmp`;
+const replaceableFileErrorCodes = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST', 'ENOTEMPTY']);
+const isReplaceableFileError = (error) => error instanceof Error && replaceableFileErrorCodes.has(String(error.code));
+const pauseFileOperation = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+const temporaryPath = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
 fs.writeFileSync(temporaryPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-fs.renameSync(temporaryPath, outputPath);
+let replaced = false;
+let lastReplaceError;
+for (let attempt = 0; attempt < 8 && !replaced; attempt += 1) {
+  try {
+    fs.renameSync(temporaryPath, outputPath);
+    replaced = true;
+  } catch (error) {
+    if (!isReplaceableFileError(error)) throw error;
+    lastReplaceError = error;
+  }
+  if (!replaced) {
+    try {
+      fs.copyFileSync(temporaryPath, outputPath);
+      fs.unlinkSync(temporaryPath);
+      replaced = true;
+    } catch (error) {
+      if (!isReplaceableFileError(error)) throw error;
+      lastReplaceError = error;
+    }
+  }
+  if (!replaced) pauseFileOperation(Math.min(50 * 2 ** attempt, 500));
+}
+if (!replaced) throw lastReplaceError;
 console.log(JSON.stringify({
   outputPath,
   universeSize: universe.length,

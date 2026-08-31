@@ -2,6 +2,22 @@ import Fastify from 'fastify';
 import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 
 const app = Fastify({ logger: true });
+type CombinationQuery = {
+  sort?: AssetRotationCombinationSort;
+  direction?: AssetRotationCombinationDirection;
+  page?: string;
+  pageSize?: string;
+  size?: string;
+  tenYearDrawdown?: string;
+  fiveYearDrawdown?: string;
+  currentYearDrawdown?: string;
+};
+const combinationFilters = (query: CombinationQuery) => ({
+  size: Number(query.size),
+  tenYearDrawdown: Number(query.tenYearDrawdown),
+  fiveYearDrawdown: Number(query.fiveYearDrawdown),
+  currentYearDrawdown: Number(query.currentYearDrawdown),
+});
 const allowedCorsOrigins = new Set([
   'https://wzzc-9.github.io',
   'http://127.0.0.1:4173',
@@ -39,11 +55,11 @@ app.get<{ Querystring: { refresh?: string } }>('/api/strategy/rotation', async (
   }
 });
 
-app.get<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; page?: string; pageSize?: string } }>('/api/strategy/rotation/combinations', async (request, reply) => {
+app.get<{ Querystring: CombinationQuery }>('/api/strategy/rotation/combinations', async (request, reply) => {
   try {
-    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25));
+    const result = getRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -76,12 +92,12 @@ app.delete<{ Params: { code: string } }>('/api/strategy/rotation/combinations/sy
   }
 });
 
-app.post<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; pageSize?: string } }>('/api/strategy/rotation/combinations/recalculate', async (request, reply) => {
+app.post<{ Querystring: CombinationQuery }>('/api/strategy/rotation/combinations/recalculate', async (request, reply) => {
   try {
     await recalculateRotationCombinationPool();
-    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25));
+    const result = getRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -105,11 +121,11 @@ app.get<{ Querystring: { refresh?: string } }>('/api/strategy/asset-rotation', a
   }
 });
 
-app.get<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; page?: string; pageSize?: string } }>('/api/strategy/asset-rotation/combinations', async (request, reply) => {
+app.get<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combinations', async (request, reply) => {
   try {
-    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getAssetRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25));
+    const result = getAssetRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -145,12 +161,12 @@ app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation/combinati
   }
 });
 
-app.post<{ Querystring: { sort?: AssetRotationCombinationSort; direction?: AssetRotationCombinationDirection; pageSize?: string } }>('/api/strategy/asset-rotation/combinations/recalculate', async (request, reply) => {
+app.post<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combinations/recalculate', async (request, reply) => {
   try {
     await recalculateAssetCombinationPool();
-    const sort = ['score', 'ten-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getAssetRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25));
+    const result = getAssetRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {

@@ -1,7 +1,7 @@
 {
   "_comment": "页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。",
-  "version": 35,
-  "updatedAt": "2026-08-30T11:58:48.397Z",
+  "version": 36,
+  "updatedAt": "2026-08-30T15:29:07.473Z",
   "symbols": [
     {
       "marketCode": "sh588080",
@@ -98,6 +98,12 @@
       "code": "159881",
       "name": "有色金属ETF国泰",
       "category": "商品"
+    },
+    {
+      "marketCode": "sz159633",
+      "code": "159633",
+      "name": "中证1000ETF易方达",
+      "category": "A股宽基"
     }
   ]
 }

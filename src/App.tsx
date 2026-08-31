@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  CircleHelp,
   Filter,
   GitMerge,
   History,
@@ -62,6 +63,7 @@ const menuItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 const screenedStockHistoryCache = new Map<string, MarketHistoryResponse>();
 const screenedStockHistoryRequests = new Map<string, Promise<MarketHistoryResponse>>();
 const stockKlineOpenEvent = 'screened-stock-kline-open';
+const combinationDetailsOpenEvent = 'combination-details-open';
 const etfSearchHistoryStorageKey = 'rotation-desk-etf-search-history-v2';
 const etfSearchHistoryLimit = 8;
 
@@ -114,6 +116,123 @@ function Change({ value }: { value: number }) {
 
 function RankBadge({ rank }: { rank: number }) {
   return <span className={`rank rank-${Math.min(rank, 4)}`}>{rank}</span>;
+}
+
+function CombinationAssetsCell({
+  codes,
+  assetClasses,
+  universe,
+}: {
+  codes: string[];
+  assetClasses: string[];
+  universe: Map<string, { code: string; name: string; assetClass: string }>;
+}) {
+  const triggerId = useRef(`combination-${codes.join('-')}-${Math.random().toString(36).slice(2)}`);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const pinnedRef = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [bounds, setBounds] = useState<CSSProperties>();
+  const symbols = codes.map((code) => universe.get(code) ?? { code, name: code, assetClass: '未分类' });
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current === null) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  };
+  const setPinnedState = (nextPinned: boolean) => {
+    pinnedRef.current = nextPinned;
+    setPinned(nextPinned);
+  };
+  const openAtTrigger = (nextPinned: boolean) => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    clearCloseTimer();
+    const width = Math.min(520, window.innerWidth - 24);
+    const height = Math.min(126 + symbols.length * 50, 520, window.innerHeight - 24);
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+    const top = rect.bottom + 8 + height <= window.innerHeight
+      ? rect.bottom + 8
+      : Math.max(12, rect.top - height - 8);
+    document.dispatchEvent(new CustomEvent(combinationDetailsOpenEvent, { detail: triggerId.current }));
+    setBounds({ width, maxHeight: height, left, top });
+    setPinnedState(nextPinned);
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      if (!pinnedRef.current) setOpen(false);
+    }, 140);
+  };
+  const close = () => {
+    clearCloseTimer();
+    setPinnedState(false);
+    setOpen(false);
+  };
+  useEffect(() => {
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== triggerId.current) close();
+    };
+    document.addEventListener(combinationDetailsOpenEvent, closeOther);
+    return () => {
+      clearCloseTimer();
+      document.removeEventListener(combinationDetailsOpenEvent, closeOther);
+    };
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const closeFromOutside = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.combination-detail-popover') || triggerRef.current?.contains(target)) return;
+      close();
+    };
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('pointerdown', closeFromOutside);
+    document.addEventListener('keydown', closeFromEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside);
+      document.removeEventListener('keydown', closeFromEscape);
+    };
+  }, [open]);
+  return <>
+    <button
+      ref={triggerRef}
+      type="button"
+      className="combination-assets"
+      aria-expanded={open}
+      aria-label={`查看组合明细，共 ${codes.length} 只 ETF`}
+      onMouseEnter={() => openAtTrigger(false)}
+      onMouseLeave={scheduleClose}
+      onFocus={() => openAtTrigger(false)}
+      onBlur={scheduleClose}
+      onClick={() => pinned ? close() : openAtTrigger(true)}
+    >
+      <strong>{symbols.map((symbol) => symbol.name).join(' / ')}</strong>
+      <small>{codes.join(' · ')}</small>
+    </button>
+    {open && createPortal(<div
+      className={`combination-detail-popover${pinned ? ' is-pinned' : ''}`}
+      style={bounds}
+      onMouseEnter={clearCloseTimer}
+      onMouseLeave={scheduleClose}
+    >
+      <div className="combination-detail-head">
+        <div><strong>组合明细</strong><span>{codes.length} 只 ETF</span></div>
+        <button type="button" className="icon-button" title="关闭组合明细" aria-label="关闭组合明细" onClick={close}><X size={16} /></button>
+      </div>
+      <div className="combination-detail-coverage"><span>资产覆盖</span><div>{assetClasses.map((assetClass) => <b key={assetClass}>{assetClass}</b>)}</div></div>
+      <div className="combination-detail-list">
+        {symbols.map((symbol, index) => <div className="combination-detail-row" key={symbol.code}>
+          <span>{index + 1}</span>
+          <div><strong>{symbol.name}</strong><small>{symbol.code}</small></div>
+          <b>{symbol.assetClass}</b>
+        </div>)}
+      </div>
+    </div>, document.body)}
+  </>;
 }
 
 function MarketTable({
@@ -811,6 +930,122 @@ function AnnualReturnChart({ data }: { data: AnnualReturn[] }) {
   return <EChart option={option} className="annual-return-chart" />;
 }
 
+function YearReturnChart({ data, nodes, year }: { data: RotationYearPerformance['equityCurve']; nodes: RotationYearPerformance['nodes']; year: number }) {
+  const latestReturn = data.at(-1)?.returnRate ?? 0;
+  const lineColor = latestReturn >= 0 ? '#c94f4f' : '#16815f';
+  const option = useMemo<EChartsCoreOption>(() => {
+    const returnByDate = new Map(data.map((point) => [point.date, point.returnRate]));
+    const nodeByDate = new Map(nodes.map((node) => [node.date, node]));
+    const operationLabel = { 买入: '买', 轮换: '换', 清仓: '清' } as const;
+    const operationColor = { 买入: '#c94f4f', 轮换: '#b57b20', 清仓: '#16815f' } as const;
+    return {
+    animationDuration: 450,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', lineStyle: { color: '#8996a1' } },
+      formatter: (items: unknown) => {
+        const item = (items as Array<{ axisValue: string; value: number }>)[0];
+        if (!item) return '';
+        const node = nodeByDate.get(item.axisValue);
+        const operation = node
+          ? `<br/><span style="color:${operationColor[node.action]}">${node.action}：${node.fromName ?? '空仓'} → ${node.toName ?? '空仓'}</span>${node.tradeReturn === null ? '' : `<br/>单次收益：${node.tradeReturn >= 0 ? '+' : ''}${node.tradeReturn.toFixed(2)}%`}`
+          : '';
+        return `${item.axisValue}<br/>累计收益：<strong style="color:${item.value >= 0 ? '#b94b4b' : '#16815f'}">${item.value >= 0 ? '+' : ''}${Number(item.value).toFixed(2)}%</strong>${operation}`;
+      },
+      backgroundColor: '#ffffff',
+      borderColor: '#d8e0e7',
+      textStyle: { color: '#1c2833', fontSize: 12 },
+    },
+    grid: { left: 58, right: 22, top: 24, bottom: 40 },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: data.map((point) => point.date),
+      axisLabel: {
+        color: '#74808c',
+        fontSize: 11,
+        interval: Math.max(Math.floor(data.length / 7) - 1, 0),
+        formatter: (value: string) => value.slice(5),
+      },
+      axisLine: { lineStyle: { color: '#d8e0e7' } },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      axisLabel: { color: '#74808c', fontSize: 11, formatter: (value: number) => `${value.toFixed(0)}%` },
+      splitLine: { lineStyle: { color: '#e8edf1' } },
+    },
+    series: [{
+      name: `${year} 年累计收益`,
+      type: 'line',
+      data: data.map((point) => point.returnRate),
+      showSymbol: false,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { color: lineColor, width: 2 },
+      itemStyle: { color: lineColor },
+      markLine: {
+        symbol: 'none',
+        silent: true,
+        lineStyle: { color: '#8e9aa5', type: 'dashed', width: 1 },
+        label: { show: false },
+        data: [{ yAxis: 0 }],
+      },
+      markPoint: {
+        symbol: 'circle',
+        symbolSize: 25,
+        symbolOffset: [0, -14],
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: { data?: { node?: RotationYearPerformance['nodes'][number]; returnRate?: number } }) => {
+            const marker = params.data;
+            const node = marker?.node;
+            if (!node || marker.returnRate === undefined) return '';
+            return `${node.date}<br/><span style="color:${operationColor[node.action]}">${node.action}：${node.fromName ?? '空仓'} → ${node.toName ?? '空仓'}</span><br/>累计收益：${marker.returnRate >= 0 ? '+' : ''}${marker.returnRate.toFixed(2)}%${node.tradeReturn === null ? '' : `<br/>单次收益：${node.tradeReturn >= 0 ? '+' : ''}${node.tradeReturn.toFixed(2)}%`}`;
+          },
+        },
+        label: {
+          show: true,
+          color: '#ffffff',
+          fontSize: 10,
+          fontWeight: 700,
+          formatter: (params: { data?: { operationLabel?: string } }) => params.data?.operationLabel ?? '',
+        },
+        data: nodes.flatMap((node) => {
+          const returnRate = returnByDate.get(node.date);
+          return returnRate === undefined ? [] : [{
+            name: node.action,
+            operationLabel: operationLabel[node.action],
+            coord: [node.date, returnRate],
+            value: returnRate,
+            returnRate,
+            node,
+            itemStyle: {
+              color: operationColor[node.action],
+              borderColor: '#ffffff',
+              borderWidth: 2,
+              shadowBlur: 5,
+              shadowColor: 'rgba(36, 49, 60, .18)',
+            },
+          }];
+        }),
+      },
+    }],
+  };
+  }, [data, lineColor, nodes, year]);
+
+  return (
+    <div className="year-return-chart-block">
+      <div className="year-return-chart-heading">
+        <div><strong>今年收益率曲线</strong><span>按每个交易日收盘后的策略净值计算</span></div>
+        <span className={latestReturn >= 0 ? 'up' : 'down'}>{latestReturn >= 0 ? '+' : ''}{latestReturn.toFixed(2)}%</span>
+      </div>
+      {data.length > 0 ? <EChart option={option} className="year-return-chart" /> : <div className="year-return-chart-empty">刷新行情后生成每日收益率曲线</div>}
+    </div>
+  );
+}
+
 function Dashboard({
   markets,
   selected,
@@ -1013,11 +1248,17 @@ function Screener({
 function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { strategy: 'rotation' | 'asset-rotation'; rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
   const isAssetRotation = strategy === 'asset-rotation';
   const endpointBase = `/api/strategy/${strategy}/combinations`;
-  type CombinationSortKey = 'score' | 'ten-year' | 'current-year';
+  type CombinationSortKey = 'score' | 'ten-year' | 'five-year' | 'current-year';
   type CombinationSort = { key: CombinationSortKey; direction: 'asc' | 'desc' };
+  type CombinationFilters = { size: number | null; tenYearDrawdown: number | null; fiveYearDrawdown: number | null; currentYearDrawdown: number | null };
   const [sort, setSort] = useState<CombinationSort>({ key: 'score', direction: 'desc' });
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
+  const [sizeInput, setSizeInput] = useState('');
+  const [tenYearDrawdownInput, setTenYearDrawdownInput] = useState('');
+  const [fiveYearDrawdownInput, setFiveYearDrawdownInput] = useState('');
+  const [currentYearDrawdownInput, setCurrentYearDrawdownInput] = useState('');
+  const [filters, setFilters] = useState<CombinationFilters>({ size: null, tenYearDrawdown: null, fiveYearDrawdown: null, currentYearDrawdown: null });
   const [result, setResult] = useState<AssetRotationCombinationsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1026,11 +1267,20 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
   const [poolError, setPoolError] = useState('');
   const [replacingId, setReplacingId] = useState<string | null>(null);
   const [replaceNotice, setReplaceNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const scoreExplanationRef = useRef<HTMLDetailsElement>(null);
+  const filterQuery = useMemo(() => {
+    const parameters = new URLSearchParams();
+    if (filters.size !== null) parameters.set('size', String(filters.size));
+    if (filters.tenYearDrawdown !== null) parameters.set('tenYearDrawdown', String(filters.tenYearDrawdown));
+    if (filters.fiveYearDrawdown !== null) parameters.set('fiveYearDrawdown', String(filters.fiveYearDrawdown));
+    if (filters.currentYearDrawdown !== null) parameters.set('currentYearDrawdown', String(filters.currentYearDrawdown));
+    return parameters.toString();
+  }, [filters.currentYearDrawdown, filters.fiveYearDrawdown, filters.size, filters.tenYearDrawdown]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void apiFetch(`${endpointBase}?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25`, {
+    void apiFetch(`${endpointBase}?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25${filterQuery ? `&${filterQuery}` : ''}`, {
       cache: 'no-store',
       signal: controller.signal,
     }).then(async (response) => {
@@ -1044,12 +1294,45 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [endpointBase, page, sort.direction, sort.key]);
+  }, [endpointBase, filterQuery, page, sort.direction, sort.key]);
   useEffect(() => {
     if (result) setPageInput(String(result.page));
   }, [result]);
+  useEffect(() => {
+    const closeScoreExplanation = (event: PointerEvent) => {
+      const details = scoreExplanationRef.current;
+      const target = event.target instanceof Node ? event.target : null;
+      if (!details?.open || !target || details.contains(target)) return;
+      details.open = false;
+    };
+    document.addEventListener('pointerdown', closeScoreExplanation);
+    return () => document.removeEventListener('pointerdown', closeScoreExplanation);
+  }, []);
   const names = useMemo(() => new Map(result?.universe.map((item) => [item.code, item.name]) ?? []), [result]);
+  const combinationUniverse = useMemo(() => new Map(result?.universe.map((item) => [item.code, item]) ?? []), [result]);
   const first = result?.best;
+  const scoreExample = first && result ? (() => {
+    const zScore = (value: number, metric: { mean: number; standardDeviation: number }) => (value - metric.mean) / metric.standardDeviation;
+    const population = result.scoring.population;
+    const rows = [
+      { label: '近 10 年年化', raw: first.tenYearAnnualizedReturn, weight: 0.3, zScore: zScore(first.tenYearAnnualizedReturn, population.tenYearAnnualizedReturn) },
+      { label: '近 5 年年化', raw: first.fiveYearAnnualizedReturn, weight: 0.25, zScore: zScore(first.fiveYearAnnualizedReturn, population.fiveYearAnnualizedReturn) },
+      { label: `${result.periods.currentYear.year} 年收益`, raw: first.currentYearReturn, weight: 0.1, zScore: zScore(first.currentYearReturn, population.currentYearReturn) },
+      { label: '近 10 年回撤', raw: Math.abs(first.tenYearMaxDrawdown), weight: -0.2, zScore: zScore(Math.abs(first.tenYearMaxDrawdown), population.tenYearDrawdownAbsolute) },
+      { label: '近 5 年回撤', raw: Math.abs(first.fiveYearMaxDrawdown), weight: -0.1, zScore: zScore(Math.abs(first.fiveYearMaxDrawdown), population.fiveYearDrawdownAbsolute) },
+      { label: `${result.periods.currentYear.year} 年回撤`, raw: Math.abs(first.currentYearMaxDrawdown), weight: -0.05, zScore: zScore(Math.abs(first.currentYearMaxDrawdown), population.currentYearDrawdownAbsolute) },
+    ].map((row) => ({ ...row, contribution: row.weight * row.zScore }));
+    return { rows, total: rows.reduce((sum, row) => sum + row.contribution, 0) };
+  })() : null;
+  const signedNumber = (value: number, digits: number) => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
+  const leaderMetrics = first && result ? sort.key === 'score'
+    ? { primaryLabel: '综合得分', primaryValue: first.compositeScore.toFixed(4), primaryClass: undefined, secondaryLabel: '近 10 年年化收益', secondaryValue: formatPct(first.tenYearAnnualizedReturn), secondaryClass: first.tenYearAnnualizedReturn >= 0 ? 'up' : 'down' }
+    : sort.key === 'ten-year'
+      ? { primaryLabel: '近 10 年累计收益', primaryValue: formatPct(first.tenYearReturn), primaryClass: first.tenYearReturn >= 0 ? 'up' : 'down', secondaryLabel: '同期最大回撤', secondaryValue: formatPct(first.tenYearMaxDrawdown), secondaryClass: 'down' }
+      : sort.key === 'five-year'
+        ? { primaryLabel: '近 5 年累计收益', primaryValue: formatPct(first.fiveYearReturn), primaryClass: first.fiveYearReturn >= 0 ? 'up' : 'down', secondaryLabel: '近 5 年年化收益', secondaryValue: formatPct(first.fiveYearAnnualizedReturn), secondaryClass: first.fiveYearAnnualizedReturn >= 0 ? 'up' : 'down' }
+        : { primaryLabel: `${result.periods.currentYear.year} 年收益`, primaryValue: formatPct(first.currentYearReturn), primaryClass: first.currentYearReturn >= 0 ? 'up' : 'down', secondaryLabel: '同期最大回撤', secondaryValue: formatPct(first.currentYearMaxDrawdown), secondaryClass: 'down' }
+    : null;
   const changeSort = (key: CombinationSortKey) => {
     setSort((current) => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' }));
     setPage(1);
@@ -1067,6 +1350,30 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     setPage(normalized);
   };
   const submitPage = () => goToPage(Number(pageInput));
+  const applyCombinationFilters = () => {
+    const size = Number(sizeInput);
+    const drawdown = (value: string) => {
+      const parsed = Number(value);
+      return value.trim() && Number.isFinite(parsed) ? -Math.abs(parsed) : null;
+    };
+    setFilters({
+      size: sizeInput.trim() && Number.isInteger(size) && size > 0 ? size : null,
+      tenYearDrawdown: drawdown(tenYearDrawdownInput),
+      fiveYearDrawdown: drawdown(fiveYearDrawdownInput),
+      currentYearDrawdown: drawdown(currentYearDrawdownInput),
+    });
+    setPage(1);
+    setPageInput('1');
+  };
+  const clearCombinationFilters = () => {
+    setSizeInput('');
+    setTenYearDrawdownInput('');
+    setFiveYearDrawdownInput('');
+    setCurrentYearDrawdownInput('');
+    setFilters({ size: null, tenYearDrawdown: null, fiveYearDrawdown: null, currentYearDrawdown: null });
+    setPage(1);
+    setPageInput('1');
+  };
   const updatePool = useCallback(async (action: 'add' | 'remove', item: PoolSymbol) => {
     setPoolUpdating(true);
     setPoolError('');
@@ -1092,14 +1399,14 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     setPoolCalculating(true);
     setPoolError('');
     try {
-      const response = await apiFetch(`${endpointBase}/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25`, {
+      const response = await apiFetch(`${endpointBase}/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25${filterQuery ? `&${filterQuery}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
       const payload = await response.json() as AssetRotationCombinationsResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message || '全组合收益排名重新计算失败');
-      if (!Array.isArray(payload.combinations) || !payload.combinations.length || payload.poolDraft?.dirty) throw new Error('重新计算完成，但返回的数据不完整');
+      if (!Array.isArray(payload.combinations) || (payload.totalCombinations > 0 && !payload.combinations.length) || payload.poolDraft?.dirty) throw new Error('重新计算完成，但返回的数据不完整');
       setPage(1);
       setPageInput('1');
       setResult(payload);
@@ -1108,7 +1415,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     } finally {
       setPoolCalculating(false);
     }
-  }, [endpointBase, sort.direction, sort.key]);
+  }, [endpointBase, filterQuery, sort.direction, sort.key]);
   const poolSymbols = result?.poolDraft.symbols ?? [];
   const calculatedCodes = useMemo(() => new Set(result?.universe.map((item) => item.code) ?? []), [result]);
   const activeRotationPoolKey = useMemo(() => [...rotationPoolCodes].sort().join(','), [rotationPoolCodes]);
@@ -1129,7 +1436,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       <div className="panel-title-row combination-title-row">
         <div><span className="eyebrow">{isAssetRotation ? 'ASSET COMBINATION REPLAY' : 'INDEX COMBINATION REPLAY'}</span><h3>全组合收益排名</h3></div>
         <div className="combination-toolbar">
-          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {result.totalCombinations.toLocaleString()} 个组合</span>}
+          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {Object.values(result.filters).every((value) => value === null) ? result.totalCombinations.toLocaleString() : `${result.totalCombinations.toLocaleString()} / ${result.allCombinations.toLocaleString()}`} 个组合</span>}
         </div>
       </div>
       {result && <>
@@ -1161,26 +1468,76 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       </div>}
       {error && <div className="combination-state error"><AlertTriangle size={16} />{error}</div>}
       {loading && !result && <div className="combination-state"><RefreshCw className="spin-icon" size={16} />正在读取全部组合回测</div>}
-      {result && first && <>
-        <div className="combination-leader">
+      {result && result.totalCombinations === 0 && <div className="combination-state">没有符合当前筛选条件的组合</div>}
+      {result && first && leaderMetrics && <div className="combination-leader">
           <div><span>当前第一名</span><strong>{first.codes.map((code) => names.get(code) ?? code).join(' / ')}</strong><small>{first.codes.join(' · ')}</small></div>
-          <div><span>{sort.key === 'score' ? '综合得分' : sort.key === 'ten-year' ? '近 10 年累计收益' : `${result.periods.currentYear.year} 年收益`}</span><strong className={sort.key === 'score' ? undefined : (sort.key === 'ten-year' ? first.tenYearReturn : first.currentYearReturn) >= 0 ? 'up' : 'down'}>{sort.key === 'score' ? first.compositeScore.toFixed(4) : formatPct(sort.key === 'ten-year' ? first.tenYearReturn : first.currentYearReturn)}</strong></div>
-          <div><span>{sort.key === 'score' ? '近 10 年年化收益' : '同期最大回撤'}</span><strong className={sort.key === 'score' ? (first.tenYearAnnualizedReturn >= 0 ? 'up' : 'down') : 'down'}>{formatPct(sort.key === 'score' ? first.tenYearAnnualizedReturn : sort.key === 'ten-year' ? first.tenYearMaxDrawdown : first.currentYearMaxDrawdown)}</strong></div>
+          <div className="combination-score-metric">
+            <div className="combination-metric-label">
+              <span>{leaderMetrics.primaryLabel}</span>
+              {sort.key === 'score' && <details ref={scoreExplanationRef} className="score-explanation">
+                <summary title="查看综合得分计算说明" aria-label="查看综合得分计算说明"><CircleHelp size={14} /></summary>
+                <div className="score-explanation-popover">
+                  <div className="score-explanation-head"><strong>综合得分计算</strong><span>各项先标准化，再按权重加减</span></div>
+                  <div className="score-explanation-groups">
+                    <div><strong>收益加分</strong><span><b>+30%</b>近 10 年年化收益</span><span><b>+25%</b>近 5 年年化收益</span><span><b>+10%</b>{result.periods.currentYear.year} 年收益</span></div>
+                    <div><strong>回撤扣分</strong><span><b>−20%</b>近 10 年最大回撤绝对值</span><span><b>−10%</b>近 5 年最大回撤绝对值</span><span><b>−5%</b>{result.periods.currentYear.year} 年最大回撤绝对值</span></div>
+                  </div>
+                  {scoreExample && <div className="score-example">
+                    <div className="score-example-head"><strong>第一名计算示例</strong><span>{first.codes.map((code) => names.get(code) ?? code).join(' / ')}</span></div>
+                    <div className="score-example-table">
+                      <div className="score-example-row is-header"><span>指标</span><span>计算值</span><span>标准分</span><span>得分贡献</span></div>
+                      {scoreExample.rows.map((row) => <div className="score-example-row" key={row.label}>
+                        <span>{row.label}</span>
+                        <span>{row.weight < 0 ? row.raw.toFixed(2) : signedNumber(row.raw, 2)}%</span>
+                        <span>{signedNumber(row.zScore, 4)}</span>
+                        <span>{signedNumber(row.contribution, 4)}</span>
+                      </div>)}
+                      <div className="score-example-row score-example-total"><span>合计</span><span /><span /><strong>{scoreExample.total.toFixed(6)}</strong></div>
+                    </div>
+                    <p className="score-example-formula"><b>例：</b>{scoreExample.rows.map((row, index) => <span key={row.label}>{index > 0 ? row.weight >= 0 ? ' + ' : ' − ' : ''}{Math.abs(row.weight).toFixed(2)} × ({signedNumber(row.zScore, 4)})</span>)} ≈ <strong>{first.compositeScore.toFixed(6)}</strong></p>
+                  </div>}
+                  <div className="score-explanation-notes">
+                    <p><b>标准化</b>使用全部组合的总体均值与总体标准差。</p>
+                    <p><b>示例精度</b>最终得分按未四舍五入的标准分计算；表中标准分与贡献保留 4 位小数。</p>
+                    <p><b>近 5 年</b>{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}。</p>
+                    <p><b>组合范围</b>完整枚举 3—{result.universe.length} 只 ETF，排除仅含 2 只 ETF 的组合。</p>
+                    <p><b>执行规则</b>{isAssetRotation ? '周末收盘信号、20 日涨幅排名、MA28 与前 2 名持有。' : '每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有。'}未计手续费、滑点与冲击成本。</p>
+                  </div>
+                </div>
+              </details>}
+            </div>
+            <strong className={leaderMetrics.primaryClass}>{leaderMetrics.primaryValue}</strong>
+          </div>
+          <div><span>{leaderMetrics.secondaryLabel}</span><strong className={leaderMetrics.secondaryClass}>{leaderMetrics.secondaryValue}</strong></div>
           <div><span>当前持仓</span><strong>{first.currentHolding ? names.get(first.currentHolding) ?? first.currentHolding : '空仓'}</strong></div>
-        </div>
+      </div>}
+      {result && <>
+        <form className="combination-filter-bar" onSubmit={(event) => { event.preventDefault(); applyCombinationFilters(); }}>
+          <div className="combination-filter-title"><Filter size={15} /><span>筛选条件</span></div>
+          <label><span>ETF 数量</span><input type="number" min="1" step="1" placeholder="全部" value={sizeInput} onChange={(event) => setSizeInput(event.target.value)} /></label>
+          <label><span>10 年回撤</span><div className="combination-percentage-input"><input type="number" step="0.01" placeholder="如 -30" value={tenYearDrawdownInput} onChange={(event) => setTenYearDrawdownInput(event.target.value)} /><b>%</b></div></label>
+          <label><span>5 年回撤</span><div className="combination-percentage-input"><input type="number" step="0.01" placeholder="如 -25" value={fiveYearDrawdownInput} onChange={(event) => setFiveYearDrawdownInput(event.target.value)} /><b>%</b></div></label>
+          <label><span>{result.periods.currentYear.year} 年回撤</span><div className="combination-percentage-input"><input type="number" step="0.01" placeholder="如 -20" value={currentYearDrawdownInput} onChange={(event) => setCurrentYearDrawdownInput(event.target.value)} /><b>%</b></div></label>
+          <div className="combination-filter-actions">
+            <button type="submit" className="combination-filter-search" disabled={loading}><Search size={14} />搜索</button>
+            <button type="button" className="combination-filter-reset" disabled={loading || (!sizeInput && !tenYearDrawdownInput && !fiveYearDrawdownInput && !currentYearDrawdownInput && !filterQuery)} onClick={clearCombinationFilters}>清空</button>
+          </div>
+        </form>
         <div className="combination-table-wrap">
           <table className="combination-table">
-            <thead><tr><th>排名</th><th>ETF 组合</th><th>资产覆盖</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>年化收益</th><th>10年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>{isAssetRotation ? '周度交易' : '每日交易'}</th><th>当前持仓</th><th>操作</th></tr></thead>
+            <thead><tr><th>排名</th><th>ETF 组合</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>10年年化</th><th>10年回撤</th><th>{sortableHeader('five-year', '近5年收益')}</th><th>5年年化</th><th>5年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>{isAssetRotation ? '周度交易' : '每日交易'}</th><th>当前持仓</th><th>操作</th></tr></thead>
             <tbody>{result.combinations.map((item) => (
               <tr key={item.id}>
                 <td><RankBadge rank={item.displayRank} /></td>
-                <td><div className="combination-assets"><strong>{item.codes.map((code) => names.get(code) ?? code).join(' / ')}</strong><small>{item.codes.join(' · ')}</small></div></td>
-                <td>{item.assetClasses.join(' · ')}</td>
+                <td><CombinationAssetsCell codes={item.codes} assetClasses={item.assetClasses} universe={combinationUniverse} /></td>
                 <td>{item.size}</td>
                 <td className={item.compositeScore >= 0 ? 'up' : 'down'}>{item.compositeScore.toFixed(4)}</td>
                 <td><Change value={item.tenYearReturn} /></td>
                 <td><Change value={item.tenYearAnnualizedReturn} /></td>
                 <td><Change value={item.tenYearMaxDrawdown} /></td>
+                <td><Change value={item.fiveYearReturn} /></td>
+                <td><Change value={item.fiveYearAnnualizedReturn} /></td>
+                <td><Change value={item.fiveYearMaxDrawdown} /></td>
                 <td><Change value={item.currentYearReturn} /></td>
                 <td><Change value={item.currentYearMaxDrawdown} /></td>
                 <td>{sort.key === 'current-year' ? item.currentYearTrades : item.tenYearTrades}</td>
@@ -1204,7 +1561,6 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
           </form>
           <button type="button" className="icon-button" title="下一页" aria-label="组合排名下一页" disabled={result.page >= result.totalPages || loading} onClick={() => goToPage(result.page + 1)}><ChevronRight size={16} /></button>
         </div>
-        <div className="method-note">综合得分 = 50% × 标准化近 10 年年化收益 + 20% × 标准化 {result.periods.currentYear.year} 年收益 − 20% × 标准化近 10 年最大回撤绝对值 − 10% × 标准化 {result.periods.currentYear.year} 年最大回撤绝对值；标准化使用全部组合的总体均值与总体标准差。候选全集取自独立组合池，完整枚举 3—{result.universe.length} 只 ETF 的所有组合，并排除仅含 2 只 ETF 的组合。{isAssetRotation ? '所有组合均使用每周最后一个交易日收盘信号、20 日涨幅排名、MA28 与前 2 名持有规则' : '所有组合均使用每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有规则'}，未计手续费、滑点与冲击成本。组合排名属于历史参数搜索，不代表未来收益。</div>
       </>}
     </section>
   );
@@ -1336,6 +1692,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
             <div><span>当前持仓</span><strong>{yearPerformance.currentHolding ?? '空仓'}</strong></div>
             <div><span>当前持仓单次收益</span><strong className={yearPerformance.currentTradeReturn === null ? undefined : yearPerformance.currentTradeReturn >= 0 ? 'up' : 'down'}>{yearPerformance.currentTradeReturn === null ? '--' : formatPct(yearPerformance.currentTradeReturn)}</strong></div>
           </div>
+          <YearReturnChart data={yearPerformance.equityCurve ?? []} nodes={yearPerformance.nodes} year={yearPerformance.year} />
           <div className="year-trades-wrap">
             <table className="year-trades-table">
               <thead><tr><th>日期</th><th>操作</th><th>调整前</th><th>调整后</th><th>触发条件</th><th>单次收益</th><th>节点累计收益</th></tr></thead>
