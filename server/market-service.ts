@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlDocuments, queueMysqlDocumentDelete, queueMysqlDocumentWrite, readMysqlDocument, replaceMysqlDocuments } from './mysql-store.js';
+import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -423,21 +423,21 @@ function isSymbolConfig(value: unknown): value is SymbolConfig {
 }
 
 function readStoredText(path: string) {
-  const stored = readMysqlDocument(path);
-  if (stored === null) throw new Error(`数据库中缺少文档：${relative(process.cwd(), path)}`);
+  const stored = readMysqlObject(path);
+  if (stored === null) throw new Error(`数据库中缺少业务对象：${relative(process.cwd(), path)}`);
   return stored;
 }
 
 function storedFileExists(path: string) {
-  return readMysqlDocument(path) !== null;
+  return readMysqlObject(path) !== null;
 }
 
 function deleteStoredFile(path: string) {
-  void queueMysqlDocumentDelete(path);
+  void queueMysqlObjectDelete(path);
 }
 
 function storedJsonNames(directory: string) {
-  return [...new Set(listMysqlDocuments(directory).map((key) => basename(key)))];
+  return [...new Set(listMysqlObjects(directory).map((key) => basename(key)))];
 }
 
 const calculationWorkspacePrefix = 'rotation-market-desk-';
@@ -454,9 +454,9 @@ function createCalculationWorkspace() {
   if (!isMysqlEnabled()) throw new Error('计算任务需要 MySQL');
   const workspaceRoot = mkdtempSync(resolve(tmpdir(), calculationWorkspacePrefix));
   const dataDirectory = resolve(process.cwd(), 'data');
-  for (const key of listMysqlDocuments(dataDirectory)) {
+  for (const key of listMysqlObjects(dataDirectory)) {
     const logicalPath = resolve(process.cwd(), key);
-    const content = readMysqlDocument(logicalPath);
+    const content = readMysqlObject(logicalPath);
     if (content === null) continue;
     const stagedPath = calculationPath(workspaceRoot, logicalPath);
     mkdirSync(dirname(stagedPath), { recursive: true });
@@ -496,7 +496,7 @@ function calculationArtifacts(workspaceRoot: string, logicalPaths: string[]) {
 }
 
 async function syncCalculationArtifacts(workspaceRoot: string, logicalPaths: string[]) {
-  await replaceMysqlDocuments(calculationArtifacts(workspaceRoot, logicalPaths));
+  await replaceMysqlObjects(calculationArtifacts(workspaceRoot, logicalPaths));
 }
 
 function readStrategyConfig(path: string, label: string): AssetRotationConfig {
@@ -655,7 +655,7 @@ function readDualEtfConfig() {
 
 function writeTextAtomic(path: string, content: string) {
   if (!isMysqlEnabled()) throw new Error('MySQL 尚未初始化');
-  void queueMysqlDocumentWrite(path, content);
+  void queueMysqlObjectWrite(path, content);
 }
 
 function strategyConfigText(path: string, config: AssetRotationConfig) {
@@ -1747,7 +1747,7 @@ export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) 
       ? calculationJsonFiles(workspaceRoot, definition.historyDirectory)
       : definition.outputPath ? [definition.outputPath] : [];
     await syncCalculationArtifacts(workspaceRoot, paths);
-    return { updatedDocuments: paths.length };
+    return { updatedObjects: paths.length };
   } finally {
     removeCalculationWorkspace(workspaceRoot);
   }

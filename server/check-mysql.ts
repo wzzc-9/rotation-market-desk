@@ -1,19 +1,19 @@
 import { resolve } from 'node:path';
-import { closeMysqlStore, initializeMysqlStore, listMysqlDocuments, mysqlSchemaCommentStats, mysqlStoreStats, readMysqlDocument } from './mysql-store.js';
+import { closeMysqlStore, initializeMysqlStore, listMysqlObjects, mysqlSchemaCommentStats, mysqlStoreStats, readMysqlObject } from './mysql-store.js';
 
 if (!await initializeMysqlStore()) throw new Error('缺少 MySQL 配置');
 
 const dataDirectory = resolve(process.cwd(), 'data');
-const documentKeys = listMysqlDocuments(dataDirectory);
-const invalidDocuments = documentKeys.filter((key) => {
+const objectKeys = listMysqlObjects(dataDirectory);
+const invalidObjects = objectKeys.filter((key) => {
   try {
-    JSON.parse(readMysqlDocument(resolve(process.cwd(), key)) ?? '');
+    JSON.parse(readMysqlObject(resolve(process.cwd(), key)) ?? '');
     return false;
   } catch {
     return true;
   }
 });
-const requiredDocuments = [
+const requiredObjects = [
   'data/rotation/config.json',
   'data/rotation/combination-config.json',
   'data/rotation/backtest.json',
@@ -23,7 +23,7 @@ const requiredDocuments = [
   'data/dual-etf/config.json',
   'data/dual-etf/backtest.json',
 ];
-const missingDocuments = requiredDocuments.filter((key) => !documentKeys.includes(key));
+const missingObjects = requiredObjects.filter((key) => !objectKeys.includes(key));
 const stats = await mysqlStoreStats();
 const schemaComments = await mysqlSchemaCommentStats();
 const incompleteRuns = stats?.runs.filter((run) => Number(run.total_combinations) !== Number(run.stored_combinations)) ?? [];
@@ -32,14 +32,17 @@ const schemaCommentsValid = schemaComments !== null
   && schemaComments.columnMismatches.length === 0;
 
 console.log(JSON.stringify({
-  storedDocuments: stats?.documents ?? 0,
-  invalidDocuments,
-  missingDocuments,
+  serializedBusinessObjects: stats?.objects ?? 0,
+  invalidObjects,
+  missingObjects,
+  legacyDocumentTables: stats?.legacyDocumentTables ?? 0,
+  legacyJsonColumns: stats?.legacyJsonColumns ?? 0,
+  entityCounts: stats?.entityCounts ?? null,
   activeRuns: stats?.runs ?? [],
   incompleteRuns,
   schemaComments,
-  valid: invalidDocuments.length === 0 && missingDocuments.length === 0 && incompleteRuns.length === 0 && schemaCommentsValid,
+  valid: invalidObjects.length === 0 && missingObjects.length === 0 && (stats?.legacyDocumentTables ?? 1) === 0 && (stats?.legacyJsonColumns ?? 1) === 0 && incompleteRuns.length === 0 && schemaCommentsValid,
 }, null, 2));
 
 await closeMysqlStore();
-if (invalidDocuments.length || missingDocuments.length || incompleteRuns.length || !schemaCommentsValid) process.exitCode = 1;
+if (invalidObjects.length || missingObjects.length || (stats?.legacyDocumentTables ?? 1) !== 0 || (stats?.legacyJsonColumns ?? 1) !== 0 || incompleteRuns.length || !schemaCommentsValid) process.exitCode = 1;

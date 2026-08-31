@@ -27,18 +27,23 @@ DB_NAME=rotation_market_desk
 DB_SSL=0
 ```
 
-重新计算后可检查文档内容和组合行数：
+重新计算或升级表结构后可检查业务对象、领域表行数和组合完整性：
 
 ```powershell
 pnpm run db:check
 ```
 
-- `app_documents`：配置、ETF 历史行情、回测、年度收益和策略快照；正文使用 `LONGTEXT` 原样保存并在写入前校验 JSON。
-- `combination_runs`：策略一、策略二每次组合计算的版本和统计参数。
-- `combination_results`：拆分后的组合排名明细，页面筛选、排序和分页直接执行 SQL。
+- `strategies`、`etfs`：策略与 ETF 基础对象。
+- `strategy_configs`、`strategy_config_etfs`：轮动池、组合池及其 ETF 成员。
+- `strategy_history_etfs`、`etf_daily_prices`：各策略可用的 ETF 清单和统一的前复权日线行情。
+- `strategy_backtests`、`strategy_backtest_etfs`、`strategy_backtest_years`：近 10 年回测汇总、标的快照和年度收益。
+- `strategy_year_performance`、`strategy_year_etfs`、`strategy_equity_points`、`strategy_trade_nodes`：今年表现、收益曲线和每次操作节点。
+- `stock_scan_runs`、`stock_scan_results`：五类个股策略的扫描批次与结构化指标明细。
+- `combination_runs`、`combination_results`、`combination_result_etfs`：组合计算批次、收益排名和组合 ETF 成员。
+- `combination_run_rules`、`combination_run_periods`、`combination_run_universe`、`combination_scoring`、`combination_score_metrics`：组合规则、区间、候选池和评分参数。
 - `active_combination_runs`：每个策略当前对外提供的完整组合版本；新版本全部写完后才切换。
 
-服务使用 MySQL 作为唯一运行数据源；未配置数据库时会拒绝启动。行情下载、回测和组合优化在系统临时目录执行，成功后写回数据库，不会改动项目内的 JSON 文件。组合排名接口直接查询 MySQL，不读取大型 `combinations.json`。
+服务使用 MySQL 作为唯一运行数据源；未配置数据库时会拒绝启动。数据库不再保存整段 JSON 文档，`app_documents` 会在结构化迁移验证成功后自动删除。行情下载、回测和组合优化仅在系统临时目录使用 JSON 作为脚本交换格式，成功后解析写入对应领域表，不会改动项目文件。组合排名接口直接查询 MySQL 关系表。
 
 生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理；GitHub Pages 构建已配置为请求 `https://rotation-market-desk.onrender.com`。Render 后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
 

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql2/promise';
+import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, migrateLegacyDocuments, persistRelationalObject, relationalSchemaComments } from './relational-store.js';
 
 type CombinationStrategy = 'rotation' | 'asset-rotation';
 
@@ -64,7 +65,7 @@ type MysqlConfig = {
 
 let pool: Pool | null = null;
 let initialized = false;
-const documentCache = new Map<string, string>();
+const objectCache = new Map<string, string>();
 const pendingWrites = new Set<Promise<unknown>>();
 
 function loadEnvironmentFile(path: string) {
@@ -122,18 +123,7 @@ type SchemaComment = {
 };
 
 const schemaComments: Record<string, SchemaComment> = {
-  app_documents: {
-    table: 'JSON文档持久化表',
-    columns: {
-      document_key: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档相对项目根目录的唯一路径' },
-      category: { definition: 'VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档分类' },
-      strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '所属策略编码，无归属时为空' },
-      document_date: { definition: 'DATE NULL', comment: '文档对应的交易日期，无日期时为空' },
-      content_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档内容的SHA-256哈希' },
-      payload: { definition: 'LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL', comment: '原始JSON文档内容' },
-      updated_at: { definition: 'DATETIME(3) NOT NULL', comment: '最后更新时间' },
-    },
-  },
+  ...relationalSchemaComments,
   combination_runs: {
     table: 'ETF组合排名计算批次表',
     columns: {
@@ -142,10 +132,6 @@ const schemaComments: Record<string, SchemaComment> = {
       source_version: { definition: 'VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '源组合文件版本' },
       source_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '源组合文件SHA-256哈希' },
       generated_at: { definition: 'DATETIME(3) NOT NULL', comment: '组合数据生成时间' },
-      rule_json: { definition: 'JSON NULL', comment: '交易规则配置' },
-      periods_json: { definition: 'JSON NOT NULL', comment: '回测区间配置' },
-      universe_json: { definition: 'JSON NOT NULL', comment: '参与计算的ETF标的池' },
-      scoring_json: { definition: 'JSON NOT NULL', comment: '综合得分计算配置' },
       total_combinations: { definition: 'INT UNSIGNED NOT NULL', comment: '该批次组合总数' },
       best_ten_year_id: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '近10年收益最高的组合编码' },
       best_current_year_id: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '当年收益最高的组合编码' },
@@ -171,8 +157,6 @@ const schemaComments: Record<string, SchemaComment> = {
       combination_hash: { definition: 'BINARY(32) NOT NULL', comment: '组合编码的SHA-256二进制哈希' },
       combination_key: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: 'ETF代码拼接形成的组合编码' },
       etf_count: { definition: 'TINYINT UNSIGNED NOT NULL', comment: '组合包含的ETF数量' },
-      codes_json: { definition: 'JSON NOT NULL', comment: '组合包含的ETF代码列表' },
-      asset_classes_json: { definition: 'JSON NOT NULL', comment: '组合覆盖的资产类别列表' },
       ten_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年累计收益率，单位百分比' },
       five_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年累计收益率，单位百分比' },
       ten_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年年化收益率，单位百分比' },
@@ -188,6 +172,63 @@ const schemaComments: Record<string, SchemaComment> = {
       current_year_rank: { definition: 'INT UNSIGNED NOT NULL', comment: '当年收益排名' },
       composite_score: { definition: 'DECIMAL(18,6) NOT NULL', comment: '标准化加权后的综合得分' },
       composite_rank: { definition: 'INT UNSIGNED NOT NULL', comment: '综合得分排名' },
+    },
+  },
+  combination_run_rules: {
+    table: 'ETF组合批次交易规则表',
+    columns: {
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
+      frequency: { definition: 'VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '调仓频率：daily或weekly' },
+      momentum_period: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: '动量计算交易日数' },
+      moving_average_period: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: '趋势均线交易日数' },
+      hold_rank_limit: { definition: 'SMALLINT UNSIGNED NULL', comment: '继续持有所允许的最低排名' },
+      minimum_pool_size: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: '参与组合枚举的最少ETF数量' },
+    },
+  },
+  combination_run_periods: {
+    table: 'ETF组合批次回测区间表',
+    columns: {
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
+      period_type: { definition: 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '区间类型：tenYear、fiveYear或currentYear' },
+      period_year: { definition: 'SMALLINT UNSIGNED NULL', comment: '当年区间对应年份，长期区间为空' },
+      start_date: { definition: 'DATE NOT NULL', comment: '回测区间起始交易日' },
+      end_date: { definition: 'DATE NOT NULL', comment: '回测区间结束交易日' },
+    },
+  },
+  combination_run_universe: {
+    table: 'ETF组合批次候选标的表',
+    columns: {
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
+      etf_code: { definition: 'CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '候选ETF代码' },
+      etf_name: { definition: 'VARCHAR(100) NOT NULL', comment: '计算时使用的ETF名称' },
+      asset_class: { definition: 'VARCHAR(32) NOT NULL', comment: '计算时使用的资产类别' },
+      first_date: { definition: 'DATE NOT NULL', comment: '候选ETF可用行情首日' },
+      last_date: { definition: 'DATE NOT NULL', comment: '候选ETF可用行情末日' },
+      display_order: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: '候选ETF原始顺序' },
+    },
+  },
+  combination_scoring: {
+    table: 'ETF组合批次综合评分公式表',
+    columns: {
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
+      formula: { definition: 'VARCHAR(500) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '标准化加权综合评分公式' },
+    },
+  },
+  combination_score_metrics: {
+    table: 'ETF组合批次评分总体参数表',
+    columns: {
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
+      metric_code: { definition: 'VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '参与标准化的指标编码' },
+      mean_value: { definition: 'DECIMAL(20,8) NOT NULL', comment: '该指标在全部组合中的均值' },
+      standard_deviation: { definition: 'DECIMAL(20,8) NOT NULL', comment: '该指标在全部组合中的标准差' },
+    },
+  },
+  combination_result_etfs: {
+    table: 'ETF组合结果成员表',
+    columns: {
+      result_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合结果主键' },
+      etf_code: { definition: 'CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '组合包含的ETF代码' },
+      display_order: { definition: 'TINYINT UNSIGNED NOT NULL', comment: 'ETF在组合中的原始顺序' },
     },
   },
 };
@@ -221,27 +262,91 @@ async function ensureSchemaComments(connection: PoolConnection | Pool) {
   }
 }
 
-async function createSchema(connection: PoolConnection | Pool) {
-  await connection.query(`
-    CREATE TABLE IF NOT EXISTS app_documents (
-      document_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档相对项目根目录的唯一路径',
-      category VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档分类',
-      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '所属策略编码，无归属时为空',
-      document_date DATE NULL COMMENT '文档对应的交易日期，无日期时为空',
-      content_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档内容的SHA-256哈希',
-      payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '原始JSON文档内容',
-      updated_at DATETIME(3) NOT NULL COMMENT '最后更新时间',
-      PRIMARY KEY (document_key),
-      KEY idx_document_category (category, strategy_code, document_date)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='JSON文档持久化表'
-  `);
-  const [payloadColumns] = await connection.query<Array<RowDataPacket & { DATA_TYPE: string }>>(
-    `SELECT DATA_TYPE FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_documents' AND COLUMN_NAME = 'payload'`,
+async function hasColumn(connection: PoolConnection | Pool, table: string, column: string) {
+  const [rows] = await connection.query<Array<RowDataPacket & { total: number }>>(
+    'SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',
+    [table, column],
   );
-  if (payloadColumns[0]?.DATA_TYPE.toLowerCase() !== 'longtext') {
-    await connection.query("ALTER TABLE app_documents MODIFY payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '原始JSON文档内容'");
+  return Number(rows[0]?.total) > 0;
+}
+
+async function saveCombinationRelations(connection: PoolConnection | Pool, runId: number, record: Pick<CombinationFile, 'rule' | 'periods' | 'universe' | 'scoring'>) {
+  const rule = (record.rule ?? {}) as Record<string, unknown>;
+  await connection.execute('DELETE FROM combination_run_rules WHERE run_id=?', [runId]);
+  if (rule.frequency) {
+    await connection.execute(`INSERT INTO combination_run_rules (run_id, frequency, momentum_period, moving_average_period, hold_rank_limit, minimum_pool_size) VALUES (?, ?, ?, ?, ?, ?)`,
+      [runId, String(rule.frequency), Number(rule.momentumPeriod), Number(rule.movingAveragePeriod), rule.holdRankLimit == null ? null : Number(rule.holdRankLimit), Number(rule.minimumPoolSize)]);
   }
+  await connection.execute('DELETE FROM combination_run_periods WHERE run_id=?', [runId]);
+  for (const [periodType, value] of Object.entries(record.periods as Record<string, any>)) {
+    await connection.execute('INSERT INTO combination_run_periods (run_id, period_type, period_year, start_date, end_date) VALUES (?, ?, ?, ?, ?)',
+      [runId, periodType, value.year ?? null, value.start, value.end]);
+  }
+  await connection.execute('DELETE FROM combination_run_universe WHERE run_id=?', [runId]);
+  const universe = record.universe as Array<Record<string, unknown>>;
+  if (universe.length) {
+    const placeholders = universe.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',');
+    await connection.query(`INSERT INTO combination_run_universe (run_id, etf_code, etf_name, asset_class, first_date, last_date, display_order) VALUES ${placeholders}`,
+      universe.flatMap((item, index) => [runId, item.code, item.name, item.assetClass, item.firstDate, item.lastDate, index]));
+  }
+  const scoring = record.scoring as Record<string, any>;
+  await connection.execute('DELETE FROM combination_scoring WHERE run_id=?', [runId]);
+  await connection.execute('INSERT INTO combination_scoring (run_id, formula) VALUES (?, ?)', [runId, scoring.formula]);
+  await connection.execute('DELETE FROM combination_score_metrics WHERE run_id=?', [runId]);
+  const metrics = Object.entries(scoring.population ?? {}) as Array<[string, { mean: number; standardDeviation: number }]>;
+  if (metrics.length) {
+    const placeholders = metrics.map(() => '(?, ?, ?, ?)').join(',');
+    await connection.query(`INSERT INTO combination_score_metrics (run_id, metric_code, mean_value, standard_deviation) VALUES ${placeholders}`,
+      metrics.flatMap(([code, value]) => [runId, code, value.mean, value.standardDeviation]));
+  }
+}
+
+async function normalizeCombinationRelations(connection: PoolConnection | Pool) {
+  const hasLegacyRunColumns = await hasColumn(connection, 'combination_runs', 'periods_json');
+  const hasLegacyResultColumns = await hasColumn(connection, 'combination_results', 'codes_json');
+  if (hasLegacyRunColumns) {
+    const [runs] = await connection.query<Array<RowDataPacket & Record<string, unknown>>>(
+      'SELECT id, rule_json, periods_json, universe_json, scoring_json FROM combination_runs',
+    );
+    for (const row of runs) {
+      await saveCombinationRelations(connection, Number(row.id), {
+        rule: row.rule_json === null ? undefined : jsonValue(row.rule_json),
+        periods: jsonValue(row.periods_json),
+        universe: jsonValue(row.universe_json),
+        scoring: jsonValue(row.scoring_json),
+      });
+    }
+  }
+  if (hasLegacyResultColumns) {
+    let cursor = 0;
+    while (true) {
+      const [rows] = await connection.query<Array<RowDataPacket & { id: number; codes_json: unknown }>>(
+        'SELECT id, codes_json FROM combination_results WHERE id > ? ORDER BY id LIMIT 5000', [cursor],
+      );
+      if (!rows.length) break;
+      const members = rows.flatMap((row) => jsonValue<string[]>(row.codes_json).map((code, index) => [row.id, code, index]));
+      for (let index = 0; index < members.length; index += 5000) {
+        const batch = members.slice(index, index + 5000);
+        const placeholders = batch.map(() => '(?, ?, ?)').join(',');
+        await connection.query(`INSERT INTO combination_result_etfs (result_id, etf_code, display_order) VALUES ${placeholders}
+          ON DUPLICATE KEY UPDATE display_order=VALUES(display_order)`, batch.flat());
+      }
+      cursor = Number(rows.at(-1)!.id);
+    }
+  }
+  const [counts] = await connection.query<Array<RowDataPacket & { expected: number; actual: number }>>(
+    `SELECT (SELECT COALESCE(SUM(etf_count),0) FROM combination_results) AS expected,
+      (SELECT COUNT(*) FROM combination_result_etfs) AS actual`,
+  );
+  if (Number(counts[0].expected) !== Number(counts[0].actual)) throw new Error(`组合成员迁移不完整：期望 ${counts[0].expected}，实际 ${counts[0].actual}`);
+  const resultColumns = (await Promise.all(['codes_json', 'asset_classes_json'].map(async (column) => await hasColumn(connection, 'combination_results', column) ? column : null))).filter(Boolean);
+  if (resultColumns.length) await connection.query(`ALTER TABLE combination_results ${resultColumns.map((column) => `DROP COLUMN ${column}`).join(', ')}`);
+  const runColumns = (await Promise.all(['rule_json', 'periods_json', 'universe_json', 'scoring_json'].map(async (column) => await hasColumn(connection, 'combination_runs', column) ? column : null))).filter(Boolean);
+  if (runColumns.length) await connection.query(`ALTER TABLE combination_runs ${runColumns.map((column) => `DROP COLUMN ${column}`).join(', ')}`);
+}
+
+async function createSchema(connection: PoolConnection | Pool) {
+  await createRelationalSchema(connection);
   await connection.query(`
     CREATE TABLE IF NOT EXISTS combination_runs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '计算批次主键',
@@ -249,10 +354,6 @@ async function createSchema(connection: PoolConnection | Pool) {
       source_version VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '源组合文件版本',
       source_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '源组合文件SHA-256哈希',
       generated_at DATETIME(3) NOT NULL COMMENT '组合数据生成时间',
-      rule_json JSON NULL COMMENT '交易规则配置',
-      periods_json JSON NOT NULL COMMENT '回测区间配置',
-      universe_json JSON NOT NULL COMMENT '参与计算的ETF标的池',
-      scoring_json JSON NOT NULL COMMENT '综合得分计算配置',
       total_combinations INT UNSIGNED NOT NULL COMMENT '该批次组合总数',
       best_ten_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '近10年收益最高的组合编码',
       best_current_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '当年收益最高的组合编码',
@@ -281,8 +382,6 @@ async function createSchema(connection: PoolConnection | Pool) {
       combination_hash BINARY(32) NOT NULL COMMENT '组合编码的SHA-256二进制哈希',
       combination_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'ETF代码拼接形成的组合编码',
       etf_count TINYINT UNSIGNED NOT NULL COMMENT '组合包含的ETF数量',
-      codes_json JSON NOT NULL COMMENT '组合包含的ETF代码列表',
-      asset_classes_json JSON NOT NULL COMMENT '组合覆盖的资产类别列表',
       ten_year_return DECIMAL(18,6) NOT NULL COMMENT '近10年累计收益率，单位百分比',
       five_year_return DECIMAL(18,6) NOT NULL COMMENT '近5年累计收益率，单位百分比',
       ten_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '近10年年化收益率，单位百分比',
@@ -310,6 +409,37 @@ async function createSchema(connection: PoolConnection | Pool) {
       KEY idx_combination_current_return (run_id, current_year_return)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合排名计算结果明细表'
   `);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_run_rules (
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', frequency VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '调仓频率：daily或weekly',
+    momentum_period SMALLINT UNSIGNED NOT NULL COMMENT '动量计算交易日数', moving_average_period SMALLINT UNSIGNED NOT NULL COMMENT '趋势均线交易日数',
+    hold_rank_limit SMALLINT UNSIGNED NULL COMMENT '继续持有所允许的最低排名', minimum_pool_size SMALLINT UNSIGNED NOT NULL COMMENT '参与组合枚举的最少ETF数量',
+    PRIMARY KEY (run_id), CONSTRAINT fk_combination_rule_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次交易规则表'`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_run_periods (
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', period_type VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '区间类型：tenYear、fiveYear或currentYear',
+    period_year SMALLINT UNSIGNED NULL COMMENT '当年区间对应年份，长期区间为空', start_date DATE NOT NULL COMMENT '回测区间起始交易日', end_date DATE NOT NULL COMMENT '回测区间结束交易日',
+    PRIMARY KEY (run_id, period_type), CONSTRAINT fk_combination_period_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次回测区间表'`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_run_universe (
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', etf_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '候选ETF代码', etf_name VARCHAR(100) NOT NULL COMMENT '计算时使用的ETF名称',
+    asset_class VARCHAR(32) NOT NULL COMMENT '计算时使用的资产类别', first_date DATE NOT NULL COMMENT '候选ETF可用行情首日', last_date DATE NOT NULL COMMENT '候选ETF可用行情末日', display_order SMALLINT UNSIGNED NOT NULL COMMENT '候选ETF原始顺序',
+    PRIMARY KEY (run_id, etf_code), UNIQUE KEY uk_combination_universe_order (run_id, display_order), CONSTRAINT fk_combination_universe_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次候选标的表'`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_scoring (
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', formula VARCHAR(500) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '标准化加权综合评分公式',
+    PRIMARY KEY (run_id), CONSTRAINT fk_combination_scoring_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次综合评分公式表'`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_score_metrics (
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', metric_code VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '参与标准化的指标编码',
+    mean_value DECIMAL(20,8) NOT NULL COMMENT '该指标在全部组合中的均值', standard_deviation DECIMAL(20,8) NOT NULL COMMENT '该指标在全部组合中的标准差',
+    PRIMARY KEY (run_id, metric_code), CONSTRAINT fk_combination_metric_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次评分总体参数表'`);
+  await connection.query(`CREATE TABLE IF NOT EXISTS combination_result_etfs (
+    result_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合结果主键', etf_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '组合包含的ETF代码',
+    display_order TINYINT UNSIGNED NOT NULL COMMENT 'ETF在组合中的原始顺序', PRIMARY KEY (result_id, etf_code), UNIQUE KEY uk_combination_result_order (result_id, display_order),
+    KEY idx_combination_member_etf (etf_code, result_id), CONSTRAINT fk_combination_member_result FOREIGN KEY (result_id) REFERENCES combination_results(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合结果成员表'`);
+  await normalizeCombinationRelations(connection);
   await ensureSchemaComments(connection);
 }
 
@@ -337,10 +467,9 @@ export async function initializeMysqlStore() {
     decimalNumbers: true,
   });
   await createSchema(pool);
-  const [rows] = await pool.query<Array<RowDataPacket & { document_key: string; payload_text: string }>>(
-    'SELECT document_key, payload AS payload_text FROM app_documents',
-  );
-  for (const row of rows) documentCache.set(row.document_key, row.payload_text);
+  await migrateLegacyDocuments(pool);
+  const objects = await loadRelationalObjects(pool);
+  for (const [key, content] of objects) objectCache.set(key, content);
   return true;
 }
 
@@ -353,31 +482,11 @@ export async function closeMysqlStore() {
   if (pool) await pool.end();
   pool = null;
   initialized = false;
-  documentCache.clear();
+  objectCache.clear();
 }
 
-function documentKey(path: string) {
+function storageKey(path: string) {
   return relative(process.cwd(), path).replace(/\\/g, '/');
-}
-
-function documentMetadata(key: string) {
-  const parts = key.split('/');
-  const file = parts.at(-1) ?? '';
-  const strategy = parts[1] === 'rotation' || parts[1] === 'asset-rotation' || parts[1] === 'dual-etf' ? parts[1] : null;
-  const category = parts.includes('history')
-    ? 'history'
-    : parts.includes('year-performance')
-      ? 'year-performance'
-      : file === 'config.json' || file.includes('config')
-        ? 'config'
-        : file === 'backtest.json'
-          ? 'backtest'
-          : parts[1]?.endsWith('-snapshots')
-            ? parts[1]
-            : 'document';
-  const dateMatch = /^(\d{4})(\d{2})(\d{2})\.json$/.exec(file);
-  const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
-  return { category, strategy, date };
 }
 
 function trackWrite<T>(promise: Promise<T>) {
@@ -386,58 +495,36 @@ function trackWrite<T>(promise: Promise<T>) {
   return promise;
 }
 
-export function readMysqlDocument(path: string) {
-  return documentCache.get(documentKey(path)) ?? null;
+export function readMysqlObject(path: string) {
+  return objectCache.get(storageKey(path)) ?? null;
 }
 
-export function listMysqlDocuments(prefix: string) {
-  const normalized = documentKey(prefix).replace(/\/$/, '') + '/';
-  return [...documentCache.keys()].filter((key) => key.startsWith(normalized));
+export function listMysqlObjects(prefix: string) {
+  const normalized = storageKey(prefix).replace(/\/$/, '') + '/';
+  return [...objectCache.keys()].filter((key) => key.startsWith(normalized));
 }
 
-export function queueMysqlDocumentWrite(path: string, content: string) {
+export function queueMysqlObjectWrite(path: string, content: string) {
   if (!pool) return Promise.resolve(false);
   JSON.parse(content);
-  const key = documentKey(path);
-  const metadata = documentMetadata(key);
-  const hash = createHash('sha256').update(content).digest('hex');
-  documentCache.set(key, content);
-  return trackWrite(pool.execute(
-    `INSERT INTO app_documents
-      (document_key, category, strategy_code, document_date, content_hash, payload, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-     ON DUPLICATE KEY UPDATE
-      category = VALUES(category), strategy_code = VALUES(strategy_code), document_date = VALUES(document_date),
-      content_hash = VALUES(content_hash), payload = VALUES(payload), updated_at = NOW(3)`,
-    [key, metadata.category, metadata.strategy, metadata.date, hash, content],
-  ).then(() => true));
+  const key = storageKey(path);
+  objectCache.set(key, content);
+  return trackWrite(persistRelationalObject(pool, key, content).then(() => true));
 }
 
-export async function replaceMysqlDocuments(documents: Array<{ path: string; content: string }>) {
+export async function replaceMysqlObjects(objects: Array<{ path: string; content: string }>) {
   if (!pool) throw new Error('MySQL 尚未初始化');
-  const records = documents.map(({ path, content }) => {
+  const records = objects.map(({ path, content }) => {
     JSON.parse(content);
-    const key = documentKey(path);
-    const metadata = documentMetadata(key);
-    const hash = createHash('sha256').update(content).digest('hex');
-    return { key, content, metadata, hash };
+    const key = storageKey(path);
+    return { key, content };
   });
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    for (const record of records) {
-      await connection.execute(
-        `INSERT INTO app_documents
-          (document_key, category, strategy_code, document_date, content_hash, payload, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-         ON DUPLICATE KEY UPDATE
-          category = VALUES(category), strategy_code = VALUES(strategy_code), document_date = VALUES(document_date),
-          content_hash = VALUES(content_hash), payload = VALUES(payload), updated_at = NOW(3)`,
-        [record.key, record.metadata.category, record.metadata.strategy, record.metadata.date, record.hash, record.content],
-      );
-    }
+    for (const record of records) await persistRelationalObject(connection, record.key, record.content);
     await connection.commit();
-    for (const record of records) documentCache.set(record.key, record.content);
+    for (const record of records) objectCache.set(record.key, record.content);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -446,11 +533,11 @@ export async function replaceMysqlDocuments(documents: Array<{ path: string; con
   }
 }
 
-export function queueMysqlDocumentDelete(path: string) {
+export function queueMysqlObjectDelete(path: string) {
   if (!pool) return Promise.resolve(false);
-  const key = documentKey(path);
-  documentCache.delete(key);
-  return trackWrite(pool.execute('DELETE FROM app_documents WHERE document_key = ?', [key]).then(() => true));
+  const key = storageKey(path);
+  objectCache.delete(key);
+  return trackWrite(deleteRelationalObject(pool, key).then(() => true));
 }
 
 export async function flushMysqlWrites() {
@@ -466,17 +553,25 @@ function mysqlDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
+function mysqlDateString(value: string | Date) {
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return String(value).slice(0, 10);
+}
+
 async function insertCombinationBatch(connection: PoolConnection, runId: number, items: StoredCombination[]) {
   if (!items.length) return;
-  const columns = 21;
+  const columns = 19;
   const placeholders = items.map(() => `(${new Array(columns).fill('?').join(',')})`).join(',');
   const values = items.flatMap((item) => [
     runId,
     createHash('sha256').update(item.id).digest(),
     item.id,
     item.size,
-    JSON.stringify(item.codes),
-    JSON.stringify(item.assetClasses),
     item.tenYearReturn,
     item.fiveYearReturn,
     item.tenYearAnnualizedReturn,
@@ -495,7 +590,7 @@ async function insertCombinationBatch(connection: PoolConnection, runId: number,
   ]);
   await connection.query(
     `INSERT INTO combination_results (
-      run_id, combination_hash, combination_key, etf_count, codes_json, asset_classes_json,
+      run_id, combination_hash, combination_key, etf_count,
       ten_year_return, five_year_return, ten_year_annualized_return, five_year_annualized_return,
       ten_year_max_drawdown, five_year_max_drawdown, ten_year_trades,
       current_year_return, current_year_max_drawdown, current_year_trades, current_holding,
@@ -503,6 +598,14 @@ async function insertCombinationBatch(connection: PoolConnection, runId: number,
     ) VALUES ${placeholders}`,
     values,
   );
+  const [storedRows] = await connection.query<Array<RowDataPacket & { id: number; combination_key: string }>>(
+    'SELECT id, combination_key FROM combination_results WHERE run_id=? AND combination_key IN (?)', [runId, items.map((item) => item.id)],
+  );
+  const ids = new Map(storedRows.map((row) => [row.combination_key, row.id]));
+  const members = items.flatMap((item) => item.codes.map((code, index) => [ids.get(item.id), code, index]));
+  if (members.some((member) => member[0] === undefined)) throw new Error('组合结果成员关联失败');
+  const memberPlaceholders = members.map(() => '(?, ?, ?)').join(',');
+  await connection.query(`INSERT INTO combination_result_etfs (result_id, etf_code, display_order) VALUES ${memberPlaceholders}`, members.flat());
 }
 
 export async function importCombinationFile(
@@ -524,19 +627,15 @@ export async function importCombinationFile(
   if (!runId) {
     const [insertResult] = await pool.execute<mysql.ResultSetHeader>(
       `INSERT INTO combination_runs (
-        strategy_code, source_version, source_hash, generated_at, rule_json, periods_json, universe_json,
-        scoring_json, total_combinations, best_ten_year_id, best_current_year_id, best_composite_id,
+        strategy_code, source_version, source_hash, generated_at,
+        total_combinations, best_ten_year_id, best_current_year_id, best_composite_id,
         status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importing', NOW(3))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'importing', NOW(3))`,
       [
         expectedStrategy,
         record.version,
         hash,
         mysqlDate(record.generatedAt),
-        record.rule === undefined ? null : JSON.stringify(record.rule),
-        JSON.stringify(record.periods),
-        JSON.stringify(record.universe),
-        JSON.stringify(record.scoring),
         record.totalCombinations,
         record.bestTenYearId ?? null,
         record.bestCurrentYearId ?? null,
@@ -544,6 +643,7 @@ export async function importCombinationFile(
       ],
     );
     runId = insertResult.insertId;
+    await saveCombinationRelations(pool, runId, record);
     const connection = await pool.getConnection();
     try {
       const batchSize = 500;
@@ -566,25 +666,13 @@ export async function importCombinationFile(
   }
   const documentRecords = documents.map(({ path: documentPath, content: documentContent }) => {
     JSON.parse(documentContent);
-    const key = documentKey(documentPath);
-    const metadata = documentMetadata(key);
-    const documentHash = createHash('sha256').update(documentContent).digest('hex');
-    return { key, content: documentContent, metadata, hash: documentHash };
+    const key = storageKey(documentPath);
+    return { key, content: documentContent };
   });
   const activationConnection = await pool.getConnection();
   try {
     await activationConnection.beginTransaction();
-    for (const document of documentRecords) {
-      await activationConnection.execute(
-        `INSERT INTO app_documents
-          (document_key, category, strategy_code, document_date, content_hash, payload, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-         ON DUPLICATE KEY UPDATE
-          category = VALUES(category), strategy_code = VALUES(strategy_code), document_date = VALUES(document_date),
-          content_hash = VALUES(content_hash), payload = VALUES(payload), updated_at = NOW(3)`,
-        [document.key, document.metadata.category, document.metadata.strategy, document.metadata.date, document.hash, document.content],
-      );
-    }
+    for (const document of documentRecords) await persistRelationalObject(activationConnection, document.key, document.content);
     await activationConnection.execute(
       `INSERT INTO active_combination_runs (strategy_code, run_id, updated_at)
        VALUES (?, ?, NOW(3))
@@ -592,7 +680,7 @@ export async function importCombinationFile(
       [expectedStrategy, runId],
     );
     await activationConnection.commit();
-    for (const document of documentRecords) documentCache.set(document.key, document.content);
+    for (const document of documentRecords) objectCache.set(document.key, document.content);
   } catch (error) {
     await activationConnection.rollback();
     throw error;
@@ -631,19 +719,29 @@ export async function getMysqlCombinationPage(
   const run = runs[0];
   if (!run) return null;
   const normalized = normalizedFilters(filters);
-  const clauses = ['run_id = ?'];
-  const parameters: unknown[] = [run.id];
-  if (normalized.size !== null) { clauses.push('etf_count = ?'); parameters.push(normalized.size); }
-  if (normalized.tenYearDrawdown !== null) { clauses.push('ten_year_max_drawdown >= ?'); parameters.push(normalized.tenYearDrawdown); }
-  if (normalized.fiveYearDrawdown !== null) { clauses.push('five_year_max_drawdown >= ?'); parameters.push(normalized.fiveYearDrawdown); }
-  if (normalized.currentYearDrawdown !== null) { clauses.push('current_year_max_drawdown >= ?'); parameters.push(normalized.currentYearDrawdown); }
-  for (const code of normalized.codes) {
-    clauses.push("JSON_CONTAINS(codes_json, JSON_QUOTE(?), '$')");
-    parameters.push(code);
-  }
+  const [rangeRows] = normalized.codes.length
+    ? await pool.query<Array<RowDataPacket & { first_id: number; last_id: number }>>('SELECT MIN(id) AS first_id, MAX(id) AS last_id FROM combination_results WHERE run_id=?', [run.id])
+    : [[]];
+  const resultRange = rangeRows[0] ?? null;
+  const joins: string[] = [];
+  const joinParameters: unknown[] = [];
+  normalized.codes.forEach((code, index) => {
+    const alias = `member_filter_${index}`;
+    joins.push(`INNER JOIN combination_result_etfs ${alias} ON ${alias}.result_id=combination_results.id AND ${alias}.etf_code=?${index === 0 ? ` AND ${alias}.result_id BETWEEN ? AND ?` : ''}`);
+    joinParameters.push(code);
+    if (index === 0) joinParameters.push(Number(resultRange?.first_id ?? 0), Number(resultRange?.last_id ?? 0));
+  });
+  const clauses = ['combination_results.run_id = ?'];
+  const whereParameters: unknown[] = [run.id];
+  if (normalized.size !== null) { clauses.push('etf_count = ?'); whereParameters.push(normalized.size); }
+  if (normalized.tenYearDrawdown !== null) { clauses.push('ten_year_max_drawdown >= ?'); whereParameters.push(normalized.tenYearDrawdown); }
+  if (normalized.fiveYearDrawdown !== null) { clauses.push('five_year_max_drawdown >= ?'); whereParameters.push(normalized.fiveYearDrawdown); }
+  if (normalized.currentYearDrawdown !== null) { clauses.push('current_year_max_drawdown >= ?'); whereParameters.push(normalized.currentYearDrawdown); }
+  const parameters = [...joinParameters, ...whereParameters];
+  const from = `combination_results ${joins.join(' ')}`;
   const where = clauses.join(' AND ');
   const [counts] = await pool.query<Array<RowDataPacket & { total: number }>>(
-    `SELECT COUNT(*) AS total FROM combination_results WHERE ${where}`,
+    `SELECT COUNT(*) AS total FROM ${from} WHERE ${where}`,
     parameters,
   );
   const totalCombinations = Number(counts[0]?.total ?? 0);
@@ -659,16 +757,54 @@ export async function getMysqlCombinationPage(
         ? 'five_year_return'
         : 'ten_year_return';
   const orderBy = `${metric} ${direction === 'asc' ? 'ASC' : 'DESC'}, combination_key ASC`;
-  const rowSelection = `SELECT * FROM combination_results WHERE ${where} ORDER BY ${orderBy}`;
+  const rowSelection = `SELECT combination_results.* FROM ${from} WHERE ${where} ORDER BY ${orderBy}`;
   const [rows] = await pool.query<Array<RowDataPacket & Record<string, unknown>>>(
     `${rowSelection} LIMIT ${normalizedPageSize} OFFSET ${offset}`,
     parameters,
   );
+  let bestRow: (RowDataPacket & Record<string, unknown>) | null = rows[0] ?? null;
+  if (totalCombinations > 0 && normalizedPage !== 1) {
+    const [bestRows] = await pool.query<Array<RowDataPacket & Record<string, unknown>>>(`${rowSelection} LIMIT 1`, parameters);
+    bestRow = bestRows[0] ?? null;
+  }
+  const resultIds = [...new Set([...rows, ...(bestRow ? [bestRow] : [])].map((row) => Number(row.id)))];
+  const codeMap = new Map<number, string[]>();
+  if (resultIds.length) {
+    const [memberRows] = await pool.query<Array<RowDataPacket & { result_id: number; etf_code: string }>>(
+      'SELECT result_id, etf_code FROM combination_result_etfs WHERE result_id IN (?) ORDER BY result_id, display_order', [resultIds],
+    );
+    for (const member of memberRows) {
+      const codes = codeMap.get(Number(member.result_id)) ?? [];
+      codes.push(member.etf_code);
+      codeMap.set(Number(member.result_id), codes);
+    }
+  }
+  const [periodRows] = await pool.query<Array<RowDataPacket & { period_type: string; period_year: number | null; start_date: Date | string; end_date: Date | string }>>(
+    'SELECT * FROM combination_run_periods WHERE run_id=? ORDER BY period_type', [run.id],
+  );
+  const periods = Object.fromEntries(periodRows.map((period) => [period.period_type, {
+    ...(period.period_year === null ? {} : { year: Number(period.period_year) }),
+    start: mysqlDateString(period.start_date),
+    end: mysqlDateString(period.end_date),
+  }]));
+  const [universeRows] = await pool.query<Array<RowDataPacket & { etf_code: string; etf_name: string; asset_class: string; first_date: Date | string; last_date: Date | string }>>(
+    'SELECT * FROM combination_run_universe WHERE run_id=? ORDER BY display_order', [run.id],
+  );
+  const universe = universeRows.map((item) => ({ code: item.etf_code, name: item.etf_name, assetClass: item.asset_class,
+    firstDate: mysqlDateString(item.first_date), lastDate: mysqlDateString(item.last_date) }));
+  const assetClassByCode = new Map(universe.map((item) => [item.code, item.assetClass]));
+  const [scoringRows] = await pool.query<Array<RowDataPacket & { formula: string }>>('SELECT formula FROM combination_scoring WHERE run_id=?', [run.id]);
+  const [metricRows] = await pool.query<Array<RowDataPacket & { metric_code: string; mean_value: number; standard_deviation: number }>>(
+    'SELECT * FROM combination_score_metrics WHERE run_id=? ORDER BY metric_code', [run.id],
+  );
+  const scoring = { formula: scoringRows[0]?.formula ?? '', population: Object.fromEntries(metricRows.map((metric) => [metric.metric_code, {
+    mean: Number(metric.mean_value), standardDeviation: Number(metric.standard_deviation),
+  }])) };
   const mapCombination = (row: RowDataPacket & Record<string, unknown>, displayRank: number) => ({
     id: String(row.combination_key),
     size: Number(row.etf_count),
-    codes: jsonValue<string[]>(row.codes_json),
-    assetClasses: jsonValue<string[]>(row.asset_classes_json),
+    codes: codeMap.get(Number(row.id)) ?? [],
+    assetClasses: [...new Set((codeMap.get(Number(row.id)) ?? []).map((code) => assetClassByCode.get(code)).filter((value): value is string => Boolean(value)))],
     tenYearReturn: Number(row.ten_year_return),
     fiveYearReturn: Number(row.five_year_return),
     tenYearAnnualizedReturn: Number(row.ten_year_annualized_return),
@@ -687,20 +823,16 @@ export async function getMysqlCombinationPage(
     displayRank,
   });
   const combinations = rows.map((row, index) => mapCombination(row, offset + index + 1));
-  let best = combinations[0] ?? null;
-  if (totalCombinations > 0 && normalizedPage !== 1) {
-    const [bestRows] = await pool.query<Array<RowDataPacket & Record<string, unknown>>>(`${rowSelection} LIMIT 1`, parameters);
-    best = bestRows[0] ? mapCombination(bestRows[0], 1) : null;
-  }
+  const best = bestRow ? mapCombination(bestRow, 1) : null;
   return {
     version: String(run.source_version),
     generatedAt: new Date(run.generated_at as string | Date).toISOString(),
-    periods: jsonValue(run.periods_json),
-    universe: jsonValue(run.universe_json),
+    periods,
+    universe,
     totalCombinations,
     allCombinations: Number(run.total_combinations),
     filters: normalized,
-    scoring: jsonValue(run.scoring_json),
+    scoring,
     sort,
     direction,
     page: normalizedPage,
@@ -713,14 +845,35 @@ export async function getMysqlCombinationPage(
 
 export async function mysqlStoreStats() {
   if (!pool) return null;
-  const [documents] = await pool.query<Array<RowDataPacket & { total: number }>>('SELECT COUNT(*) AS total FROM app_documents');
+  const [legacyTables] = await pool.query<Array<RowDataPacket & { total: number }>>(
+    "SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='app_documents'",
+  );
+  const [legacyColumns] = await pool.query<Array<RowDataPacket & { total: number }>>(
+    `SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND (
+      (TABLE_NAME='combination_runs' AND COLUMN_NAME IN ('rule_json','periods_json','universe_json','scoring_json')) OR
+      (TABLE_NAME='combination_results' AND COLUMN_NAME IN ('codes_json','asset_classes_json'))
+    )`,
+  );
+  const [entityRows] = await pool.query<Array<RowDataPacket & Record<string, number>>>(`SELECT
+    (SELECT COUNT(*) FROM strategies) AS strategies,
+    (SELECT COUNT(*) FROM etfs) AS etfs,
+    (SELECT COUNT(*) FROM etf_daily_prices) AS dailyPrices,
+    (SELECT COUNT(*) FROM strategy_configs) AS strategyConfigs,
+    (SELECT COUNT(*) FROM strategy_backtests) AS backtests,
+    (SELECT COUNT(*) FROM strategy_backtest_years) AS backtestYears,
+    (SELECT COUNT(*) FROM strategy_year_performance) AS yearPerformances,
+    (SELECT COUNT(*) FROM strategy_equity_points) AS equityPoints,
+    (SELECT COUNT(*) FROM strategy_trade_nodes) AS tradeNodes,
+    (SELECT COUNT(*) FROM stock_scan_runs) AS scanRuns,
+    (SELECT COUNT(*) FROM stock_scan_results) AS scanResults,
+    (SELECT COUNT(*) FROM combination_result_etfs) AS combinationMembers`);
   const [runs] = await pool.query<Array<RowDataPacket & { strategy_code: string; total_combinations: number; stored_combinations: number }>>(
     `SELECT r.strategy_code, r.total_combinations, COUNT(c.id) AS stored_combinations FROM active_combination_runs a
      INNER JOIN combination_runs r ON r.id = a.run_id
      LEFT JOIN combination_results c ON c.run_id = r.id
      GROUP BY r.id, r.strategy_code, r.total_combinations ORDER BY r.strategy_code`,
   );
-  return { documents: Number(documents[0]?.total ?? 0), runs };
+  return { objects: objectCache.size, legacyDocumentTables: Number(legacyTables[0]?.total ?? 0), legacyJsonColumns: Number(legacyColumns[0]?.total ?? 0), entityCounts: entityRows[0], runs };
 }
 
 export async function mysqlSchemaCommentStats() {
