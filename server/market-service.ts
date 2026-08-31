@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects } from './mysql-store.js';
+import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -114,6 +114,18 @@ export type AssetRotationCombinations = {
 };
 
 type TencentRow = [string, string, string, string, string, string, ...string[]];
+
+type TencentQuote = {
+  name: string;
+  price?: number;
+  previousClose?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+  date?: string;
+  timestamp?: string;
+};
 
 type Candle = {
   date: string;
@@ -1081,7 +1093,7 @@ function marketCode(tsCode: string) {
 }
 
 async function fetchTencentQuotes(tsCodes: string[]) {
-  const quotes = new Map<string, { name: string; price?: number }>();
+  const quotes = new Map<string, TencentQuote>();
   for (let index = 0; index < tsCodes.length; index += 50) {
     const codes = tsCodes.slice(index, index + 50);
     const response = await fetch(`https://qt.gtimg.cn/q=${codes.map(marketCode).join(',')}`, {
@@ -1097,7 +1109,26 @@ async function fetchTencentQuotes(tsCodes: string[]) {
       const code = fields[2] || match[1];
       const name = fields[1];
       const price = Number(fields[3]);
-      if (name) quotes.set(code, { name, price: Number.isFinite(price) && price > 0 ? price : undefined });
+      const previousClose = Number(fields[4]);
+      const open = Number(fields[5]);
+      const volume = Number(fields[6]);
+      const timestamp = fields[30];
+      const high = Number(fields[33]);
+      const low = Number(fields[34]);
+      const date = /^\d{8}/.test(timestamp) ? `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}` : undefined;
+      if (name) {
+        quotes.set(code, {
+          name,
+          price: Number.isFinite(price) && price > 0 ? price : undefined,
+          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? previousClose : undefined,
+          open: Number.isFinite(open) && open > 0 ? open : undefined,
+          high: Number.isFinite(high) && high > 0 ? high : undefined,
+          low: Number.isFinite(low) && low > 0 ? low : undefined,
+          volume: Number.isFinite(volume) && volume >= 0 ? volume : undefined,
+          date,
+          timestamp,
+        });
+      }
     }
   }
   return quotes;
@@ -1249,6 +1280,48 @@ async function fetchSymbol(config: SymbolConfig) {
     rawLastDate: rows.at(-1)![0],
     history: rows.map(parseRow),
     candles: rows.slice(-90).map(parseRow),
+  };
+}
+
+async function fetchFullQfqSymbol(config: SymbolConfig) {
+  const endYear = Number(shanghaiClock().date.slice(0, 4));
+  const rows = new Map<string, TencentRow>();
+  for (let startYear = 2015; startYear <= endYear; startYear += 2) {
+    const endRangeYear = Math.min(startYear + 1, endYear);
+    const start = `${startYear}-01-01`;
+    const end = `${endRangeYear}-12-31`;
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${config.marketCode},day,${start},${end},640,qfq`;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) throw new Error(`${config.code} 历史行情接口返回 HTTP ${response.status}`);
+        const payload = await response.json() as {
+          data?: Record<string, { qfqday?: TencentRow[]; day?: TencentRow[] }>;
+        };
+        const block = payload.data?.[config.marketCode];
+        for (const row of block?.qfqday ?? block?.day ?? []) rows.set(row[0], row);
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolvePromise) => setTimeout(resolvePromise, attempt * 400));
+      }
+    }
+    if (lastError) throw lastError;
+  }
+  const history = [...rows.values()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(parseRow);
+  if (history.length < 20) throw new Error(`${config.code} 完整前复权日线不足 20 条`);
+  return {
+    ...config,
+    rawLastDate: history.at(-1)!.date,
+    history,
+    candles: history.slice(-90),
   };
 }
 
@@ -1418,6 +1491,64 @@ function calculateDualEtfYearPerformance(markets: Awaited<ReturnType<typeof fetc
     equityCurve,
     nodes,
   };
+}
+
+function mergeCurrentQuote<T extends Awaited<ReturnType<typeof fetchSymbol>>>(market: T, quote?: TencentQuote): T & {
+  realtimePreviousClose?: number;
+  realtimeTimestamp?: string;
+} {
+  if (!quote?.date || quote.price === undefined || quote.date < market.rawLastDate) {
+    return { ...market, realtimePreviousClose: undefined, realtimeTimestamp: undefined };
+  }
+
+  const history = [...market.history];
+  const previous = history.at(-1)!;
+  const sameTradingDate = quote.date === previous.date;
+  const open = quote.open ?? (sameTradingDate ? previous.open : quote.previousClose) ?? quote.price;
+  const high = quote.high ?? Math.max(open, quote.price);
+  const low = quote.low ?? Math.min(open, quote.price);
+  const current: Candle = {
+    date: quote.date,
+    open,
+    close: quote.price,
+    high: Math.max(high, open, quote.price),
+    low: Math.min(low, open, quote.price),
+    volume: quote.volume ?? (sameTradingDate ? previous.volume : 0),
+  };
+  if (sameTradingDate) history[history.length - 1] = current;
+  else history.push(current);
+
+  return {
+    ...market,
+    rawLastDate: quote.date,
+    history,
+    candles: history.slice(-90),
+    realtimePreviousClose: quote.previousClose,
+    realtimeTimestamp: quote.timestamp,
+  };
+}
+
+function shanghaiClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    date: `${value('year')}-${value('month')}-${value('day')}`,
+    minutes: Number(value('hour')) * 60 + Number(value('minute')),
+  };
+}
+
+function isCompletedTradingDay(quoteDate: string, now = new Date()) {
+  const shanghai = shanghaiClock(now);
+  if (quoteDate < shanghai.date) return true;
+  return quoteDate === shanghai.date && shanghai.minutes >= 15 * 60 + 5;
 }
 
 function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[]): RotationYearPerformance {
@@ -2073,8 +2204,35 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   }
 
   const config = readAssetRotationConfig();
-  const fetched = [];
-  for (const symbol of config.symbols) fetched.push(await fetchSymbol(symbol));
+  let quotes = new Map<string, TencentQuote>();
+  let completedTradingDay = false;
+  if (forceRefresh) {
+    const quoteCodes = config.symbols.map((symbol) => {
+      const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
+      return `${symbol.code}.${exchange}`;
+    });
+    quotes = await fetchTencentQuotes(quoteCodes);
+    if (![...quotes.values()].some((quote) => quote.price !== undefined && quote.date !== undefined)) {
+      throw new Error('实时行情未返回有效数据，请稍后重试');
+    }
+    completedTradingDay = [...quotes.values()].some((quote) => quote.date && isCompletedTradingDay(quote.date));
+  }
+  const fetchedBase = await Promise.all(config.symbols.map((symbol) => (
+    completedTradingDay ? fetchFullQfqSymbol(symbol) : fetchSymbol(symbol)
+  )));
+  const fetched = fetchedBase.map((market) => mergeCurrentQuote(market, quotes.get(market.code)));
+  if (completedTradingDay) {
+    const completedPrices = fetched.flatMap((market) => market.history.map((candle) => ({
+      etfCode: market.code,
+      tradeDate: candle.date,
+      open: candle.open,
+      close: candle.close,
+      high: candle.high,
+      low: candle.low,
+      volume: candle.volume,
+    })));
+    await upsertMysqlEtfDailyPrices(completedPrices);
+  }
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
   const year = Number(lastTradingDate.slice(0, 4));
   const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('asset-rotation', year);
@@ -2085,6 +2243,7 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   const calculated = fetched.map((market) => {
     const last = market.history.at(-1)!;
     const previous = market.history.at(-2)!;
+    const previousClose = market.realtimePreviousClose ?? previous.close;
     const ma28 = market.history.slice(-28).reduce((sum, candle) => sum + candle.close, 0) / 28;
     const previous20 = market.history.at(-21)!;
     const averageVolume = market.history.slice(-6, -1).reduce((sum, candle) => sum + candle.volume, 0) / 5;
@@ -2094,8 +2253,8 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
       category: market.category,
       candles: market.candles,
       price: round(last.close),
-      previousClose: round(previous.close),
-      change: ((last.close / previous.close) - 1) * 100,
+      previousClose: round(previousClose),
+      change: ((last.close / previousClose) - 1) * 100,
       ma20: round(ma28),
       momentum: ((last.close / previous20.close) - 1) * 100,
       aboveMa: last.close >= ma28,
@@ -2109,7 +2268,7 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
       rank: index + 1,
       signal: market.code === currentHoldingCode ? '持有' : market.aboveMa && index < 2 ? '观察' : '规避',
     }));
-  const provider = '腾讯证券公开行情';
+  const provider = forceRefresh ? '腾讯证券公开日线 + 实时行情' : '腾讯证券公开行情';
   const fetchedAt = new Date().toISOString();
   const snapshot: RotationSnapshot = {
     markets,

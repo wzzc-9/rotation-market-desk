@@ -504,6 +504,67 @@ export function listMysqlObjects(prefix: string) {
   return [...objectCache.keys()].filter((key) => key.startsWith(normalized));
 }
 
+export type MysqlEtfDailyPrice = {
+  etfCode: string;
+  tradeDate: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+};
+
+function updateCachedDailyPrices(prices: MysqlEtfDailyPrice[]) {
+  const pricesByCode = new Map<string, Map<string, MysqlEtfDailyPrice>>();
+  for (const price of prices) {
+    const byDate = pricesByCode.get(price.etfCode) ?? new Map<string, MysqlEtfDailyPrice>();
+    byDate.set(price.tradeDate, price);
+    pricesByCode.set(price.etfCode, byDate);
+  }
+  for (const [key, content] of objectCache) {
+    const code = /\/history\/(\d{6})\.json$/.exec(key)?.[1];
+    const updates = code ? pricesByCode.get(code) : undefined;
+    if (!updates) continue;
+    const value = JSON.parse(content) as { rows?: Array<Array<string | number>> };
+    const rows = Array.isArray(value.rows) ? [...value.rows] : [];
+    const indexes = new Map(rows.map((row, index) => [String(row[0]), index]));
+    for (const price of updates.values()) {
+      const nextRow: Array<string | number> = [price.tradeDate, price.open, price.close, price.high, price.low, price.volume];
+      const index = indexes.get(price.tradeDate);
+      if (index === undefined) rows.push(nextRow);
+      else rows[index] = nextRow;
+    }
+    rows.sort((left, right) => String(left[0]).localeCompare(String(right[0])));
+    objectCache.set(key, `${JSON.stringify({ ...value, rows }, null, 2)}\n`);
+  }
+}
+
+export async function upsertMysqlEtfDailyPrices(prices: MysqlEtfDailyPrice[]) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  if (!prices.length) return 0;
+  await flushMysqlWrites();
+  for (let offset = 0; offset < prices.length; offset += 500) {
+    const batch = prices.slice(offset, offset + 500);
+    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, NOW(3))').join(', ');
+    const values = batch.flatMap((price) => [
+      price.etfCode,
+      price.tradeDate,
+      price.open,
+      price.close,
+      price.high,
+      price.low,
+      price.volume,
+    ]);
+    await pool.execute(`INSERT INTO etf_daily_prices
+      (etf_code, trade_date, open_price, close_price, high_price, low_price, volume, updated_at)
+      VALUES ${placeholders}
+      ON DUPLICATE KEY UPDATE open_price=VALUES(open_price), close_price=VALUES(close_price),
+        high_price=VALUES(high_price), low_price=VALUES(low_price), volume=VALUES(volume), updated_at=NOW(3)`, values);
+  }
+  updateCachedDailyPrices(prices);
+  return prices.length;
+}
+
 export function queueMysqlObjectWrite(path: string, content: string) {
   if (!pool) return Promise.resolve(false);
   JSON.parse(content);
