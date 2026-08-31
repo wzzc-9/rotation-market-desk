@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { closeMysqlStore, initializeMysqlStore, mysqlStoreStats, readMysqlDocument } from './mysql-store.js';
+import { closeMysqlStore, initializeMysqlStore, mysqlSchemaCommentStats, mysqlStoreStats, readMysqlDocument } from './mysql-store.js';
 
 function jsonFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -17,7 +17,11 @@ const dataDirectory = resolve(process.cwd(), 'data');
 const documents = jsonFiles(dataDirectory).filter((path) => !path.endsWith('combinations.json'));
 const mismatches = documents.filter((path) => readMysqlDocument(path) !== readFileSync(path, 'utf8'));
 const stats = await mysqlStoreStats();
+const schemaComments = await mysqlSchemaCommentStats();
 const incompleteRuns = stats?.runs.filter((run) => Number(run.total_combinations) !== Number(run.stored_combinations)) ?? [];
+const schemaCommentsValid = schemaComments !== null
+  && schemaComments.tableMismatches.length === 0
+  && schemaComments.columnMismatches.length === 0;
 
 console.log(JSON.stringify({
   localDocuments: documents.length,
@@ -25,8 +29,9 @@ console.log(JSON.stringify({
   documentMismatches: mismatches.map((path) => path.replace(process.cwd(), '').replace(/^[/\\]/, '')),
   activeRuns: stats?.runs ?? [],
   incompleteRuns,
-  valid: mismatches.length === 0 && incompleteRuns.length === 0 && documents.length === stats?.documents,
+  schemaComments,
+  valid: mismatches.length === 0 && incompleteRuns.length === 0 && documents.length === stats?.documents && schemaCommentsValid,
 }, null, 2));
 
 await closeMysqlStore();
-if (mismatches.length || incompleteRuns.length || documents.length !== stats?.documents) process.exitCode = 1;
+if (mismatches.length || incompleteRuns.length || documents.length !== stats?.documents || !schemaCommentsValid) process.exitCode = 1;

@@ -115,83 +115,188 @@ async function createBootstrapConnection(config: MysqlConfig, ssl: { rejectUnaut
   throw lastError;
 }
 
+type SchemaComment = {
+  table: string;
+  columns: Record<string, { definition: string; comment: string }>;
+};
+
+const schemaComments: Record<string, SchemaComment> = {
+  app_documents: {
+    table: 'JSON文档持久化表',
+    columns: {
+      document_key: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档相对项目根目录的唯一路径' },
+      category: { definition: 'VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档分类' },
+      strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '所属策略编码，无归属时为空' },
+      document_date: { definition: 'DATE NULL', comment: '文档对应的交易日期，无日期时为空' },
+      content_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '文档内容的SHA-256哈希' },
+      payload: { definition: 'LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL', comment: '原始JSON文档内容' },
+      updated_at: { definition: 'DATETIME(3) NOT NULL', comment: '最后更新时间' },
+    },
+  },
+  combination_runs: {
+    table: 'ETF组合排名计算批次表',
+    columns: {
+      id: { definition: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', comment: '计算批次主键' },
+      strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '策略编码' },
+      source_version: { definition: 'VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '源组合文件版本' },
+      source_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '源组合文件SHA-256哈希' },
+      generated_at: { definition: 'DATETIME(3) NOT NULL', comment: '组合数据生成时间' },
+      rule_json: { definition: 'JSON NULL', comment: '交易规则配置' },
+      periods_json: { definition: 'JSON NOT NULL', comment: '回测区间配置' },
+      universe_json: { definition: 'JSON NOT NULL', comment: '参与计算的ETF标的池' },
+      scoring_json: { definition: 'JSON NOT NULL', comment: '综合得分计算配置' },
+      total_combinations: { definition: 'INT UNSIGNED NOT NULL', comment: '该批次组合总数' },
+      best_ten_year_id: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '近10年收益最高的组合编码' },
+      best_current_year_id: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '当年收益最高的组合编码' },
+      best_composite_id: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '综合得分最高的组合编码' },
+      status: { definition: 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '导入状态：importing、completed或failed' },
+      created_at: { definition: 'DATETIME(3) NOT NULL', comment: '批次创建时间' },
+      completed_at: { definition: 'DATETIME(3) NULL', comment: '批次完成时间，未完成时为空' },
+    },
+  },
+  active_combination_runs: {
+    table: '各策略当前生效的组合计算批次表',
+    columns: {
+      strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '策略编码' },
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '当前生效的计算批次主键' },
+      updated_at: { definition: 'DATETIME(3) NOT NULL', comment: '生效批次切换时间' },
+    },
+  },
+  combination_results: {
+    table: 'ETF组合排名计算结果明细表',
+    columns: {
+      id: { definition: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', comment: '组合结果主键' },
+      run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属计算批次主键' },
+      combination_hash: { definition: 'BINARY(32) NOT NULL', comment: '组合编码的SHA-256二进制哈希' },
+      combination_key: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: 'ETF代码拼接形成的组合编码' },
+      etf_count: { definition: 'TINYINT UNSIGNED NOT NULL', comment: '组合包含的ETF数量' },
+      codes_json: { definition: 'JSON NOT NULL', comment: '组合包含的ETF代码列表' },
+      asset_classes_json: { definition: 'JSON NOT NULL', comment: '组合覆盖的资产类别列表' },
+      ten_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年累计收益率，单位百分比' },
+      five_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年累计收益率，单位百分比' },
+      ten_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年年化收益率，单位百分比' },
+      five_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年年化收益率，单位百分比' },
+      ten_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年最大回撤，单位百分比' },
+      five_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年最大回撤，单位百分比' },
+      ten_year_trades: { definition: 'INT UNSIGNED NOT NULL', comment: '近10年交易或调仓次数' },
+      current_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '当年累计收益率，单位百分比' },
+      current_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '当年最大回撤，单位百分比' },
+      current_year_trades: { definition: 'INT UNSIGNED NOT NULL', comment: '当年交易或调仓次数' },
+      current_holding: { definition: 'CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NULL', comment: '当前持仓ETF代码，空仓时为空' },
+      ten_year_rank: { definition: 'INT UNSIGNED NOT NULL', comment: '近10年收益排名' },
+      current_year_rank: { definition: 'INT UNSIGNED NOT NULL', comment: '当年收益排名' },
+      composite_score: { definition: 'DECIMAL(18,6) NOT NULL', comment: '标准化加权后的综合得分' },
+      composite_rank: { definition: 'INT UNSIGNED NOT NULL', comment: '综合得分排名' },
+    },
+  },
+};
+
+function sqlComment(value: string) {
+  return value.replace(/'/g, "''");
+}
+
+async function ensureSchemaComments(connection: PoolConnection | Pool) {
+  const [tableRows] = await connection.query<Array<RowDataPacket & { TABLE_NAME: string; TABLE_COMMENT: string }>>(
+    `SELECT TABLE_NAME, TABLE_COMMENT FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)`,
+    [Object.keys(schemaComments)],
+  );
+  const [columnRows] = await connection.query<Array<RowDataPacket & { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_COMMENT: string }>>(
+    `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_COMMENT FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)`,
+    [Object.keys(schemaComments)],
+  );
+  const existingTableComments = new Map(tableRows.map((row) => [row.TABLE_NAME, row.TABLE_COMMENT]));
+  const existingColumnComments = new Map(columnRows.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row.COLUMN_COMMENT]));
+  for (const [tableName, table] of Object.entries(schemaComments)) {
+    const changes: string[] = [];
+    if (existingTableComments.get(tableName) !== table.table) changes.push(`COMMENT = '${sqlComment(table.table)}'`);
+    for (const [columnName, column] of Object.entries(table.columns)) {
+      if (existingColumnComments.get(`${tableName}.${columnName}`) !== column.comment) {
+        changes.push(`MODIFY COLUMN \`${columnName}\` ${column.definition} COMMENT '${sqlComment(column.comment)}'`);
+      }
+    }
+    if (changes.length) await connection.query(`ALTER TABLE \`${tableName}\` ${changes.join(', ')}`);
+  }
+}
+
 async function createSchema(connection: PoolConnection | Pool) {
   await connection.query(`
     CREATE TABLE IF NOT EXISTS app_documents (
-      document_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      category VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
-      document_date DATE NULL,
-      content_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-      updated_at DATETIME(3) NOT NULL,
+      document_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档相对项目根目录的唯一路径',
+      category VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档分类',
+      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '所属策略编码，无归属时为空',
+      document_date DATE NULL COMMENT '文档对应的交易日期，无日期时为空',
+      content_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '文档内容的SHA-256哈希',
+      payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '原始JSON文档内容',
+      updated_at DATETIME(3) NOT NULL COMMENT '最后更新时间',
       PRIMARY KEY (document_key),
       KEY idx_document_category (category, strategy_code, document_date)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='JSON文档持久化表'
   `);
   const [payloadColumns] = await connection.query<Array<RowDataPacket & { DATA_TYPE: string }>>(
     `SELECT DATA_TYPE FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_documents' AND COLUMN_NAME = 'payload'`,
   );
   if (payloadColumns[0]?.DATA_TYPE.toLowerCase() !== 'longtext') {
-    await connection.query('ALTER TABLE app_documents MODIFY payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL');
+    await connection.query("ALTER TABLE app_documents MODIFY payload LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '原始JSON文档内容'");
   }
   await connection.query(`
     CREATE TABLE IF NOT EXISTS combination_runs (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      source_version VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      source_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      generated_at DATETIME(3) NOT NULL,
-      rule_json JSON NULL,
-      periods_json JSON NOT NULL,
-      universe_json JSON NOT NULL,
-      scoring_json JSON NOT NULL,
-      total_combinations INT UNSIGNED NOT NULL,
-      best_ten_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL,
-      best_current_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL,
-      best_composite_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL,
-      status VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      created_at DATETIME(3) NOT NULL,
-      completed_at DATETIME(3) NULL,
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '计算批次主键',
+      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '策略编码',
+      source_version VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '源组合文件版本',
+      source_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '源组合文件SHA-256哈希',
+      generated_at DATETIME(3) NOT NULL COMMENT '组合数据生成时间',
+      rule_json JSON NULL COMMENT '交易规则配置',
+      periods_json JSON NOT NULL COMMENT '回测区间配置',
+      universe_json JSON NOT NULL COMMENT '参与计算的ETF标的池',
+      scoring_json JSON NOT NULL COMMENT '综合得分计算配置',
+      total_combinations INT UNSIGNED NOT NULL COMMENT '该批次组合总数',
+      best_ten_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '近10年收益最高的组合编码',
+      best_current_year_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '当年收益最高的组合编码',
+      best_composite_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '综合得分最高的组合编码',
+      status VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '导入状态：importing、completed或failed',
+      created_at DATETIME(3) NOT NULL COMMENT '批次创建时间',
+      completed_at DATETIME(3) NULL COMMENT '批次完成时间，未完成时为空',
       PRIMARY KEY (id),
       UNIQUE KEY uk_combination_run_source (strategy_code, source_hash),
       KEY idx_combination_run_status (strategy_code, status, completed_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合排名计算批次表'
   `);
   await connection.query(`
     CREATE TABLE IF NOT EXISTS active_combination_runs (
-      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      run_id BIGINT UNSIGNED NOT NULL,
-      updated_at DATETIME(3) NOT NULL,
+      strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '策略编码',
+      run_id BIGINT UNSIGNED NOT NULL COMMENT '当前生效的计算批次主键',
+      updated_at DATETIME(3) NOT NULL COMMENT '生效批次切换时间',
       PRIMARY KEY (strategy_code),
       KEY idx_active_combination_run (run_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='各策略当前生效的组合计算批次表'
   `);
   await connection.query(`
     CREATE TABLE IF NOT EXISTS combination_results (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      run_id BIGINT UNSIGNED NOT NULL,
-      combination_hash BINARY(32) NOT NULL,
-      combination_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-      etf_count TINYINT UNSIGNED NOT NULL,
-      codes_json JSON NOT NULL,
-      asset_classes_json JSON NOT NULL,
-      ten_year_return DECIMAL(18,6) NOT NULL,
-      five_year_return DECIMAL(18,6) NOT NULL,
-      ten_year_annualized_return DECIMAL(18,6) NOT NULL,
-      five_year_annualized_return DECIMAL(18,6) NOT NULL,
-      ten_year_max_drawdown DECIMAL(18,6) NOT NULL,
-      five_year_max_drawdown DECIMAL(18,6) NOT NULL,
-      ten_year_trades INT UNSIGNED NOT NULL,
-      current_year_return DECIMAL(18,6) NOT NULL,
-      current_year_max_drawdown DECIMAL(18,6) NOT NULL,
-      current_year_trades INT UNSIGNED NOT NULL,
-      current_holding CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NULL,
-      ten_year_rank INT UNSIGNED NOT NULL,
-      current_year_rank INT UNSIGNED NOT NULL,
-      composite_score DECIMAL(18,6) NOT NULL,
-      composite_rank INT UNSIGNED NOT NULL,
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '组合结果主键',
+      run_id BIGINT UNSIGNED NOT NULL COMMENT '所属计算批次主键',
+      combination_hash BINARY(32) NOT NULL COMMENT '组合编码的SHA-256二进制哈希',
+      combination_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'ETF代码拼接形成的组合编码',
+      etf_count TINYINT UNSIGNED NOT NULL COMMENT '组合包含的ETF数量',
+      codes_json JSON NOT NULL COMMENT '组合包含的ETF代码列表',
+      asset_classes_json JSON NOT NULL COMMENT '组合覆盖的资产类别列表',
+      ten_year_return DECIMAL(18,6) NOT NULL COMMENT '近10年累计收益率，单位百分比',
+      five_year_return DECIMAL(18,6) NOT NULL COMMENT '近5年累计收益率，单位百分比',
+      ten_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '近10年年化收益率，单位百分比',
+      five_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '近5年年化收益率，单位百分比',
+      ten_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '近10年最大回撤，单位百分比',
+      five_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '近5年最大回撤，单位百分比',
+      ten_year_trades INT UNSIGNED NOT NULL COMMENT '近10年交易或调仓次数',
+      current_year_return DECIMAL(18,6) NOT NULL COMMENT '当年累计收益率，单位百分比',
+      current_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '当年最大回撤，单位百分比',
+      current_year_trades INT UNSIGNED NOT NULL COMMENT '当年交易或调仓次数',
+      current_holding CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '当前持仓ETF代码，空仓时为空',
+      ten_year_rank INT UNSIGNED NOT NULL COMMENT '近10年收益排名',
+      current_year_rank INT UNSIGNED NOT NULL COMMENT '当年收益排名',
+      composite_score DECIMAL(18,6) NOT NULL COMMENT '标准化加权后的综合得分',
+      composite_rank INT UNSIGNED NOT NULL COMMENT '综合得分排名',
       PRIMARY KEY (id),
       UNIQUE KEY uk_combination_result (run_id, combination_hash),
       KEY idx_combination_score (run_id, composite_score),
@@ -202,8 +307,9 @@ async function createSchema(connection: PoolConnection | Pool) {
       KEY idx_combination_ten_return (run_id, ten_year_return),
       KEY idx_combination_five_return (run_id, five_year_return),
       KEY idx_combination_current_return (run_id, current_year_return)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合排名计算结果明细表'
   `);
+  await ensureSchemaComments(connection);
 }
 
 export async function initializeMysqlStore() {
@@ -561,4 +667,31 @@ export async function mysqlStoreStats() {
      GROUP BY r.id, r.strategy_code, r.total_combinations ORDER BY r.strategy_code`,
   );
   return { documents: Number(documents[0]?.total ?? 0), runs };
+}
+
+export async function mysqlSchemaCommentStats() {
+  if (!pool) return null;
+  const tableNames = Object.keys(schemaComments);
+  const [tableRows] = await pool.query<Array<RowDataPacket & { TABLE_NAME: string; TABLE_COMMENT: string }>>(
+    `SELECT TABLE_NAME, TABLE_COMMENT FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)`,
+    [tableNames],
+  );
+  const [columnRows] = await pool.query<Array<RowDataPacket & { TABLE_NAME: string; COLUMN_NAME: string; COLUMN_COMMENT: string }>>(
+    `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_COMMENT FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)`,
+    [tableNames],
+  );
+  const tableCommentMap = new Map(tableRows.map((row) => [row.TABLE_NAME, row.TABLE_COMMENT]));
+  const columnCommentMap = new Map(columnRows.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row.COLUMN_COMMENT]));
+  const tableMismatches = tableNames.filter((tableName) => tableCommentMap.get(tableName) !== schemaComments[tableName].table);
+  const columnMismatches = Object.entries(schemaComments).flatMap(([tableName, table]) => Object.entries(table.columns)
+    .filter(([columnName, column]) => columnCommentMap.get(`${tableName}.${columnName}`) !== column.comment)
+    .map(([columnName]) => `${tableName}.${columnName}`));
+  return {
+    tables: tableNames.length,
+    columns: Object.values(schemaComments).reduce((total, table) => total + Object.keys(table.columns).length, 0),
+    tableMismatches,
+    columnMismatches,
+  };
 }
