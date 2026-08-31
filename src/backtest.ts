@@ -1,7 +1,3 @@
-import assetRotationBacktest from '../data/asset-rotation/backtest.json';
-import dualEtfBacktest from '../data/dual-etf/backtest.json';
-import rotationBacktest from '../data/rotation/backtest.json';
-
 export type AnnualReturn = {
   year: number;
   returnRate: number;
@@ -10,13 +6,6 @@ export type AnnualReturn = {
   availableAssets: number;
   yearEndHolding: string;
 };
-
-export const annualReturns: AnnualReturn[] = rotationBacktest.annualReturns;
-export const backtestSummary = rotationBacktest.summary;
-export const assetRotationAnnualReturns: AnnualReturn[] = assetRotationBacktest.annualReturns;
-export const assetRotationBacktestSummary = assetRotationBacktest.summary;
-export const dualEtfAnnualReturns: AnnualReturn[] = dualEtfBacktest.annualReturns;
-export const dualEtfBacktestSummary = dualEtfBacktest.summary;
 
 export const assetRotationVideoBenchmark = {
   cumulativeReturn: 249.89,

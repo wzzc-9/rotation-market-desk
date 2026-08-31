@@ -16,7 +16,7 @@ npm run dev
 
 ## MySQL 5.7
 
-后端配置 `DB_*` 环境变量后优先使用 MySQL；未配置时保留本地 JSON 回退。复制 `.env.example` 中的变量到本机 `.env.mysql.local`，线上则配置到 Render 环境变量：
+后端使用 MySQL 作为唯一运行数据源，必须配置 `DB_*` 环境变量。复制 `.env.example` 中的变量到本机 `.env.mysql.local`，线上则配置到 Render 环境变量：
 
 ```text
 DB_HOST=数据库地址
@@ -25,16 +25,9 @@ DB_USER=数据库账号
 DB_PASSWORD=数据库密码
 DB_NAME=rotation_market_desk
 DB_SSL=0
-DB_HYDRATE_FILES=1
 ```
 
-首次接入或需要把本地 JSON 重新同步到数据库时运行：
-
-```powershell
-pnpm run db:migrate
-```
-
-迁移或重新计算后可检查文档内容和组合行数：
+重新计算后可检查文档内容和组合行数：
 
 ```powershell
 pnpm run db:check
@@ -45,7 +38,7 @@ pnpm run db:check
 - `combination_results`：拆分后的组合排名明细，页面筛选、排序和分页直接执行 SQL。
 - `active_combination_runs`：每个策略当前对外提供的完整组合版本；新版本全部写完后才切换。
 
-`DB_HYDRATE_FILES=1` 会在启动时把数据库文档恢复成本地兼容文件，供现有回测和行情下载脚本使用。组合排名接口不会读取大型 `combinations.json`。
+服务使用 MySQL 作为唯一运行数据源；未配置数据库时会拒绝启动。行情下载、回测和组合优化在系统临时目录执行，成功后写回数据库，不会改动项目内的 JSON 文件。组合排名接口直接查询 MySQL，不读取大型 `combinations.json`。
 
 生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理；GitHub Pages 构建已配置为请求 `https://rotation-market-desk.onrender.com`。Render 后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
 
@@ -88,17 +81,16 @@ pnpm run db:check
 ## 数据说明
 
 - 当前看盘数据源：腾讯证券公开行情接口
-- 三个指数策略的标的池均由各自的 `config.json` 动态维护，页面支持按名称或代码搜索、加入和移出 ETF
+- 三个指数策略的标的池均存储在 MySQL，页面支持按名称或代码搜索、加入和移出 ETF
 - 全球大类资产轮动规则：每周按 20 日涨幅排名；第 1 名且站上 MA28 买入，持仓跌出前 2 或跌破 MA28 时卖出或切换，全部不满足时空仓
-- 全球大类资产策略数据统一存放于 `data/asset-rotation/`：`config.json` 为标的池配置，`history/<ETF代码>.json` 为每只 ETF 独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点；可运行 `npm run history:asset:download` 更新历史，运行 `npm run backtest:asset` 复算
-- 策略 2 全组合结果存放于 `data/asset-rotation/combinations.json`；候选全集取自该策略的本地历史文件，完整枚举 3 只以上组合，并同时保存近 10 年与今年收益排名；运行 `pnpm run optimize:asset` 可重新计算
-- 宽基 20 日动量轮动策略数据统一存放于 `data/rotation/`：`config.json` 为动态标的池配置，`combination-config.json` 为独立组合池，`combinations.json` 为全组合排名，`history/<ETF代码>.json` 为独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点；运行 `pnpm run optimize:rotation` 可重新计算全组合排名
+- 全球大类资产策略的标的池、ETF 历史行情、近 10 年回测和年度操作节点均存储在 MySQL；可运行 `pnpm run history:asset:download` 更新历史，运行 `pnpm run backtest:asset` 复算
+- 策略 2 全组合结果拆分存储在 `combination_runs` 与 `combination_results`；候选全集取自数据库历史行情，完整枚举 3 只以上组合；运行 `pnpm run optimize:asset` 可在临时目录重新计算并原子切换生效版本
+- 宽基 20 日动量轮动策略的动态标的池、独立组合池、历史行情、回测和年度操作节点均存储在 MySQL；运行 `pnpm run optimize:rotation` 可重新计算全组合排名
 - 双 ETF 20 日动量轮动规则：每日比较标的近 20 个交易日涨跌幅，只持有排名第 1 且收盘价站上 MA20 的 ETF；第 1 名变化时切换，领先 ETF 跌破 MA20 时空仓；收盘产生信号，下一交易日承接收益
-- 双 ETF 策略数据统一存放于 `data/dual-etf/`：`config.json` 为动态标的池配置，`history/<ETF代码>.json` 为每只 ETF 独立历史行情，`backtest.json` 为 2016—2025 年近 10 年回测，`year-performance/YYYY.json` 为各年度操作节点；可运行 `npm run history:dual:download` 更新历史，运行 `npm run backtest:dual` 复算
+- 双 ETF 策略的标的池、历史行情、近 10 年回测和年度操作节点均存储在 MySQL；可运行 `pnpm run history:dual:download` 更新历史，运行 `pnpm run backtest:dual` 复算
 - MACD 策略扫描数据源：Tushare 日线接口；需要在 `.env.local` 配置 `TUSHARE_TOKEN`
-- MACD 系列策略快照位置：`data/*-snapshots/YYYYMMDD.json`；指定历史交易日文件不存在时自动计算并保存
-- 量价三信号快照位置：`data/volume-snapshots/YYYYMMDD.json`
-- 多空趋势多点快照位置：`data/bull-point-snapshots/YYYYMMDD.json`
+- MACD 系列策略快照存储在 MySQL；指定历史交易日记录不存在时自动计算并保存
+- 量价三信号和多空趋势多点快照均存储在 MySQL
 - 快照日期始终使用实际交易日；周末或节假日访问时自动读取上一个交易日，不生成非交易日 JSON
 - 价格类型：前复权日线
 - 信号时点：收盘后

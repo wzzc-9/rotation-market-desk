@@ -12,12 +12,14 @@ type CombinationQuery = {
   tenYearDrawdown?: string;
   fiveYearDrawdown?: string;
   currentYearDrawdown?: string;
+  codes?: string;
 };
 const combinationFilters = (query: CombinationQuery) => ({
   size: Number(query.size),
   tenYearDrawdown: Number(query.tenYearDrawdown),
   fiveYearDrawdown: Number(query.fiveYearDrawdown),
   currentYearDrawdown: Number(query.currentYearDrawdown),
+  codes: String(query.codes ?? '').split(',').map((code) => code.trim()).filter(Boolean),
 });
 const allowedCorsOrigins = new Set([
   'https://wzzc-9.github.io',
@@ -441,6 +443,7 @@ app.get<{ Params: { code: string }; Querystring: { period?: HistoryPeriod; refre
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '0.0.0.0';
 const databaseEnabled = await initializeMysqlStore();
-app.log.info({ databaseEnabled }, databaseEnabled ? 'MySQL persistence enabled' : 'MySQL persistence disabled; using JSON fallback');
+if (!databaseEnabled) throw new Error('缺少 MySQL 配置，纯数据库模式无法启动');
+app.log.info('MySQL persistence enabled');
 app.addHook('onClose', async () => closeMysqlStore());
 await app.listen({ port, host });

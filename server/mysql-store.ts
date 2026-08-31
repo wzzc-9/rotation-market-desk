@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql2/promise';
 
 type CombinationStrategy = 'rotation' | 'asset-rotation';
@@ -10,6 +10,7 @@ export type MysqlCombinationFilters = {
   tenYearDrawdown?: number;
   fiveYearDrawdown?: number;
   currentYearDrawdown?: number;
+  codes?: string[];
 };
 
 type CombinationSort = 'score' | 'ten-year' | 'five-year' | 'current-year';
@@ -340,7 +341,6 @@ export async function initializeMysqlStore() {
     'SELECT document_key, payload AS payload_text FROM app_documents',
   );
   for (const row of rows) documentCache.set(row.document_key, row.payload_text);
-  if (process.env.DB_HYDRATE_FILES !== '0') hydrateMysqlDocumentsToDisk();
   return true;
 }
 
@@ -358,19 +358,6 @@ export async function closeMysqlStore() {
 
 function documentKey(path: string) {
   return relative(process.cwd(), path).replace(/\\/g, '/');
-}
-
-export function hydrateMysqlDocumentsToDisk() {
-  const dataDirectory = resolve(process.cwd(), 'data');
-  for (const [key, content] of documentCache) {
-    if (!key.startsWith('data/')) continue;
-    const path = resolve(process.cwd(), key);
-    const relativeToData = relative(dataDirectory, path);
-    if (relativeToData.startsWith('..') || relativeToData.includes(`..${process.platform === 'win32' ? '\\' : '/'}`)) continue;
-    if (existsSync(path) && readFileSync(path, 'utf8') === content) continue;
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content, 'utf8');
-  }
 }
 
 function documentMetadata(key: string) {
@@ -426,6 +413,39 @@ export function queueMysqlDocumentWrite(path: string, content: string) {
   ).then(() => true));
 }
 
+export async function replaceMysqlDocuments(documents: Array<{ path: string; content: string }>) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const records = documents.map(({ path, content }) => {
+    JSON.parse(content);
+    const key = documentKey(path);
+    const metadata = documentMetadata(key);
+    const hash = createHash('sha256').update(content).digest('hex');
+    return { key, content, metadata, hash };
+  });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    for (const record of records) {
+      await connection.execute(
+        `INSERT INTO app_documents
+          (document_key, category, strategy_code, document_date, content_hash, payload, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(3))
+         ON DUPLICATE KEY UPDATE
+          category = VALUES(category), strategy_code = VALUES(strategy_code), document_date = VALUES(document_date),
+          content_hash = VALUES(content_hash), payload = VALUES(payload), updated_at = NOW(3)`,
+        [record.key, record.metadata.category, record.metadata.strategy, record.metadata.date, record.hash, record.content],
+      );
+    }
+    await connection.commit();
+    for (const record of records) documentCache.set(record.key, record.content);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 export function queueMysqlDocumentDelete(path: string) {
   if (!pool) return Promise.resolve(false);
   const key = documentKey(path);
@@ -435,11 +455,6 @@ export function queueMysqlDocumentDelete(path: string) {
 
 export async function flushMysqlWrites() {
   while (pendingWrites.size) await Promise.all([...pendingWrites]);
-}
-
-export async function importJsonDocument(path: string) {
-  if (!pool) throw new Error('MySQL 尚未初始化');
-  await queueMysqlDocumentWrite(path, readFileSync(path, 'utf8'));
 }
 
 function jsonValue<T>(value: unknown): T {
@@ -490,7 +505,12 @@ async function insertCombinationBatch(connection: PoolConnection, runId: number,
   );
 }
 
-export async function importCombinationFile(path: string, expectedStrategy: CombinationStrategy, onProgress?: (completed: number, total: number) => void) {
+export async function importCombinationFile(
+  path: string,
+  expectedStrategy: CombinationStrategy,
+  onProgress?: (completed: number, total: number) => void,
+  documents: Array<{ path: string; content: string }> = [],
+) {
   if (!pool) throw new Error('MySQL 尚未初始化');
   const content = readFileSync(path, 'utf8');
   const hash = createHash('sha256').update(content).digest('hex');
@@ -544,12 +564,41 @@ export async function importCombinationFile(path: string, expectedStrategy: Comb
   } else if (existing[0].status !== 'completed') {
     throw new Error(`${expectedStrategy} 已存在未完成的相同组合导入，请先清理失败任务`);
   }
-  await pool.execute(
-    `INSERT INTO active_combination_runs (strategy_code, run_id, updated_at)
-     VALUES (?, ?, NOW(3))
-     ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), updated_at = NOW(3)`,
-    [expectedStrategy, runId],
-  );
+  const documentRecords = documents.map(({ path: documentPath, content: documentContent }) => {
+    JSON.parse(documentContent);
+    const key = documentKey(documentPath);
+    const metadata = documentMetadata(key);
+    const documentHash = createHash('sha256').update(documentContent).digest('hex');
+    return { key, content: documentContent, metadata, hash: documentHash };
+  });
+  const activationConnection = await pool.getConnection();
+  try {
+    await activationConnection.beginTransaction();
+    for (const document of documentRecords) {
+      await activationConnection.execute(
+        `INSERT INTO app_documents
+          (document_key, category, strategy_code, document_date, content_hash, payload, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(3))
+         ON DUPLICATE KEY UPDATE
+          category = VALUES(category), strategy_code = VALUES(strategy_code), document_date = VALUES(document_date),
+          content_hash = VALUES(content_hash), payload = VALUES(payload), updated_at = NOW(3)`,
+        [document.key, document.metadata.category, document.metadata.strategy, document.metadata.date, document.hash, document.content],
+      );
+    }
+    await activationConnection.execute(
+      `INSERT INTO active_combination_runs (strategy_code, run_id, updated_at)
+       VALUES (?, ?, NOW(3))
+       ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), updated_at = NOW(3)`,
+      [expectedStrategy, runId],
+    );
+    await activationConnection.commit();
+    for (const document of documentRecords) documentCache.set(document.key, document.content);
+  } catch (error) {
+    await activationConnection.rollback();
+    throw error;
+  } finally {
+    activationConnection.release();
+  }
   return { runId, totalCombinations: record.totalCombinations, reused: Boolean(existing[0]) };
 }
 
@@ -560,6 +609,7 @@ function normalizedFilters(filters: MysqlCombinationFilters) {
     tenYearDrawdown: drawdown(filters.tenYearDrawdown),
     fiveYearDrawdown: drawdown(filters.fiveYearDrawdown),
     currentYearDrawdown: drawdown(filters.currentYearDrawdown),
+    codes: [...new Set((filters.codes ?? []).map((code) => String(code).trim()).filter((code) => /^\d{6}$/.test(code)))],
   };
 }
 
@@ -587,6 +637,10 @@ export async function getMysqlCombinationPage(
   if (normalized.tenYearDrawdown !== null) { clauses.push('ten_year_max_drawdown >= ?'); parameters.push(normalized.tenYearDrawdown); }
   if (normalized.fiveYearDrawdown !== null) { clauses.push('five_year_max_drawdown >= ?'); parameters.push(normalized.fiveYearDrawdown); }
   if (normalized.currentYearDrawdown !== null) { clauses.push('current_year_max_drawdown >= ?'); parameters.push(normalized.currentYearDrawdown); }
+  for (const code of normalized.codes) {
+    clauses.push("JSON_CONTAINS(codes_json, JSON_QUOTE(?), '$')");
+    parameters.push(code);
+  }
   const where = clauses.join(' AND ');
   const [counts] = await pool.query<Array<RowDataPacket & { total: number }>>(
     `SELECT COUNT(*) AS total FROM combination_results WHERE ${where}`,

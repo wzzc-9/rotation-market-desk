@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, importJsonDocument, isMysqlEnabled, listMysqlDocuments, queueMysqlDocumentDelete, queueMysqlDocumentWrite, readMysqlDocument } from './mysql-store.js';
+import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlDocuments, queueMysqlDocumentDelete, queueMysqlDocumentWrite, readMysqlDocument, replaceMysqlDocuments } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -53,6 +54,7 @@ type AssetRotationCombinationFilters = {
   tenYearDrawdown?: number;
   fiveYearDrawdown?: number;
   currentYearDrawdown?: number;
+  codes?: string[];
 };
 
 export type AssetRotationCombination = {
@@ -355,7 +357,6 @@ const rotationConfigPath = resolve(rotationDirectory, 'config.json');
 const rotationPendingConfigPath = resolve(rotationDirectory, 'pending-config.json');
 const rotationCombinationConfigPath = resolve(rotationDirectory, 'combination-config.json');
 const rotationCombinationPendingConfigPath = resolve(rotationDirectory, 'combination-pending-config.json');
-const rotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'history-consolidated.json');
 const rotationBacktestPath = resolve(rotationDirectory, 'backtest.json');
 const rotationCombinationsPath = resolve(rotationDirectory, 'combinations.json');
 const rotationYearPerformanceDirectory = resolve(rotationDirectory, 'year-performance');
@@ -365,13 +366,11 @@ const assetRotationConfigPath = resolve(assetRotationDirectory, 'config.json');
 const assetRotationPendingConfigPath = resolve(assetRotationDirectory, 'pending-config.json');
 const assetCombinationConfigPath = resolve(assetRotationDirectory, 'combination-config.json');
 const assetCombinationPendingConfigPath = resolve(assetRotationDirectory, 'combination-pending-config.json');
-const assetRotationLegacyHistoryPath = resolve(process.cwd(), 'data', 'asset-rotation-history.json');
 const assetRotationBacktestPath = resolve(assetRotationDirectory, 'backtest.json');
 const assetRotationCombinationsPath = resolve(assetRotationDirectory, 'combinations.json');
 const dualEtfDirectory = resolve(process.cwd(), 'data', 'dual-etf');
 const dualEtfHistoryDirectory = resolve(dualEtfDirectory, 'history');
 const dualEtfConfigPath = resolve(dualEtfDirectory, 'config.json');
-const dualEtfLegacyHistoryPath = resolve(process.cwd(), 'data', 'dual-etf-history.json');
 const dualEtfBacktestPath = resolve(dualEtfDirectory, 'backtest.json');
 const macdSnapshotVersion = 'macd-10-20-7-first-cross-full-v1';
 const macdSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-snapshots');
@@ -387,10 +386,8 @@ const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'y
 const dualEtfYearPerformanceDirectory = resolve(dualEtfDirectory, 'year-performance');
 let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
-let cachedRotationCombinations: AssetRotationCombinations | null = null;
 let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
-let cachedAssetRotationCombinations: AssetRotationCombinations | null = null;
 let cachedDualEtfSnapshot: RotationSnapshot | null = null;
 let cachedDualEtfAt = 0;
 let rotationPoolUpdateInFlight = false;
@@ -426,36 +423,80 @@ function isSymbolConfig(value: unknown): value is SymbolConfig {
 }
 
 function readStoredText(path: string) {
-  return readMysqlDocument(path) ?? readFileSync(path, 'utf8');
+  const stored = readMysqlDocument(path);
+  if (stored === null) throw new Error(`数据库中缺少文档：${relative(process.cwd(), path)}`);
+  return stored;
 }
 
 function storedFileExists(path: string) {
-  return readMysqlDocument(path) !== null || existsSync(path);
+  return readMysqlDocument(path) !== null;
 }
 
 function deleteStoredFile(path: string) {
-  if (existsSync(path)) unlinkSync(path);
   void queueMysqlDocumentDelete(path);
 }
 
 function storedJsonNames(directory: string) {
-  const local = existsSync(directory) ? readdirSync(directory) : [];
-  const database = listMysqlDocuments(directory).map((key) => basename(key));
-  return [...new Set([...local, ...database])];
+  return [...new Set(listMysqlDocuments(directory).map((key) => basename(key)))];
 }
 
-async function syncLocalJsonArtifacts(paths: string[]) {
-  if (!isMysqlEnabled()) return;
-  for (const path of paths) {
-    if (existsSync(path) && path.endsWith('.json')) await importJsonDocument(path);
+const calculationWorkspacePrefix = 'rotation-market-desk-';
+
+function calculationPath(workspaceRoot: string, projectPath: string) {
+  const projectRelativePath = relative(process.cwd(), projectPath);
+  if (!projectRelativePath || projectRelativePath.startsWith('..') || resolve(process.cwd(), projectRelativePath) !== resolve(projectPath)) {
+    throw new Error(`计算文件不在项目目录内：${projectPath}`);
   }
+  return resolve(workspaceRoot, projectRelativePath);
 }
 
-function localJsonFiles(directory: string) {
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory)
+function createCalculationWorkspace() {
+  if (!isMysqlEnabled()) throw new Error('计算任务需要 MySQL');
+  const workspaceRoot = mkdtempSync(resolve(tmpdir(), calculationWorkspacePrefix));
+  const dataDirectory = resolve(process.cwd(), 'data');
+  for (const key of listMysqlDocuments(dataDirectory)) {
+    const logicalPath = resolve(process.cwd(), key);
+    const content = readMysqlDocument(logicalPath);
+    if (content === null) continue;
+    const stagedPath = calculationPath(workspaceRoot, logicalPath);
+    mkdirSync(dirname(stagedPath), { recursive: true });
+    writeFileSync(stagedPath, content, 'utf8');
+  }
+  return workspaceRoot;
+}
+
+function removeCalculationWorkspace(workspaceRoot: string) {
+  const relativeToTemp = relative(tmpdir(), workspaceRoot);
+  if (relativeToTemp.startsWith('..') || !basename(workspaceRoot).startsWith(calculationWorkspacePrefix)) {
+    throw new Error(`拒绝清理非计算临时目录：${workspaceRoot}`);
+  }
+  rmSync(workspaceRoot, { recursive: true, force: true });
+}
+
+function writeCalculationText(workspaceRoot: string, logicalPath: string, content: string) {
+  const stagedPath = calculationPath(workspaceRoot, logicalPath);
+  mkdirSync(dirname(stagedPath), { recursive: true });
+  writeFileSync(stagedPath, content, 'utf8');
+}
+
+function calculationJsonFiles(workspaceRoot: string, logicalDirectory: string) {
+  const stagedDirectory = calculationPath(workspaceRoot, logicalDirectory);
+  if (!existsSync(stagedDirectory)) return [];
+  return readdirSync(stagedDirectory)
     .filter((name) => name.endsWith('.json'))
-    .map((name) => resolve(directory, name));
+    .map((name) => resolve(logicalDirectory, name));
+}
+
+function calculationArtifacts(workspaceRoot: string, logicalPaths: string[]) {
+  return logicalPaths.map((logicalPath) => {
+    const stagedPath = calculationPath(workspaceRoot, logicalPath);
+    if (!existsSync(stagedPath)) throw new Error(`计算结果缺失：${relative(workspaceRoot, stagedPath)}`);
+    return { path: logicalPath, content: readFileSync(stagedPath, 'utf8') };
+  });
+}
+
+async function syncCalculationArtifacts(workspaceRoot: string, logicalPaths: string[]) {
+  await replaceMysqlDocuments(calculationArtifacts(workspaceRoot, logicalPaths));
 }
 
 function readStrategyConfig(path: string, label: string): AssetRotationConfig {
@@ -612,47 +653,12 @@ function readDualEtfConfig() {
   return readStrategyConfig(dualEtfConfigPath, '双 ETF 动量轮动');
 }
 
-const replaceableFileErrorCodes = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST', 'ENOTEMPTY']);
-
-function isReplaceableFileError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error && replaceableFileErrorCodes.has(String(error.code));
-}
-
-function pauseFileOperation(milliseconds: number) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function replaceFileSync(temporaryPath: string, path: string) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    try {
-      renameSync(temporaryPath, path);
-      return;
-    } catch (error) {
-      if (!isReplaceableFileError(error)) throw error;
-      lastError = error;
-    }
-    try {
-      copyFileSync(temporaryPath, path);
-      unlinkSync(temporaryPath);
-      return;
-    } catch (error) {
-      if (!isReplaceableFileError(error)) throw error;
-      lastError = error;
-    }
-    pauseFileOperation(Math.min(50 * 2 ** attempt, 500));
-  }
-  throw lastError;
-}
-
 function writeTextAtomic(path: string, content: string) {
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temporaryPath, content, 'utf8');
-  replaceFileSync(temporaryPath, path);
-  if (!path.endsWith('combinations.json')) void queueMysqlDocumentWrite(path, content);
+  if (!isMysqlEnabled()) throw new Error('MySQL 尚未初始化');
+  void queueMysqlDocumentWrite(path, content);
 }
 
-function writeStrategyConfig(path: string, config: AssetRotationConfig) {
+function strategyConfigText(path: string, config: AssetRotationConfig) {
   const comment = path === rotationConfigPath || path === rotationPendingConfigPath
     ? '页面“宽基 20 日动量轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
     : path === rotationCombinationConfigPath || path === rotationCombinationPendingConfigPath
@@ -662,19 +668,11 @@ function writeStrategyConfig(path: string, config: AssetRotationConfig) {
     : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
       ? '页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
       : null;
-  writeTextAtomic(path, `${JSON.stringify(comment ? { _comment: comment, ...config } : config, null, 2)}\n`);
+  return `${JSON.stringify(comment ? { _comment: comment, ...config } : config, null, 2)}\n`;
 }
 
-function writeRotationConfig(config: AssetRotationConfig) {
-  writeStrategyConfig(rotationConfigPath, config);
-}
-
-function writeAssetRotationConfig(config: AssetRotationConfig) {
-  writeStrategyConfig(assetRotationConfigPath, config);
-}
-
-function writeDualEtfConfig(config: AssetRotationConfig) {
-  writeStrategyConfig(dualEtfConfigPath, config);
+function writeStrategyConfig(path: string, config: AssetRotationConfig) {
+  writeTextAtomic(path, strategyConfigText(path, config));
 }
 
 function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
@@ -703,162 +701,20 @@ function readAssetRotationBacktest(config = readAssetRotationConfig()) {
   return readStrategyBacktest(assetRotationBacktestPath, 'asset-rotation', config, '大类资产轮动');
 }
 
-function applyAssetCombinationScores(combinations: AssetRotationCombination[]) {
-  const stats = (values: number[]) => {
-    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-    return { mean, standardDeviation: Math.sqrt(variance) || 1 };
-  };
-  const tenYearAnnualized = stats(combinations.map((item) => item.tenYearAnnualizedReturn));
-  const fiveYearAnnualized = stats(combinations.map((item) => item.fiveYearAnnualizedReturn));
-  const currentReturn = stats(combinations.map((item) => item.currentYearReturn));
-  const tenYearDrawdown = stats(combinations.map((item) => Math.abs(item.tenYearMaxDrawdown)));
-  const fiveYearDrawdown = stats(combinations.map((item) => Math.abs(item.fiveYearMaxDrawdown)));
-  const currentDrawdown = stats(combinations.map((item) => Math.abs(item.currentYearMaxDrawdown)));
-  const zScore = (value: number, metric: { mean: number; standardDeviation: number }) => (value - metric.mean) / metric.standardDeviation;
-  for (const item of combinations) {
-    item.compositeScore = round(
-      0.3 * zScore(item.tenYearAnnualizedReturn, tenYearAnnualized)
-      + 0.25 * zScore(item.fiveYearAnnualizedReturn, fiveYearAnnualized)
-      + 0.1 * zScore(item.currentYearReturn, currentReturn)
-      - 0.2 * zScore(Math.abs(item.tenYearMaxDrawdown), tenYearDrawdown)
-      - 0.1 * zScore(Math.abs(item.fiveYearMaxDrawdown), fiveYearDrawdown)
-      - 0.05 * zScore(Math.abs(item.currentYearMaxDrawdown), currentDrawdown),
-      6,
-    );
-  }
-  [...combinations]
-    .sort((left, right) => right.compositeScore - left.compositeScore || left.id.localeCompare(right.id))
-    .forEach((item, index) => { item.compositeRank = index + 1; });
-}
-
-function paginateRotationCombinations(record: AssetRotationCombinations, sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, poolDraft: AssetRotationPoolDraft, filters: AssetRotationCombinationFilters = {}) {
-  const normalizedPageSize = Math.min(Math.max(Math.trunc(pageSize) || 25, 10), 100);
-  const normalizedSize = Number.isInteger(filters.size) && Number(filters.size) > 0 ? Number(filters.size) : null;
-  const normalizeDrawdown = (value?: number) => Number.isFinite(value) ? -Math.abs(Number(value)) : null;
-  const tenYearDrawdown = normalizeDrawdown(filters.tenYearDrawdown);
-  const fiveYearDrawdown = normalizeDrawdown(filters.fiveYearDrawdown);
-  const currentYearDrawdown = normalizeDrawdown(filters.currentYearDrawdown);
-  const matchingCombinations = record.combinations.filter((item) => (
-    (normalizedSize === null || item.size === normalizedSize)
-    && (tenYearDrawdown === null || item.tenYearMaxDrawdown >= tenYearDrawdown)
-    && (fiveYearDrawdown === null || item.fiveYearMaxDrawdown >= fiveYearDrawdown)
-    && (currentYearDrawdown === null || item.currentYearMaxDrawdown >= currentYearDrawdown)
-  ));
-  const totalCombinations = matchingCombinations.length;
-  const totalPages = Math.max(Math.ceil(totalCombinations / normalizedPageSize), 1);
-  const normalizedPage = Math.min(Math.max(Math.trunc(page) || 1, 1), totalPages);
-  const metric = (item: AssetRotationCombination) => sort === 'score'
-    ? item.compositeScore
-    : sort === 'current-year'
-      ? item.currentYearReturn
-      : sort === 'five-year'
-        ? item.fiveYearReturn
-        : item.tenYearReturn;
-  const sorted = [...matchingCombinations].sort((left, right) => {
-    const difference = metric(left) - metric(right);
-    return (direction === 'asc' ? difference : -difference) || left.id.localeCompare(right.id);
-  });
-  const start = (normalizedPage - 1) * normalizedPageSize;
-  const pageCombinations = sorted.slice(start, start + normalizedPageSize)
-    .map((item, index) => ({ ...item, displayRank: start + index + 1 }));
-  return {
-    version: record.version,
-    generatedAt: record.generatedAt,
-    periods: record.periods,
-    universe: record.universe,
-    totalCombinations,
-    allCombinations: record.totalCombinations,
-    filters: {
-      size: normalizedSize,
-      tenYearDrawdown,
-      fiveYearDrawdown,
-      currentYearDrawdown,
-    },
-    scoring: record.scoring,
-    sort,
-    direction,
-    page: normalizedPage,
-    pageSize: normalizedPageSize,
-    totalPages,
-    best: sorted[0] ? { ...sorted[0], displayRank: 1 } : null,
-    combinations: pageCombinations,
-    poolDraft,
-  };
-}
-
-function readRotationCombinations() {
-  if (cachedRotationCombinations) return cachedRotationCombinations;
-  const record = JSON.parse(readFileSync(rotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
-  if (
-    record.version !== 'rotation-combinations-daily-v3'
-    || record.strategy !== 'rotation'
-    || !Array.isArray(record.universe)
-    || !Array.isArray(record.combinations)
-    || record.totalCombinations !== record.combinations.length
-    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3 || !Number.isFinite(item.fiveYearReturn) || !Number.isFinite(item.fiveYearAnnualizedReturn) || !Number.isFinite(item.fiveYearMaxDrawdown))
-    || !sameSymbolSet(readRotationCombinationConfig().symbols, record.universe)
-  ) throw new Error('策略 1 组合回测数据无效，请重新计算');
-  applyAssetCombinationScores(record.combinations);
-  cachedRotationCombinations = record;
-  return record;
-}
-
 export async function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
   const databasePage = await getMysqlCombinationPage('rotation', sort, direction, page, pageSize, filters);
-  return databasePage
-    ? { ...databasePage, poolDraft: getRotationCombinationPoolDraft() }
-    : paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft(), filters);
-}
-
-function readAssetRotationCombinations() {
-  if (cachedAssetRotationCombinations) return cachedAssetRotationCombinations;
-  const record = JSON.parse(readFileSync(assetRotationCombinationsPath, 'utf8')) as AssetRotationCombinations;
-  if (
-    record.version !== 'asset-rotation-combinations-weekly-v5'
-    || record.strategy !== 'asset-rotation'
-    || !Array.isArray(record.universe)
-    || !Array.isArray(record.combinations)
-    || record.totalCombinations !== record.combinations.length
-    || record.combinations.some((item) => !Array.isArray(item.codes) || item.codes.length < 3 || !Number.isFinite(item.fiveYearReturn) || !Number.isFinite(item.fiveYearAnnualizedReturn) || !Number.isFinite(item.fiveYearMaxDrawdown))
-    || !sameSymbolSet(readAssetCombinationConfig().symbols, record.universe)
-  ) throw new Error('策略 2 组合回测数据无效，请重新计算');
-  applyAssetCombinationScores(record.combinations);
-  cachedAssetRotationCombinations = record;
-  return record;
+  if (!databasePage) throw new Error('MySQL 中缺少策略 1 组合排名数据');
+  return { ...databasePage, poolDraft: getRotationCombinationPoolDraft() };
 }
 
 export async function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
   const databasePage = await getMysqlCombinationPage('asset-rotation', sort, direction, page, pageSize, filters);
-  return databasePage
-    ? { ...databasePage, poolDraft: getAssetCombinationPoolDraft() }
-    : paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft(), filters);
+  if (!databasePage) throw new Error('MySQL 中缺少策略 2 组合排名数据');
+  return { ...databasePage, poolDraft: getAssetCombinationPoolDraft() };
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
   return readStrategyBacktest(dualEtfBacktestPath, 'dual-etf', config, '双 ETF 动量轮动');
-}
-
-function restoreFile(path: string, content: string | null) {
-  if (content === null) {
-    if (storedFileExists(path)) deleteStoredFile(path);
-    return;
-  }
-  writeTextAtomic(path, content);
-}
-
-function snapshotRotationHistory(directory: string) {
-  return new Map(storedJsonNames(directory)
-    .filter((name) => /^\d{6}\.json$/.test(name))
-    .map((name) => [name, readStoredText(resolve(directory, name))]));
-}
-
-function restoreRotationHistory(directory: string, snapshot: Map<string, string>) {
-  mkdirSync(directory, { recursive: true });
-  for (const name of readdirSync(directory)) {
-    if (/^\d{6}\.json$/.test(name) && !snapshot.has(name)) deleteStoredFile(resolve(directory, name));
-  }
-  for (const [name, content] of snapshot) writeTextAtomic(resolve(directory, name), content);
 }
 
 function writeRotationYearPerformance(
@@ -877,7 +733,6 @@ function writeRotationYearPerformance(
     : strategy === 'dual-etf'
       ? readDualEtfConfig()
       : readRotationConfig();
-  mkdirSync(directory, { recursive: true });
   const path = resolve(directory, `${performance.year}.json`);
   const record = {
     version: strategy === 'asset-rotation'
@@ -1042,7 +897,6 @@ function readMacdSnapshot(date: string): MacdSnapshot | null {
 }
 
 function writeMacdSnapshot(snapshot: MacdSnapshot) {
-  mkdirSync(macdSnapshotDirectory, { recursive: true });
   const path = macdSnapshotPath(snapshot.storageDate);
   writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdSnapshotVersion, cached: false }, null, 2)}\n`);
 }
@@ -1071,7 +925,6 @@ function readMacdPullbackSnapshot(date: string): MacdPullbackSnapshot | null {
 }
 
 function writeMacdPullbackSnapshot(snapshot: MacdPullbackSnapshot) {
-  mkdirSync(macdPullbackSnapshotDirectory, { recursive: true });
   const path = macdPullbackSnapshotPath(snapshot.storageDate);
   writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdPullbackSnapshotVersion, cached: false }, null, 2)}\n`);
 }
@@ -1100,7 +953,6 @@ function readMacdKdjSnapshot(date: string): MacdKdjSnapshot | null {
 }
 
 function writeMacdKdjSnapshot(snapshot: MacdKdjSnapshot) {
-  mkdirSync(macdKdjSnapshotDirectory, { recursive: true });
   const path = macdKdjSnapshotPath(snapshot.storageDate);
   writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdKdjSnapshotVersion, cached: false }, null, 2)}\n`);
 }
@@ -1129,7 +981,6 @@ function readVolumeSnapshot(date: string): VolumeSnapshot | null {
 }
 
 function writeVolumeSnapshot(snapshot: VolumeSnapshot) {
-  mkdirSync(volumeSnapshotDirectory, { recursive: true });
   const path = volumeSnapshotPath(snapshot.storageDate);
   writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: volumeSnapshotVersion, cached: false }, null, 2)}\n`);
 }
@@ -1158,7 +1009,6 @@ function readBullPointSnapshot(date: string): BullPointSnapshot | null {
 }
 
 function writeBullPointSnapshot(snapshot: BullPointSnapshot) {
-  mkdirSync(bullPointSnapshotDirectory, { recursive: true });
   const path = bullPointSnapshotPath(snapshot.storageDate);
   writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: bullPointSnapshotVersion, cached: false }, null, 2)}\n`);
 }
@@ -1798,34 +1648,27 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
   const isAsset = strategy === 'asset-rotation';
   const isDual = strategy === 'dual-etf';
   const configPath = isAsset ? assetRotationConfigPath : isDual ? dualEtfConfigPath : rotationConfigPath;
-  const legacyHistoryPath = isAsset ? assetRotationLegacyHistoryPath : isDual ? dualEtfLegacyHistoryPath : rotationLegacyHistoryPath;
   const backtestPath = isAsset ? assetRotationBacktestPath : isDual ? dualEtfBacktestPath : rotationBacktestPath;
   const historyDirectory = isAsset ? assetRotationHistoryDirectory : isDual ? dualEtfHistoryDirectory : rotationHistoryDirectory;
   const downloadScript = isAsset ? 'download-asset-rotation-history.cjs' : isDual ? 'download-dual-etf-history.cjs' : 'download-history.cjs';
   const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : 'backtest.cjs';
   const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
-  const previousFiles = new Map([
-    [configPath, storedFileExists(configPath) ? readStoredText(configPath) : null],
-    [legacyHistoryPath, storedFileExists(legacyHistoryPath) ? readStoredText(legacyHistoryPath) : null],
-    [backtestPath, storedFileExists(backtestPath) ? readStoredText(backtestPath) : null],
-  ]);
-  const previousHistory = snapshotRotationHistory(historyDirectory);
-  if (isAsset) writeAssetRotationConfig(config);
-  else if (isDual) writeDualEtfConfig(config);
-  else writeRotationConfig(config);
+  const workspaceRoot = createCalculationWorkspace();
+  writeCalculationText(workspaceRoot, configPath, strategyConfigText(configPath, config));
   try {
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', downloadScript)], {
       cwd: process.cwd(),
-      env: { ...process.env, [onlyMissingKey]: '1' },
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot, [onlyMissingKey]: '1' },
       timeout: 180_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', backtestScript)], {
       cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    await syncLocalJsonArtifacts([configPath, backtestPath, ...localJsonFiles(historyDirectory)]);
+    await syncCalculationArtifacts(workspaceRoot, [configPath, backtestPath, ...calculationJsonFiles(workspaceRoot, historyDirectory)]);
     if (isAsset) {
       readAssetRotationBacktest(config);
       cachedAssetRotationSnapshot = null;
@@ -1849,8 +1692,6 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     await flushMysqlWrites();
     return snapshot;
   } catch (error) {
-    for (const [path, content] of previousFiles) restoreFile(path, content);
-    restoreRotationHistory(historyDirectory, previousHistory);
     if (isAsset) {
       cachedAssetRotationSnapshot = null;
       cachedAssetRotationAt = 0;
@@ -1862,7 +1703,53 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       cachedAt = 0;
     }
     await flushMysqlWrites();
-    throw new Error(`标的池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
+    throw new Error(`标的池更新失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally {
+    removeCalculationWorkspace(workspaceRoot);
+  }
+}
+
+export type DatabaseCalculationTask =
+  | 'rotation-history' | 'rotation-backtest' | 'rotation-optimize'
+  | 'asset-history' | 'asset-backtest' | 'asset-optimize'
+  | 'dual-history' | 'dual-backtest';
+
+export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) {
+  const definitions: Record<DatabaseCalculationTask, {
+    script: string;
+    timeout: number;
+    historyDirectory?: string;
+    outputPath?: string;
+    combinationStrategy?: 'rotation' | 'asset-rotation';
+  }> = {
+    'rotation-history': { script: 'download-history.cjs', timeout: 180_000, historyDirectory: rotationHistoryDirectory },
+    'rotation-backtest': { script: 'backtest.cjs', timeout: 60_000, outputPath: rotationBacktestPath },
+    'rotation-optimize': { script: 'optimize-rotation.cjs', timeout: 900_000, outputPath: rotationCombinationsPath, combinationStrategy: 'rotation' },
+    'asset-history': { script: 'download-asset-rotation-history.cjs', timeout: 180_000, historyDirectory: assetRotationHistoryDirectory },
+    'asset-backtest': { script: 'backtest-asset-rotation.cjs', timeout: 60_000, outputPath: assetRotationBacktestPath },
+    'asset-optimize': { script: 'optimize-asset-rotation.cjs', timeout: 900_000, outputPath: assetRotationCombinationsPath, combinationStrategy: 'asset-rotation' },
+    'dual-history': { script: 'download-dual-etf-history.cjs', timeout: 180_000, historyDirectory: dualEtfHistoryDirectory },
+    'dual-backtest': { script: 'backtest-dual-etf.cjs', timeout: 60_000, outputPath: dualEtfBacktestPath },
+  };
+  const definition = definitions[task];
+  const workspaceRoot = createCalculationWorkspace();
+  try {
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', definition.script)], {
+      cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
+      timeout: definition.timeout,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    if (definition.combinationStrategy && definition.outputPath) {
+      return await importCombinationFile(calculationPath(workspaceRoot, definition.outputPath), definition.combinationStrategy);
+    }
+    const paths = definition.historyDirectory
+      ? calculationJsonFiles(workspaceRoot, definition.historyDirectory)
+      : definition.outputPath ? [definition.outputPath] : [];
+    await syncCalculationArtifacts(workspaceRoot, paths);
+    return { updatedDocuments: paths.length };
+  } finally {
+    removeCalculationWorkspace(workspaceRoot);
   }
 }
 
@@ -1971,39 +1858,31 @@ export async function recalculateRotationCombinationPool() {
   const pending = readRotationCombinationPendingConfig();
   if (!pending || sameSymbolSet(readRotationCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
   rotationCombinationPoolUpdateInFlight = true;
-  const previousFiles = new Map([
-    [rotationCombinationConfigPath, storedFileExists(rotationCombinationConfigPath) ? readStoredText(rotationCombinationConfigPath) : null],
-    [rotationCombinationsPath, existsSync(rotationCombinationsPath) ? readFileSync(rotationCombinationsPath, 'utf8') : null],
-  ]);
-  const previousHistory = snapshotRotationHistory(rotationHistoryDirectory);
-  writeStrategyConfig(rotationCombinationConfigPath, pending);
+  const workspaceRoot = createCalculationWorkspace();
+  writeCalculationText(workspaceRoot, rotationCombinationConfigPath, strategyConfigText(rotationCombinationConfigPath, pending));
   try {
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-history.cjs')], {
       cwd: process.cwd(),
-      env: { ...process.env, ROTATION_CONFIG_FILE: 'combination-config.json', ROTATION_ONLY_MISSING: '1' },
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot, ROTATION_CONFIG_FILE: 'combination-config.json', ROTATION_ONLY_MISSING: '1' },
       timeout: 180_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-rotation.cjs')], {
       cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    if (isMysqlEnabled()) await importCombinationFile(rotationCombinationsPath, 'rotation');
-    await syncLocalJsonArtifacts([rotationCombinationConfigPath, ...localJsonFiles(rotationHistoryDirectory)]);
-    cachedRotationCombinations = null;
-    if (!isMysqlEnabled()) readRotationCombinations();
+    const documents = calculationArtifacts(workspaceRoot, [rotationCombinationConfigPath, ...calculationJsonFiles(workspaceRoot, rotationHistoryDirectory)]);
+    await importCombinationFile(calculationPath(workspaceRoot, rotationCombinationsPath), 'rotation', undefined, documents);
     if (storedFileExists(rotationCombinationPendingConfigPath)) deleteStoredFile(rotationCombinationPendingConfigPath);
     await flushMysqlWrites();
     return getRotationCombinationPoolDraft();
   } catch (error) {
-    for (const [path, content] of previousFiles) restoreFile(path, content);
-    restoreRotationHistory(rotationHistoryDirectory, previousHistory);
-    if (isMysqlEnabled() && existsSync(rotationCombinationsPath)) await importCombinationFile(rotationCombinationsPath, 'rotation');
-    cachedRotationCombinations = null;
     await flushMysqlWrites();
-    throw new Error(`组合池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
+    throw new Error(`组合池更新失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
   } finally {
+    removeCalculationWorkspace(workspaceRoot);
     rotationCombinationPoolUpdateInFlight = false;
   }
 }
@@ -2081,17 +1960,14 @@ export async function recalculateAssetCombinationPool() {
   const pending = readAssetCombinationPendingConfig();
   if (!pending || sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
   assetCombinationPoolUpdateInFlight = true;
-  const previousFiles = new Map([
-    [assetCombinationConfigPath, storedFileExists(assetCombinationConfigPath) ? readStoredText(assetCombinationConfigPath) : null],
-    [assetRotationCombinationsPath, existsSync(assetRotationCombinationsPath) ? readFileSync(assetRotationCombinationsPath, 'utf8') : null],
-  ]);
-  const previousHistory = snapshotRotationHistory(assetRotationHistoryDirectory);
-  writeStrategyConfig(assetCombinationConfigPath, pending);
+  const workspaceRoot = createCalculationWorkspace();
+  writeCalculationText(workspaceRoot, assetCombinationConfigPath, strategyConfigText(assetCombinationConfigPath, pending));
   try {
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-asset-rotation-history.cjs')], {
       cwd: process.cwd(),
       env: {
         ...process.env,
+        ROTATION_CALCULATION_ROOT: workspaceRoot,
         ASSET_ROTATION_CONFIG_FILE: 'combination-config.json',
         ASSET_ROTATION_ONLY_MISSING: '1',
       },
@@ -2100,24 +1976,20 @@ export async function recalculateAssetCombinationPool() {
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-asset-rotation.cjs')], {
       cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    if (isMysqlEnabled()) await importCombinationFile(assetRotationCombinationsPath, 'asset-rotation');
-    await syncLocalJsonArtifacts([assetCombinationConfigPath, ...localJsonFiles(assetRotationHistoryDirectory)]);
-    cachedAssetRotationCombinations = null;
-    if (!isMysqlEnabled()) readAssetRotationCombinations();
+    const documents = calculationArtifacts(workspaceRoot, [assetCombinationConfigPath, ...calculationJsonFiles(workspaceRoot, assetRotationHistoryDirectory)]);
+    await importCombinationFile(calculationPath(workspaceRoot, assetRotationCombinationsPath), 'asset-rotation', undefined, documents);
     if (storedFileExists(assetCombinationPendingConfigPath)) deleteStoredFile(assetCombinationPendingConfigPath);
     await flushMysqlWrites();
     return getAssetCombinationPoolDraft();
   } catch (error) {
-    for (const [path, content] of previousFiles) restoreFile(path, content);
-    restoreRotationHistory(assetRotationHistoryDirectory, previousHistory);
-    if (isMysqlEnabled() && existsSync(assetRotationCombinationsPath)) await importCombinationFile(assetRotationCombinationsPath, 'asset-rotation');
-    cachedAssetRotationCombinations = null;
     await flushMysqlWrites();
-    throw new Error(`组合排名计算失败，已恢复原数据：${error instanceof Error ? error.message : '未知错误'}`);
+    throw new Error(`组合排名计算失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
   } finally {
+    removeCalculationWorkspace(workspaceRoot);
     assetCombinationPoolUpdateInFlight = false;
   }
 }

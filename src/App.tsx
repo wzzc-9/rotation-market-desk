@@ -36,7 +36,7 @@ import {
 import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
-import { annualReturns, assetRotationAnnualReturns, assetRotationVideoBenchmark, dualEtfAnnualReturns, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
+import { assetRotationVideoBenchmark, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
 import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
@@ -1253,11 +1253,13 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
   type CombinationFilters = { size: number | null; tenYearDrawdown: number | null; fiveYearDrawdown: number | null; currentYearDrawdown: number | null };
   const [sort, setSort] = useState<CombinationSort>({ key: 'score', direction: 'desc' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [pageInput, setPageInput] = useState('1');
   const [sizeInput, setSizeInput] = useState('');
   const [tenYearDrawdownInput, setTenYearDrawdownInput] = useState('');
   const [fiveYearDrawdownInput, setFiveYearDrawdownInput] = useState('');
   const [currentYearDrawdownInput, setCurrentYearDrawdownInput] = useState('');
+  const [selectedCombinationCodes, setSelectedCombinationCodes] = useState<string[]>([]);
   const [filters, setFilters] = useState<CombinationFilters>({ size: null, tenYearDrawdown: null, fiveYearDrawdown: null, currentYearDrawdown: null });
   const [result, setResult] = useState<AssetRotationCombinationsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1274,13 +1276,14 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     if (filters.tenYearDrawdown !== null) parameters.set('tenYearDrawdown', String(filters.tenYearDrawdown));
     if (filters.fiveYearDrawdown !== null) parameters.set('fiveYearDrawdown', String(filters.fiveYearDrawdown));
     if (filters.currentYearDrawdown !== null) parameters.set('currentYearDrawdown', String(filters.currentYearDrawdown));
+    if (selectedCombinationCodes.length) parameters.set('codes', selectedCombinationCodes.join(','));
     return parameters.toString();
-  }, [filters.currentYearDrawdown, filters.fiveYearDrawdown, filters.size, filters.tenYearDrawdown]);
+  }, [filters.currentYearDrawdown, filters.fiveYearDrawdown, filters.size, filters.tenYearDrawdown, selectedCombinationCodes]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void apiFetch(`${endpointBase}?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=25${filterQuery ? `&${filterQuery}` : ''}`, {
+    void apiFetch(`${endpointBase}?sort=${sort.key}&direction=${sort.direction}&page=${page}&pageSize=${pageSize}${filterQuery ? `&${filterQuery}` : ''}`, {
       cache: 'no-store',
       signal: controller.signal,
     }).then(async (response) => {
@@ -1294,7 +1297,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [endpointBase, filterQuery, page, sort.direction, sort.key]);
+  }, [endpointBase, filterQuery, page, pageSize, sort.direction, sort.key]);
   useEffect(() => {
     if (result) setPageInput(String(result.page));
   }, [result]);
@@ -1370,6 +1373,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     setTenYearDrawdownInput('');
     setFiveYearDrawdownInput('');
     setCurrentYearDrawdownInput('');
+    setSelectedCombinationCodes([]);
     setFilters({ size: null, tenYearDrawdown: null, fiveYearDrawdown: null, currentYearDrawdown: null });
     setPage(1);
     setPageInput('1');
@@ -1387,6 +1391,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       if (!response.ok) throw new Error(payload.message || `${action === 'add' ? '加入' : '移出'}组合池失败`);
       if (!Array.isArray(payload.symbols) || payload.symbols.length < 3) throw new Error('组合池变更已保存，但返回的数据不完整');
       setResult((current) => current ? { ...current, poolDraft: payload } : current);
+      if (action === 'remove') setSelectedCombinationCodes((current) => current.filter((code) => code !== item.code));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : `${action === 'add' ? '加入' : '移出'}组合池失败`;
       setPoolError(message);
@@ -1399,7 +1404,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     setPoolCalculating(true);
     setPoolError('');
     try {
-      const response = await apiFetch(`${endpointBase}/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=25${filterQuery ? `&${filterQuery}` : ''}`, {
+      const response = await apiFetch(`${endpointBase}/recalculate?sort=${sort.key}&direction=${sort.direction}&pageSize=${pageSize}${filterQuery ? `&${filterQuery}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -1415,9 +1420,14 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     } finally {
       setPoolCalculating(false);
     }
-  }, [endpointBase, filterQuery, sort.direction, sort.key]);
+  }, [endpointBase, filterQuery, pageSize, sort.direction, sort.key]);
   const poolSymbols = result?.poolDraft.symbols ?? [];
   const calculatedCodes = useMemo(() => new Set(result?.universe.map((item) => item.code) ?? []), [result]);
+  const toggleCombinationCode = (code: string) => {
+    setSelectedCombinationCodes((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
+    setPage(1);
+    setPageInput('1');
+  };
   const activeRotationPoolKey = useMemo(() => [...rotationPoolCodes].sort().join(','), [rotationPoolCodes]);
   const replaceRotationPool = useCallback(async (item: AssetRotationCombinationsResponse['combinations'][number]) => {
     setReplacingId(item.id);
@@ -1436,7 +1446,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       <div className="panel-title-row combination-title-row">
         <div><span className="eyebrow">{isAssetRotation ? 'ASSET COMBINATION REPLAY' : 'INDEX COMBINATION REPLAY'}</span><h3>全组合收益排名</h3></div>
         <div className="combination-toolbar">
-          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {Object.values(result.filters).every((value) => value === null) ? result.totalCombinations.toLocaleString() : `${result.totalCombinations.toLocaleString()} / ${result.allCombinations.toLocaleString()}`} 个组合</span>}
+          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {!filterQuery ? result.totalCombinations.toLocaleString() : `${result.totalCombinations.toLocaleString()} / ${result.allCombinations.toLocaleString()}`} 个组合</span>}
         </div>
       </div>
       {result && <>
@@ -1451,12 +1461,19 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
           onAdd={(item) => updatePool('add', item)}
         />
         <div className="combination-pool-strip">
-          <div className="combination-pool-label"><span>组合池</span><small>{poolSymbols.length} 只</small></div>
+          <div className="combination-pool-label"><span>组合池</span><small>{selectedCombinationCodes.length ? `已选 ${selectedCombinationCodes.length} 只` : `${poolSymbols.length} 只 · 点击筛选`}</small></div>
           <div className="combination-pool-symbols">
-            {poolSymbols.map((symbol) => <div className={`combination-pool-chip${calculatedCodes.has(symbol.code) ? '' : ' is-pending'}`} key={symbol.code}>
-              <span><strong>{symbol.name}</strong><small>{symbol.code}</small></span>
-              <button type="button" disabled={poolUpdating || poolCalculating || poolSymbols.length <= 3} title={poolSymbols.length <= 3 ? '组合池至少保留 3 只 ETF' : `移出组合池：${symbol.name}`} aria-label={`从组合池移除 ${symbol.name}`} onClick={() => void updatePool('remove', symbol).catch(() => undefined)}><X size={13} /></button>
-            </div>)}
+            {poolSymbols.map((symbol) => {
+              const calculated = calculatedCodes.has(symbol.code);
+              const selected = selectedCombinationCodes.includes(symbol.code);
+              return <div className={`combination-pool-chip${calculated ? '' : ' is-pending'}${selected ? ' is-filter-selected' : ''}`} key={symbol.code}>
+                <button type="button" className="combination-pool-filter-button" disabled={!calculated} aria-pressed={selected} title={calculated ? `${selected ? '取消筛选' : '筛选包含'} ${symbol.name} 的组合` : '请先重新计算组合排名'} onClick={() => toggleCombinationCode(symbol.code)}>
+                  {selected && <Check size={12} />}
+                  <span><strong>{symbol.name}</strong><small>{symbol.code}</small></span>
+                </button>
+                <button type="button" className="combination-pool-remove-button" disabled={poolUpdating || poolCalculating || poolSymbols.length <= 3} title={poolSymbols.length <= 3 ? '组合池至少保留 3 只 ETF' : `移出组合池：${symbol.name}`} aria-label={`从组合池移除 ${symbol.name}`} onClick={() => void updatePool('remove', symbol).catch(() => undefined)}><X size={13} /></button>
+              </div>;
+            })}
           </div>
         </div>
       </>}
@@ -1552,6 +1569,13 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
           </table>
         </div>
         <div className="combination-pagination">
+          <span className="combination-pagination-total">共 {result.totalCombinations.toLocaleString()} 条</span>
+          <label className="combination-page-size">
+            <span>每页</span>
+            <select aria-label="每页显示数量" value={pageSize} disabled={loading} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); setPageInput('1'); }}>
+              {[10, 25, 50, 100].map((size) => <option value={size} key={size}>{size} 条</option>)}
+            </select>
+          </label>
           <span>第 {result.page.toLocaleString()} / {result.totalPages.toLocaleString()} 页</span>
           <button type="button" className="icon-button" title="上一页" aria-label="组合排名上一页" disabled={result.page <= 1 || loading} onClick={() => goToPage(result.page - 1)}><ChevronLeft size={16} /></button>
           <form className="combination-page-jump" onSubmit={(event) => { event.preventDefault(); submitPage(); }}>
@@ -1574,7 +1598,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
   const holding = markets.find((market) => market.name === yearPerformance.currentHolding) ?? null;
   const trendPeriod = isAssetRotation ? 28 : 20;
   const poolSize = poolSymbols?.length ?? markets.length;
-  const performanceReturns = strategyBacktest?.annualReturns ?? (isAssetRotation ? assetRotationAnnualReturns : isDualEtf ? dualEtfAnnualReturns : annualReturns);
+  const performanceReturns = strategyBacktest?.annualReturns ?? [];
   const [backtestStartYear, setBacktestStartYear] = useState(performanceReturns[0].year);
   const filteredPerformanceReturns = useMemo(
     () => performanceReturns.filter((item) => item.year >= backtestStartYear),

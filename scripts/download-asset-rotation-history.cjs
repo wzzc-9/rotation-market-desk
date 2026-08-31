@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const projectRoot = path.resolve(__dirname, '..');
+if (!process.env.ROTATION_CALCULATION_ROOT) throw new Error('缺少 ROTATION_CALCULATION_ROOT，请通过后端计算任务运行');
+const projectRoot = path.resolve(process.env.ROTATION_CALCULATION_ROOT);
 const strategyDirectory = path.join(projectRoot, 'data', 'asset-rotation');
 const historyDirectory = path.join(strategyDirectory, 'history');
 const configFile = process.env.ASSET_ROTATION_CONFIG_FILE || 'config.json';

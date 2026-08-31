@@ -76,6 +76,7 @@ export type AssetRotationCombinationsResponse = {
     tenYearDrawdown: number | null;
     fiveYearDrawdown: number | null;
     currentYearDrawdown: number | null;
+    codes: string[];
   };
   scoring: {
     formula: string;
