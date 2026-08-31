@@ -14,6 +14,39 @@ npm run dev
 
 `npm run dev` 会同时启动前后端。浏览器加载时会请求后端获取宽基轮动标的池的真实前复权日线，并重新计算 MA20、动量排名和交易信号。
 
+## MySQL 5.7
+
+后端配置 `DB_*` 环境变量后优先使用 MySQL；未配置时保留本地 JSON 回退。复制 `.env.example` 中的变量到本机 `.env.mysql.local`，线上则配置到 Render 环境变量：
+
+```text
+DB_HOST=数据库地址
+DB_PORT=3306
+DB_USER=数据库账号
+DB_PASSWORD=数据库密码
+DB_NAME=rotation_market_desk
+DB_SSL=0
+DB_HYDRATE_FILES=1
+```
+
+首次接入或需要把本地 JSON 重新同步到数据库时运行：
+
+```powershell
+pnpm run db:migrate
+```
+
+迁移或重新计算后可检查文档内容和组合行数：
+
+```powershell
+pnpm run db:check
+```
+
+- `app_documents`：配置、ETF 历史行情、回测、年度收益和策略快照；正文使用 `LONGTEXT` 原样保存并在写入前校验 JSON。
+- `combination_runs`：策略一、策略二每次组合计算的版本和统计参数。
+- `combination_results`：拆分后的组合排名明细，页面筛选、排序和分页直接执行 SQL。
+- `active_combination_runs`：每个策略当前对外提供的完整组合版本；新版本全部写完后才切换。
+
+`DB_HYDRATE_FILES=1` 会在启动时把数据库文档恢复成本地兼容文件，供现有回测和行情下载脚本使用。组合排名接口不会读取大型 `combinations.json`。
+
 生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理；GitHub Pages 构建已配置为请求 `https://rotation-market-desk.onrender.com`。Render 后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
 
 ## 接口

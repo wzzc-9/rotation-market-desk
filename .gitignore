@@ -6,4 +6,5 @@ vite.config.d.ts
 vite.log
 vite-error.log
 .env.local
+.env.mysql.local
 /.idea

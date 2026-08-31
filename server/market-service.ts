@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, importJsonDocument, isMysqlEnabled, listMysqlDocuments, queueMysqlDocumentDelete, queueMysqlDocumentWrite, readMysqlDocument } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -424,8 +425,41 @@ function isSymbolConfig(value: unknown): value is SymbolConfig {
     && isMarketCategory(item.category);
 }
 
+function readStoredText(path: string) {
+  return readMysqlDocument(path) ?? readFileSync(path, 'utf8');
+}
+
+function storedFileExists(path: string) {
+  return readMysqlDocument(path) !== null || existsSync(path);
+}
+
+function deleteStoredFile(path: string) {
+  if (existsSync(path)) unlinkSync(path);
+  void queueMysqlDocumentDelete(path);
+}
+
+function storedJsonNames(directory: string) {
+  const local = existsSync(directory) ? readdirSync(directory) : [];
+  const database = listMysqlDocuments(directory).map((key) => basename(key));
+  return [...new Set([...local, ...database])];
+}
+
+async function syncLocalJsonArtifacts(paths: string[]) {
+  if (!isMysqlEnabled()) return;
+  for (const path of paths) {
+    if (existsSync(path) && path.endsWith('.json')) await importJsonDocument(path);
+  }
+}
+
+function localJsonFiles(directory: string) {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => resolve(directory, name));
+}
+
 function readStrategyConfig(path: string, label: string): AssetRotationConfig {
-  const config = JSON.parse(readFileSync(path, 'utf8')) as Partial<AssetRotationConfig>;
+  const config = JSON.parse(readStoredText(path)) as Partial<AssetRotationConfig>;
   if (!Number.isInteger(config.version) || !Array.isArray(config.symbols) || !config.symbols.every(isSymbolConfig)) {
     throw new Error(`${label}标的池配置无效`);
   }
@@ -439,7 +473,7 @@ function readRotationConfig() {
 }
 
 function readRotationPendingConfig() {
-  return existsSync(rotationPendingConfigPath)
+  return storedFileExists(rotationPendingConfigPath)
     ? readStrategyConfig(rotationPendingConfigPath, '宽基轮动待应用')
     : null;
 }
@@ -449,7 +483,7 @@ function readAssetRotationConfig() {
 }
 
 function readAssetRotationPendingConfig() {
-  return existsSync(assetRotationPendingConfigPath)
+  return storedFileExists(assetRotationPendingConfigPath)
     ? readStrategyConfig(assetRotationPendingConfigPath, '大类资产轮动待应用')
     : null;
 }
@@ -475,7 +509,7 @@ export function getRotationPoolDraft(): AssetRotationPoolDraft {
 function writeRotationPoolDraft(config: AssetRotationConfig) {
   const active = readRotationConfig();
   if (sameSymbolSet(active.symbols, config.symbols)) {
-    if (existsSync(rotationPendingConfigPath)) unlinkSync(rotationPendingConfigPath);
+    if (storedFileExists(rotationPendingConfigPath)) deleteStoredFile(rotationPendingConfigPath);
   } else {
     writeStrategyConfig(rotationPendingConfigPath, config);
   }
@@ -487,7 +521,7 @@ function readRotationCombinationConfig() {
 }
 
 function readRotationCombinationPendingConfig() {
-  return existsSync(rotationCombinationPendingConfigPath)
+  return storedFileExists(rotationCombinationPendingConfigPath)
     ? readStrategyConfig(rotationCombinationPendingConfigPath, '宽基全组合收益排名待应用')
     : null;
 }
@@ -509,7 +543,7 @@ export function getRotationCombinationPoolDraft(): AssetRotationPoolDraft {
 function writeRotationCombinationPoolDraft(config: AssetRotationConfig) {
   const active = readRotationCombinationConfig();
   if (sameSymbolSet(active.symbols, config.symbols)) {
-    if (existsSync(rotationCombinationPendingConfigPath)) unlinkSync(rotationCombinationPendingConfigPath);
+    if (storedFileExists(rotationCombinationPendingConfigPath)) deleteStoredFile(rotationCombinationPendingConfigPath);
   } else {
     writeStrategyConfig(rotationCombinationPendingConfigPath, config);
   }
@@ -533,7 +567,7 @@ export function getAssetRotationPoolDraft(): AssetRotationPoolDraft {
 function writeAssetRotationPoolDraft(config: AssetRotationConfig) {
   const active = readAssetRotationConfig();
   if (sameSymbolSet(active.symbols, config.symbols)) {
-    if (existsSync(assetRotationPendingConfigPath)) unlinkSync(assetRotationPendingConfigPath);
+    if (storedFileExists(assetRotationPendingConfigPath)) deleteStoredFile(assetRotationPendingConfigPath);
   } else {
     writeStrategyConfig(assetRotationPendingConfigPath, config);
   }
@@ -545,7 +579,7 @@ function readAssetCombinationConfig() {
 }
 
 function readAssetCombinationPendingConfig() {
-  return existsSync(assetCombinationPendingConfigPath)
+  return storedFileExists(assetCombinationPendingConfigPath)
     ? readStrategyConfig(assetCombinationPendingConfigPath, '全组合收益排名待应用')
     : null;
 }
@@ -567,7 +601,7 @@ export function getAssetCombinationPoolDraft(): AssetRotationPoolDraft {
 function writeAssetCombinationPoolDraft(config: AssetRotationConfig) {
   const active = readAssetCombinationConfig();
   if (sameSymbolSet(active.symbols, config.symbols)) {
-    if (existsSync(assetCombinationPendingConfigPath)) unlinkSync(assetCombinationPendingConfigPath);
+    if (storedFileExists(assetCombinationPendingConfigPath)) deleteStoredFile(assetCombinationPendingConfigPath);
   } else {
     writeStrategyConfig(assetCombinationPendingConfigPath, config);
   }
@@ -615,6 +649,7 @@ function writeTextAtomic(path: string, content: string) {
   const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporaryPath, content, 'utf8');
   replaceFileSync(temporaryPath, path);
+  if (!path.endsWith('combinations.json')) void queueMysqlDocumentWrite(path, content);
 }
 
 function writeStrategyConfig(path: string, config: AssetRotationConfig) {
@@ -643,7 +678,7 @@ function writeDualEtfConfig(config: AssetRotationConfig) {
 }
 
 function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
-  const backtest = JSON.parse(readFileSync(path, 'utf8')) as AssetRotationBacktest;
+  const backtest = JSON.parse(readStoredText(path)) as AssetRotationBacktest;
   const expectedVersion = strategy === 'asset-rotation'
     ? 'asset-rotation-return20-ma28-weekly-v1'
     : strategy === 'dual-etf'
@@ -769,8 +804,11 @@ function readRotationCombinations() {
   return record;
 }
 
-export function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters?: AssetRotationCombinationFilters) {
-  return paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft(), filters);
+export async function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
+  const databasePage = await getMysqlCombinationPage('rotation', sort, direction, page, pageSize, filters);
+  return databasePage
+    ? { ...databasePage, poolDraft: getRotationCombinationPoolDraft() }
+    : paginateRotationCombinations(readRotationCombinations(), sort, direction, page, pageSize, getRotationCombinationPoolDraft(), filters);
 }
 
 function readAssetRotationCombinations() {
@@ -790,8 +828,11 @@ function readAssetRotationCombinations() {
   return record;
 }
 
-export function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters?: AssetRotationCombinationFilters) {
-  return paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft(), filters);
+export async function getAssetRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
+  const databasePage = await getMysqlCombinationPage('asset-rotation', sort, direction, page, pageSize, filters);
+  return databasePage
+    ? { ...databasePage, poolDraft: getAssetCombinationPoolDraft() }
+    : paginateRotationCombinations(readAssetRotationCombinations(), sort, direction, page, pageSize, getAssetCombinationPoolDraft(), filters);
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
@@ -800,23 +841,22 @@ function readDualEtfBacktest(config = readDualEtfConfig()) {
 
 function restoreFile(path: string, content: string | null) {
   if (content === null) {
-    if (existsSync(path)) unlinkSync(path);
+    if (storedFileExists(path)) deleteStoredFile(path);
     return;
   }
   writeTextAtomic(path, content);
 }
 
 function snapshotRotationHistory(directory: string) {
-  if (!existsSync(directory)) return new Map<string, string>();
-  return new Map(readdirSync(directory)
+  return new Map(storedJsonNames(directory)
     .filter((name) => /^\d{6}\.json$/.test(name))
-    .map((name) => [name, readFileSync(resolve(directory, name), 'utf8')]));
+    .map((name) => [name, readStoredText(resolve(directory, name))]));
 }
 
 function restoreRotationHistory(directory: string, snapshot: Map<string, string>) {
   mkdirSync(directory, { recursive: true });
   for (const name of readdirSync(directory)) {
-    if (/^\d{6}\.json$/.test(name) && !snapshot.has(name)) unlinkSync(resolve(directory, name));
+    if (/^\d{6}\.json$/.test(name) && !snapshot.has(name)) deleteStoredFile(resolve(directory, name));
   }
   for (const [name, content] of snapshot) writeTextAtomic(resolve(directory, name), content);
 }
@@ -839,7 +879,6 @@ function writeRotationYearPerformance(
       : readRotationConfig();
   mkdirSync(directory, { recursive: true });
   const path = resolve(directory, `${performance.year}.json`);
-  const temporaryPath = `${path}.tmp`;
   const record = {
     version: strategy === 'asset-rotation'
       ? 'asset-rotation-year-performance-v5'
@@ -853,8 +892,7 @@ function writeRotationYearPerformance(
     calculatedAt,
     ...performance,
   };
-  writeFileSync(temporaryPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify(record, null, 2)}\n`);
 }
 
 function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
@@ -864,9 +902,9 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
       ? dualEtfYearPerformanceDirectory
       : rotationYearPerformanceDirectory;
   const path = resolve(directory, `${year}.json`);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const record = JSON.parse(readFileSync(path, 'utf8')) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
+    const record = JSON.parse(readStoredText(path)) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
     const expectedVersion = strategy === 'asset-rotation'
       ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
@@ -988,9 +1026,9 @@ function macdSnapshotPath(date: string) {
 
 function readMacdSnapshot(date: string): MacdSnapshot | null {
   const path = macdSnapshotPath(date);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const snapshot = JSON.parse(readFileSync(path, 'utf8')) as MacdSnapshot & { version?: string };
+    const snapshot = JSON.parse(readStoredText(path)) as MacdSnapshot & { version?: string };
     if (snapshot.version !== macdSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
     return {
       ...snapshot,
@@ -1006,14 +1044,11 @@ function readMacdSnapshot(date: string): MacdSnapshot | null {
 function writeMacdSnapshot(snapshot: MacdSnapshot) {
   mkdirSync(macdSnapshotDirectory, { recursive: true });
   const path = macdSnapshotPath(snapshot.storageDate);
-  const temporaryPath = `${path}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...snapshot, version: macdSnapshotVersion, cached: false }, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdSnapshotVersion, cached: false }, null, 2)}\n`);
 }
 
 export function listMacdSnapshotDates() {
-  if (!existsSync(macdSnapshotDirectory)) return [];
-  return readdirSync(macdSnapshotDirectory)
+  return storedJsonNames(macdSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((a, b) => b.localeCompare(a));
@@ -1025,9 +1060,9 @@ function macdPullbackSnapshotPath(date: string) {
 
 function readMacdPullbackSnapshot(date: string): MacdPullbackSnapshot | null {
   const path = macdPullbackSnapshotPath(date);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const snapshot = JSON.parse(readFileSync(path, 'utf8')) as MacdPullbackSnapshot & { version?: string };
+    const snapshot = JSON.parse(readStoredText(path)) as MacdPullbackSnapshot & { version?: string };
     if (snapshot.version !== macdPullbackSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
     return { ...snapshot, storageDate: date, cached: true };
   } catch {
@@ -1038,14 +1073,11 @@ function readMacdPullbackSnapshot(date: string): MacdPullbackSnapshot | null {
 function writeMacdPullbackSnapshot(snapshot: MacdPullbackSnapshot) {
   mkdirSync(macdPullbackSnapshotDirectory, { recursive: true });
   const path = macdPullbackSnapshotPath(snapshot.storageDate);
-  const temporaryPath = `${path}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...snapshot, version: macdPullbackSnapshotVersion, cached: false }, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdPullbackSnapshotVersion, cached: false }, null, 2)}\n`);
 }
 
 export function listMacdPullbackSnapshotDates() {
-  if (!existsSync(macdPullbackSnapshotDirectory)) return [];
-  return readdirSync(macdPullbackSnapshotDirectory)
+  return storedJsonNames(macdPullbackSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => right.localeCompare(left));
@@ -1057,9 +1089,9 @@ function macdKdjSnapshotPath(date: string) {
 
 function readMacdKdjSnapshot(date: string): MacdKdjSnapshot | null {
   const path = macdKdjSnapshotPath(date);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const snapshot = JSON.parse(readFileSync(path, 'utf8')) as MacdKdjSnapshot & { version?: string };
+    const snapshot = JSON.parse(readStoredText(path)) as MacdKdjSnapshot & { version?: string };
     if (snapshot.version !== macdKdjSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
     return { ...snapshot, storageDate: date, cached: true };
   } catch {
@@ -1070,14 +1102,11 @@ function readMacdKdjSnapshot(date: string): MacdKdjSnapshot | null {
 function writeMacdKdjSnapshot(snapshot: MacdKdjSnapshot) {
   mkdirSync(macdKdjSnapshotDirectory, { recursive: true });
   const path = macdKdjSnapshotPath(snapshot.storageDate);
-  const temporaryPath = `${path}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...snapshot, version: macdKdjSnapshotVersion, cached: false }, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: macdKdjSnapshotVersion, cached: false }, null, 2)}\n`);
 }
 
 export function listMacdKdjSnapshotDates() {
-  if (!existsSync(macdKdjSnapshotDirectory)) return [];
-  return readdirSync(macdKdjSnapshotDirectory)
+  return storedJsonNames(macdKdjSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => right.localeCompare(left));
@@ -1089,9 +1118,9 @@ function volumeSnapshotPath(date: string) {
 
 function readVolumeSnapshot(date: string): VolumeSnapshot | null {
   const path = volumeSnapshotPath(date);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const snapshot = JSON.parse(readFileSync(path, 'utf8')) as VolumeSnapshot & { version?: string };
+    const snapshot = JSON.parse(readStoredText(path)) as VolumeSnapshot & { version?: string };
     if (snapshot.version !== volumeSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
     return { ...snapshot, storageDate: date, cached: true };
   } catch {
@@ -1102,14 +1131,11 @@ function readVolumeSnapshot(date: string): VolumeSnapshot | null {
 function writeVolumeSnapshot(snapshot: VolumeSnapshot) {
   mkdirSync(volumeSnapshotDirectory, { recursive: true });
   const path = volumeSnapshotPath(snapshot.storageDate);
-  const temporaryPath = `${path}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...snapshot, version: volumeSnapshotVersion, cached: false }, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: volumeSnapshotVersion, cached: false }, null, 2)}\n`);
 }
 
 export function listVolumeSnapshotDates() {
-  if (!existsSync(volumeSnapshotDirectory)) return [];
-  return readdirSync(volumeSnapshotDirectory)
+  return storedJsonNames(volumeSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => right.localeCompare(left));
@@ -1121,9 +1147,9 @@ function bullPointSnapshotPath(date: string) {
 
 function readBullPointSnapshot(date: string): BullPointSnapshot | null {
   const path = bullPointSnapshotPath(date);
-  if (!existsSync(path)) return null;
+  if (!storedFileExists(path)) return null;
   try {
-    const snapshot = JSON.parse(readFileSync(path, 'utf8')) as BullPointSnapshot & { version?: string };
+    const snapshot = JSON.parse(readStoredText(path)) as BullPointSnapshot & { version?: string };
     if (snapshot.version !== bullPointSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
     return { ...snapshot, storageDate: date, cached: true };
   } catch {
@@ -1134,14 +1160,11 @@ function readBullPointSnapshot(date: string): BullPointSnapshot | null {
 function writeBullPointSnapshot(snapshot: BullPointSnapshot) {
   mkdirSync(bullPointSnapshotDirectory, { recursive: true });
   const path = bullPointSnapshotPath(snapshot.storageDate);
-  const temporaryPath = `${path}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...snapshot, version: bullPointSnapshotVersion, cached: false }, null, 2)}\n`, 'utf8');
-  renameSync(temporaryPath, path);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: bullPointSnapshotVersion, cached: false }, null, 2)}\n`);
 }
 
 export function listBullPointSnapshotDates() {
-  if (!existsSync(bullPointSnapshotDirectory)) return [];
-  return readdirSync(bullPointSnapshotDirectory)
+  return storedJsonNames(bullPointSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => right.localeCompare(left));
@@ -1782,9 +1805,9 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
   const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : 'backtest.cjs';
   const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
   const previousFiles = new Map([
-    [configPath, existsSync(configPath) ? readFileSync(configPath, 'utf8') : null],
-    [legacyHistoryPath, existsSync(legacyHistoryPath) ? readFileSync(legacyHistoryPath, 'utf8') : null],
-    [backtestPath, existsSync(backtestPath) ? readFileSync(backtestPath, 'utf8') : null],
+    [configPath, storedFileExists(configPath) ? readStoredText(configPath) : null],
+    [legacyHistoryPath, storedFileExists(legacyHistoryPath) ? readStoredText(legacyHistoryPath) : null],
+    [backtestPath, storedFileExists(backtestPath) ? readStoredText(backtestPath) : null],
   ]);
   const previousHistory = snapshotRotationHistory(historyDirectory);
   if (isAsset) writeAssetRotationConfig(config);
@@ -1802,22 +1825,29 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,
     });
+    await syncLocalJsonArtifacts([configPath, backtestPath, ...localJsonFiles(historyDirectory)]);
     if (isAsset) {
       readAssetRotationBacktest(config);
       cachedAssetRotationSnapshot = null;
       cachedAssetRotationAt = 0;
-      return await getAssetRotationSnapshot(true);
+      const snapshot = await getAssetRotationSnapshot(true);
+      await flushMysqlWrites();
+      return snapshot;
     }
     if (isDual) {
       readDualEtfBacktest(config);
       cachedDualEtfSnapshot = null;
       cachedDualEtfAt = 0;
-      return await getDualEtfSnapshot(true);
+      const snapshot = await getDualEtfSnapshot(true);
+      await flushMysqlWrites();
+      return snapshot;
     }
     readRotationBacktest(config);
     cachedSnapshot = null;
     cachedAt = 0;
-    return await getRotationSnapshot(true);
+    const snapshot = await getRotationSnapshot(true);
+    await flushMysqlWrites();
+    return snapshot;
   } catch (error) {
     for (const [path, content] of previousFiles) restoreFile(path, content);
     restoreRotationHistory(historyDirectory, previousHistory);
@@ -1831,6 +1861,7 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       cachedSnapshot = null;
       cachedAt = 0;
     }
+    await flushMysqlWrites();
     throw new Error(`标的池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
   }
 }
@@ -1874,7 +1905,9 @@ export async function updateRotationPool(action: 'add' | 'remove', code: string)
   rotationPoolUpdateInFlight = true;
   try {
     const current = readRotationPendingConfig() ?? readRotationConfig();
-    return writeRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    const draft = writeRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
   } finally {
     rotationPoolUpdateInFlight = false;
   }
@@ -1891,11 +1924,13 @@ export async function replaceRotationPool(codes: string[]) {
   rotationPoolUpdateInFlight = true;
   try {
     const current = readRotationPendingConfig() ?? readRotationConfig();
-    return writeRotationPoolDraft({
+    const draft = writeRotationPoolDraft({
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
       symbols: symbols as SymbolConfig[],
     });
+    await flushMysqlWrites();
+    return draft;
   } finally {
     rotationPoolUpdateInFlight = false;
   }
@@ -1908,7 +1943,8 @@ export async function recalculateRotationPool() {
   rotationPoolUpdateInFlight = true;
   try {
     const snapshot = await rebuildRotationPool('rotation', pending);
-    if (existsSync(rotationPendingConfigPath)) unlinkSync(rotationPendingConfigPath);
+    if (storedFileExists(rotationPendingConfigPath)) deleteStoredFile(rotationPendingConfigPath);
+    await flushMysqlWrites();
     return { ...snapshot, poolDraft: getRotationPoolDraft() };
   } finally {
     rotationPoolUpdateInFlight = false;
@@ -1922,7 +1958,9 @@ export async function updateRotationCombinationPool(action: 'add' | 'remove', co
   rotationCombinationPoolUpdateInFlight = true;
   try {
     const current = readRotationCombinationPendingConfig() ?? readRotationCombinationConfig();
-    return writeRotationCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    const draft = writeRotationCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
   } finally {
     rotationCombinationPoolUpdateInFlight = false;
   }
@@ -1934,7 +1972,7 @@ export async function recalculateRotationCombinationPool() {
   if (!pending || sameSymbolSet(readRotationCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
   rotationCombinationPoolUpdateInFlight = true;
   const previousFiles = new Map([
-    [rotationCombinationConfigPath, existsSync(rotationCombinationConfigPath) ? readFileSync(rotationCombinationConfigPath, 'utf8') : null],
+    [rotationCombinationConfigPath, storedFileExists(rotationCombinationConfigPath) ? readStoredText(rotationCombinationConfigPath) : null],
     [rotationCombinationsPath, existsSync(rotationCombinationsPath) ? readFileSync(rotationCombinationsPath, 'utf8') : null],
   ]);
   const previousHistory = snapshotRotationHistory(rotationHistoryDirectory);
@@ -1951,14 +1989,19 @@ export async function recalculateRotationCombinationPool() {
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
+    if (isMysqlEnabled()) await importCombinationFile(rotationCombinationsPath, 'rotation');
+    await syncLocalJsonArtifacts([rotationCombinationConfigPath, ...localJsonFiles(rotationHistoryDirectory)]);
     cachedRotationCombinations = null;
-    readRotationCombinations();
-    if (existsSync(rotationCombinationPendingConfigPath)) unlinkSync(rotationCombinationPendingConfigPath);
+    if (!isMysqlEnabled()) readRotationCombinations();
+    if (storedFileExists(rotationCombinationPendingConfigPath)) deleteStoredFile(rotationCombinationPendingConfigPath);
+    await flushMysqlWrites();
     return getRotationCombinationPoolDraft();
   } catch (error) {
     for (const [path, content] of previousFiles) restoreFile(path, content);
     restoreRotationHistory(rotationHistoryDirectory, previousHistory);
+    if (isMysqlEnabled() && existsSync(rotationCombinationsPath)) await importCombinationFile(rotationCombinationsPath, 'rotation');
     cachedRotationCombinations = null;
+    await flushMysqlWrites();
     throw new Error(`组合池更新失败，已恢复原配置：${error instanceof Error ? error.message : '未知错误'}`);
   } finally {
     rotationCombinationPoolUpdateInFlight = false;
@@ -1972,7 +2015,9 @@ export async function updateAssetRotationPool(action: 'add' | 'remove', code: st
   assetRotationPoolUpdateInFlight = true;
   try {
     const current = readAssetRotationPendingConfig() ?? readAssetRotationConfig();
-    return writeAssetRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    const draft = writeAssetRotationPoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
   } finally {
     assetRotationPoolUpdateInFlight = false;
   }
@@ -1989,11 +2034,13 @@ export async function replaceAssetRotationPool(codes: string[]) {
   assetRotationPoolUpdateInFlight = true;
   try {
     const current = readAssetRotationPendingConfig() ?? readAssetRotationConfig();
-    return writeAssetRotationPoolDraft({
+    const draft = writeAssetRotationPoolDraft({
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
       symbols: symbols as SymbolConfig[],
     });
+    await flushMysqlWrites();
+    return draft;
   } finally {
     assetRotationPoolUpdateInFlight = false;
   }
@@ -2006,7 +2053,8 @@ export async function recalculateAssetRotationPool() {
   assetRotationPoolUpdateInFlight = true;
   try {
     const snapshot = await rebuildRotationPool('asset-rotation', pending);
-    if (existsSync(assetRotationPendingConfigPath)) unlinkSync(assetRotationPendingConfigPath);
+    if (storedFileExists(assetRotationPendingConfigPath)) deleteStoredFile(assetRotationPendingConfigPath);
+    await flushMysqlWrites();
     return { ...snapshot, poolDraft: getAssetRotationPoolDraft() };
   } finally {
     assetRotationPoolUpdateInFlight = false;
@@ -2020,7 +2068,9 @@ export async function updateAssetCombinationPool(action: 'add' | 'remove', code:
   assetCombinationPoolUpdateInFlight = true;
   try {
     const current = readAssetCombinationPendingConfig() ?? readAssetCombinationConfig();
-    return writeAssetCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    const draft = writeAssetCombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
   } finally {
     assetCombinationPoolUpdateInFlight = false;
   }
@@ -2032,7 +2082,7 @@ export async function recalculateAssetCombinationPool() {
   if (!pending || sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
   assetCombinationPoolUpdateInFlight = true;
   const previousFiles = new Map([
-    [assetCombinationConfigPath, existsSync(assetCombinationConfigPath) ? readFileSync(assetCombinationConfigPath, 'utf8') : null],
+    [assetCombinationConfigPath, storedFileExists(assetCombinationConfigPath) ? readStoredText(assetCombinationConfigPath) : null],
     [assetRotationCombinationsPath, existsSync(assetRotationCombinationsPath) ? readFileSync(assetRotationCombinationsPath, 'utf8') : null],
   ]);
   const previousHistory = snapshotRotationHistory(assetRotationHistoryDirectory);
@@ -2053,14 +2103,19 @@ export async function recalculateAssetCombinationPool() {
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
+    if (isMysqlEnabled()) await importCombinationFile(assetRotationCombinationsPath, 'asset-rotation');
+    await syncLocalJsonArtifacts([assetCombinationConfigPath, ...localJsonFiles(assetRotationHistoryDirectory)]);
     cachedAssetRotationCombinations = null;
-    readAssetRotationCombinations();
-    if (existsSync(assetCombinationPendingConfigPath)) unlinkSync(assetCombinationPendingConfigPath);
+    if (!isMysqlEnabled()) readAssetRotationCombinations();
+    if (storedFileExists(assetCombinationPendingConfigPath)) deleteStoredFile(assetCombinationPendingConfigPath);
+    await flushMysqlWrites();
     return getAssetCombinationPoolDraft();
   } catch (error) {
     for (const [path, content] of previousFiles) restoreFile(path, content);
     restoreRotationHistory(assetRotationHistoryDirectory, previousHistory);
+    if (isMysqlEnabled() && existsSync(assetRotationCombinationsPath)) await importCombinationFile(assetRotationCombinationsPath, 'asset-rotation');
     cachedAssetRotationCombinations = null;
+    await flushMysqlWrites();
     throw new Error(`组合排名计算失败，已恢复原数据：${error instanceof Error ? error.message : '未知错误'}`);
   } finally {
     assetCombinationPoolUpdateInFlight = false;
@@ -2369,6 +2424,7 @@ async function buildMacdConfluenceSnapshot(storageDate: string): Promise<MacdSna
     excludedCount: excludedByBoard.size + candidates.length - namedCandidates.length,
   };
   writeMacdSnapshot(snapshot);
+  await flushMysqlWrites();
   return snapshot;
 }
 
@@ -2517,6 +2573,7 @@ async function buildMacdPullbackSnapshot(storageDate: string): Promise<MacdPullb
     excludedCount: excludedByBoard.size + candidates.length - namedCandidates.length,
   };
   writeMacdPullbackSnapshot(snapshot);
+  await flushMysqlWrites();
   return snapshot;
 }
 
@@ -2666,6 +2723,7 @@ async function buildMacdKdjSnapshot(storageDate: string): Promise<MacdKdjSnapsho
     divergenceCount: signals.filter((signal) => signal.signal === '底背离共振').length,
   };
   writeMacdKdjSnapshot(snapshot);
+  await flushMysqlWrites();
   return snapshot;
 }
 
@@ -2857,6 +2915,7 @@ async function buildVolumeSnapshot(storageDate: string): Promise<VolumeSnapshot>
     pullbackCount: signals.filter((signal) => signal.signal === '缩量回踩蓄力').length,
   };
   writeVolumeSnapshot(snapshot);
+  await flushMysqlWrites();
   return snapshot;
 }
 
@@ -2994,5 +3053,6 @@ async function buildBullPointSnapshot(storageDate: string): Promise<BullPointSna
     excludedCount: excludedByBoard.size + candidates.length - namedCandidates.length,
   };
   writeBullPointSnapshot(snapshot);
+  await flushMysqlWrites();
   return snapshot;
 }

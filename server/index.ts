@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
+import { closeMysqlStore, initializeMysqlStore, mysqlStoreStats } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
 type CombinationQuery = {
@@ -39,7 +40,7 @@ app.addHook('onRequest', async (request, reply) => {
 
 app.get('/', async () => ({ status: 'ok', service: 'rotation-market-desk-api' }));
 
-app.get('/api/health', async () => ({ status: 'ok', time: new Date().toISOString() }));
+app.get('/api/health', async () => ({ status: 'ok', time: new Date().toISOString(), database: await mysqlStoreStats() }));
 
 app.get<{ Querystring: { refresh?: string } }>('/api/strategy/rotation', async (request, reply) => {
   try {
@@ -59,7 +60,7 @@ app.get<{ Querystring: CombinationQuery }>('/api/strategy/rotation/combinations'
   try {
     const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    const result = await getRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -97,7 +98,7 @@ app.post<{ Querystring: CombinationQuery }>('/api/strategy/rotation/combinations
     await recalculateRotationCombinationPool();
     const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    const result = await getRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -125,7 +126,7 @@ app.get<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combina
   try {
     const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getAssetRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    const result = await getAssetRotationCombinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -166,7 +167,7 @@ app.post<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combin
     await recalculateAssetCombinationPool();
     const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
     const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
-    const result = getAssetRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    const result = await getAssetRotationCombinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
     reply.header('Cache-Control', 'no-store');
     return result;
   } catch (error) {
@@ -439,4 +440,7 @@ app.get<{ Params: { code: string }; Querystring: { period?: HistoryPeriod; refre
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '0.0.0.0';
+const databaseEnabled = await initializeMysqlStore();
+app.log.info({ databaseEnabled }, databaseEnabled ? 'MySQL persistence enabled' : 'MySQL persistence disabled; using JSON fallback');
+app.addHook('onClose', async () => closeMysqlStore());
 await app.listen({ port, host });
