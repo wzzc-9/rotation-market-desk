@@ -703,7 +703,7 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
 .score-explanation summary { width: 24px; height: 24px; display: grid; place-items: center; color: #7b8994; border-radius: 3px; list-style: none; cursor: pointer; }
 .score-explanation summary::-webkit-details-marker { display: none; }
 .score-explanation summary:hover, .score-explanation summary:focus-visible { color: #34434f; background: #eef2f5; outline: none; }
-.score-explanation-popover { position: absolute; z-index: 20; top: 29px; left: -92px; width: min(560px, calc(100vw - 48px)); display: none; color: #44535f; background: #fff; border: 1px solid #cfd8df; box-shadow: 0 12px 28px rgba(38, 53, 65, .18); font: 12px "Microsoft YaHei", sans-serif; }
+.score-explanation-popover { position: absolute; z-index: 20; top: 29px; left: -92px; width: min(720px, calc(100vw - 48px)); display: none; color: #44535f; background: #fff; border: 1px solid #cfd8df; box-shadow: 0 12px 28px rgba(38, 53, 65, .18); font: 12px "Microsoft YaHei", sans-serif; }
 .score-explanation[open] .score-explanation-popover, .score-explanation:hover .score-explanation-popover, .score-explanation:focus-within .score-explanation-popover { display: block; }
 .combination-leader .score-explanation-popover strong { overflow: visible; font-family: "Microsoft YaHei", sans-serif; text-overflow: clip; white-space: normal; }
 .score-explanation-head { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; background: #f8fafb; border-bottom: 1px solid var(--line-soft); }
@@ -721,10 +721,12 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
 .combination-leader .score-example-head strong { flex: 0 0 auto; color: #45545f; font-size: 11px; font-weight: 600; }
 .score-example-head span { min-width: 0; overflow: hidden; color: #7b8893; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .score-example-table { border: 1px solid #e1e7eb; }
-.score-example-row { min-height: 27px; display: grid; grid-template-columns: minmax(108px, 1.3fr) repeat(3, minmax(68px, .8fr)); align-items: center; }
+.score-example-row { min-height: 27px; display: grid; grid-template-columns: minmax(102px, 1fr) minmax(66px, .62fr) minmax(70px, .66fr) minmax(292px, 2.35fr) minmax(76px, .72fr); align-items: center; }
 .score-example-row + .score-example-row { border-top: 1px solid #edf1f3; }
 .score-example-row > span, .score-example-row > strong { min-width: 0; padding: 5px 8px; font: 11px Consolas, "Microsoft YaHei", monospace; text-align: right; white-space: nowrap; }
 .score-example-row > span:first-child { color: #53626e; font-family: "Microsoft YaHei", sans-serif; text-align: left; }
+.score-example-row .score-example-weight.positive { color: #b84b4b; font-weight: 600; }
+.score-example-row .score-example-weight.negative { color: #16815f; font-weight: 600; }
 .score-example-row.is-header { min-height: 25px; background: #f7f9fa; }
 .score-example-row.is-header > span { color: #7b8893; font: 10px "Microsoft YaHei", sans-serif; }
 .score-example-total { background: #fafbfc; }
@@ -736,17 +738,19 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
 .score-explanation-notes p { margin: 4px 0; color: #6d7b86; font-size: 10px; line-height: 1.55; }
 .score-explanation-notes b { display: inline-block; min-width: 54px; color: #45545f; font-weight: 600; }
 .combination-table-wrap { max-height: 620px; overflow: auto; }
-.combination-table { width: 100%; min-width: 1670px; border-collapse: collapse; table-layout: fixed; }
+.combination-table { width: 100%; min-width: 1730px; border-collapse: collapse; table-layout: fixed; }
 .combination-table th { position: sticky; z-index: 1; top: 0; height: 40px; padding: 0 10px; color: #667581; background: #fafbfc; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; text-align: right; white-space: nowrap; }
 .combination-table th:first-child { width: 58px; text-align: center; }
-.combination-table th:nth-child(2) { width: 300px; text-align: left; }
-.combination-table th:nth-child(3) { width: 58px; }
-.combination-table th:nth-child(14) { width: 150px; text-align: left; }
+.combination-table th:nth-child(2) { width: 68px; text-align: center; }
+.combination-table th:nth-child(3) { width: 300px; text-align: left; }
+.combination-table th:nth-child(4) { width: 58px; }
+.combination-table th:nth-child(15) { width: 150px; text-align: left; }
 .combination-table th:last-child { width: 82px; text-align: center; }
 .combination-table td { height: 52px; padding: 7px 10px; color: #34434f; border-bottom: 1px solid var(--line-soft); font: 12px Consolas, "Microsoft YaHei", monospace; text-align: right; white-space: nowrap; }
-.combination-table td:first-child { text-align: center; }
-.combination-table td:nth-child(2), .combination-table td:nth-child(14) { text-align: left; }
+.combination-table td:first-child, .combination-table td:nth-child(2) { text-align: center; }
+.combination-table td:nth-child(3), .combination-table td:nth-child(15) { text-align: left; }
 .combination-table td:last-child { text-align: center; }
+.combination-sequence { color: #84929d !important; }
 .combination-filter-bar { min-height: 70px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; padding: 10px 14px 11px; background: #f8fafb; border-bottom: 1px solid var(--line); }
 .combination-filter-title { height: 32px; display: flex; align-items: center; gap: 6px; padding-right: 4px; color: #4e5d68; }
 .combination-filter-title span { font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -865,6 +869,7 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
   .score-explanation-groups > div:first-child { border-right: 0; border-bottom: 1px solid var(--line-soft); }
   .score-example-head { display: block; }
   .score-example-head span { display: block; margin-top: 3px; }
-  .score-example-row { grid-template-columns: minmax(96px, 1.2fr) repeat(3, minmax(58px, .8fr)); }
+  .score-example-table { overflow-x: auto; }
+  .score-example-row { min-width: 700px; grid-template-columns: 100px 70px 72px 360px 82px; }
   .score-example-row > span, .score-example-row > strong { padding-right: 5px; padding-left: 5px; font-size: 10px; }
 }

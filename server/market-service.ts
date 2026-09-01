@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
+import { flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -63,11 +63,15 @@ export type AssetRotationCombination = {
   codes: string[];
   assetClasses: string[];
   tenYearReturn: number;
+  earlyFiveYearReturn: number;
   fiveYearReturn: number;
   tenYearAnnualizedReturn: number;
+  earlyFiveYearAnnualizedReturn: number;
   fiveYearAnnualizedReturn: number;
   tenYearMaxDrawdown: number;
+  earlyFiveYearMaxDrawdown: number;
   fiveYearMaxDrawdown: number;
+  rollingTwelveMonthReturnP10: number;
   tenYearTrades: number;
   currentYearReturn: number;
   currentYearMaxDrawdown: number;
@@ -87,12 +91,15 @@ type AssetRotationScoreMetricPopulation = {
 type AssetRotationScoring = {
   formula: string;
   population: {
-    tenYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+    tenYearAnnualizedReturn?: AssetRotationScoreMetricPopulation;
+    earlyFiveYearAnnualizedReturn?: AssetRotationScoreMetricPopulation;
     fiveYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
     currentYearReturn: AssetRotationScoreMetricPopulation;
-    tenYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+    tenYearDrawdownAbsolute?: AssetRotationScoreMetricPopulation;
+    earlyFiveYearDrawdownAbsolute?: AssetRotationScoreMetricPopulation;
     fiveYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
     currentYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+    rollingTwelveMonthReturnP10?: AssetRotationScoreMetricPopulation;
   };
 };
 
@@ -102,6 +109,7 @@ export type AssetRotationCombinations = {
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
+    earlyFiveYear?: { start: string; end: string };
     fiveYear: { start: string; end: string };
     currentYear: { year: number; start: string; end: string };
   };
@@ -690,10 +698,10 @@ function writeStrategyConfig(path: string, config: AssetRotationConfig) {
 function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
   const backtest = JSON.parse(readStoredText(path)) as AssetRotationBacktest;
   const expectedVersion = strategy === 'asset-rotation'
-    ? 'asset-rotation-return20-ma28-weekly-v1'
+    ? 'asset-rotation-return20-ma28-weekly-v2'
     : strategy === 'dual-etf'
       ? 'dual-etf-return20-ma20-daily-v1'
-      : 'rotation-ma20-daily-v1';
+      : 'rotation-ma20-daily-v2';
   if (
     backtest.version !== expectedVersion
     || backtest.strategy !== strategy
@@ -1096,12 +1104,25 @@ async function fetchTencentQuotes(tsCodes: string[]) {
   const quotes = new Map<string, TencentQuote>();
   for (let index = 0; index < tsCodes.length; index += 50) {
     const codes = tsCodes.slice(index, index + 50);
-    const response = await fetch(`https://qt.gtimg.cn/q=${codes.map(marketCode).join(',')}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!response.ok) continue;
-    const text = new TextDecoder('gb18030').decode(await response.arrayBuffer());
+    const url = `https://qt.gtimg.cn/q=${codes.map(marketCode).join(',')}`;
+    let text = '';
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) throw new Error(`腾讯实时行情接口返回 HTTP ${response.status}`);
+        text = new TextDecoder('gb18030').decode(await response.arrayBuffer());
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise((resolvePromise) => setTimeout(resolvePromise, attempt * 500));
+      }
+    }
+    if (lastError) throw lastError;
     for (const quote of text.split(';')) {
       const match = /v_(?:sh|sz|bj)(\d+)="([^"]*)"/.exec(quote);
       if (!match) continue;
@@ -1787,6 +1808,7 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
   const workspaceRoot = createCalculationWorkspace();
   writeCalculationText(workspaceRoot, configPath, strategyConfigText(configPath, config));
   try {
+    await stageMysqlEtfHistories(workspaceRoot, historyDirectory, config.symbols);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', downloadScript)], {
       cwd: process.cwd(),
       env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot, [onlyMissingKey]: '1' },
@@ -1865,6 +1887,18 @@ export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) 
   const definition = definitions[task];
   const workspaceRoot = createCalculationWorkspace();
   try {
+    const databaseHistoryInput = task === 'rotation-backtest'
+      ? { directory: rotationHistoryDirectory, symbols: readRotationConfig().symbols }
+      : task === 'rotation-optimize'
+        ? { directory: rotationHistoryDirectory, symbols: readRotationCombinationConfig().symbols }
+        : task === 'asset-backtest'
+          ? { directory: assetRotationHistoryDirectory, symbols: readAssetRotationConfig().symbols }
+          : task === 'asset-optimize'
+            ? { directory: assetRotationHistoryDirectory, symbols: readAssetCombinationConfig().symbols }
+            : task === 'dual-backtest'
+              ? { directory: dualEtfHistoryDirectory, symbols: readDualEtfConfig().symbols }
+              : null;
+    if (databaseHistoryInput) await stageMysqlEtfHistories(workspaceRoot, databaseHistoryInput.directory, databaseHistoryInput.symbols);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', definition.script)], {
       cwd: process.cwd(),
       env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
@@ -1987,24 +2021,21 @@ export async function updateRotationCombinationPool(action: 'add' | 'remove', co
 export async function recalculateRotationCombinationPool() {
   if (rotationCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
   const pending = readRotationCombinationPendingConfig();
-  if (!pending || sameSymbolSet(readRotationCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
+  const config = pending && !sameSymbolSet(readRotationCombinationConfig().symbols, pending.symbols)
+    ? pending
+    : readRotationCombinationConfig();
   rotationCombinationPoolUpdateInFlight = true;
   const workspaceRoot = createCalculationWorkspace();
-  writeCalculationText(workspaceRoot, rotationCombinationConfigPath, strategyConfigText(rotationCombinationConfigPath, pending));
+  writeCalculationText(workspaceRoot, rotationCombinationConfigPath, strategyConfigText(rotationCombinationConfigPath, config));
   try {
-    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-history.cjs')], {
-      cwd: process.cwd(),
-      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot, ROTATION_CONFIG_FILE: 'combination-config.json', ROTATION_ONLY_MISSING: '1' },
-      timeout: 180_000,
-      maxBuffer: 2 * 1024 * 1024,
-    });
+    await prepareCombinationHistory(config, workspaceRoot, rotationHistoryDirectory);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-rotation.cjs')], {
       cwd: process.cwd(),
       env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    const documents = calculationArtifacts(workspaceRoot, [rotationCombinationConfigPath, ...calculationJsonFiles(workspaceRoot, rotationHistoryDirectory)]);
+    const documents = calculationArtifacts(workspaceRoot, [rotationCombinationConfigPath]);
     await importCombinationFile(calculationPath(workspaceRoot, rotationCombinationsPath), 'rotation', undefined, documents);
     if (storedFileExists(rotationCombinationPendingConfigPath)) deleteStoredFile(rotationCombinationPendingConfigPath);
     await flushMysqlWrites();
@@ -2086,32 +2117,99 @@ export async function updateAssetCombinationPool(action: 'add' | 'remove', code:
   }
 }
 
+function historyRecordContent(symbol: SymbolConfig, history: Candle[]) {
+  return `${JSON.stringify({
+    code: symbol.code,
+    name: symbol.name,
+    rows: history.map((candle) => [candle.date, candle.open, candle.close, candle.high, candle.low, candle.volume]),
+  })}\n`;
+}
+
+async function mysqlEtfHistories(symbols: SymbolConfig[]) {
+  const stored = await getMysqlEtfDailyPriceHistories(symbols.map((symbol) => symbol.code));
+  return new Map(symbols.map((symbol) => [symbol.code, (stored.get(symbol.code) ?? []).map((price) => ({
+    date: price.tradeDate,
+    open: price.open,
+    close: price.close,
+    high: price.high,
+    low: price.low,
+    volume: price.volume,
+  }))]));
+}
+
+async function stageMysqlEtfHistories(workspaceRoot: string, historyDirectory: string, symbols: SymbolConfig[]) {
+  const histories = await mysqlEtfHistories(symbols);
+  for (const symbol of symbols) {
+    const history = histories.get(symbol.code) ?? [];
+    if (!history.length) continue;
+    writeCalculationText(workspaceRoot, resolve(historyDirectory, `${symbol.code}.json`), historyRecordContent(symbol, history));
+  }
+  return histories;
+}
+
+async function prepareCombinationHistory(config: AssetRotationConfig, workspaceRoot: string, historyDirectory: string) {
+  const quoteCodes = config.symbols.map((symbol) => {
+    const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
+    return `${symbol.code}.${exchange}`;
+  });
+  const quotes = await fetchTencentQuotes(quoteCodes);
+  const missingQuotes = config.symbols.filter((symbol) => {
+    const quote = quotes.get(symbol.code);
+    return !quote?.date || quote.price === undefined;
+  });
+  if (missingQuotes.length) throw new Error(`以下 ETF 未返回有效实时行情：${missingQuotes.map((item) => item.code).join('、')}`);
+
+  const persistentHistories: Array<{ path: string; content: string }> = [];
+  const databaseHistories = await mysqlEtfHistories(config.symbols);
+  for (const symbol of config.symbols) {
+    const logicalPath = resolve(historyDirectory, `${symbol.code}.json`);
+    const quote = quotes.get(symbol.code)!;
+    const quoteDate = quote.date!;
+    const completed = isCompletedTradingDay(quoteDate);
+    let completedHistory = databaseHistories.get(symbol.code) ?? [];
+    const storedLastDate = completedHistory.at(-1)?.date ?? '';
+
+    if (storedLastDate < quoteDate) {
+      const downloaded = await fetchFullQfqSymbol(symbol);
+      completedHistory = downloaded.history.filter((candle) => completed || candle.date < quoteDate);
+      if (completed) {
+        completedHistory = mergeCurrentQuote({ ...downloaded, history: completedHistory, candles: completedHistory.slice(-90) }, quote).history;
+      }
+      const content = historyRecordContent(symbol, completedHistory);
+      persistentHistories.push({ path: logicalPath, content });
+    }
+
+    if (completedHistory.length < 28) throw new Error(`${symbol.code} 可用历史行情不足 28 条`);
+    const temporaryMarket = mergeCurrentQuote({
+      ...symbol,
+      rawLastDate: completedHistory.at(-1)!.date,
+      history: completedHistory,
+      candles: completedHistory.slice(-90),
+    }, quote);
+    writeCalculationText(workspaceRoot, logicalPath, historyRecordContent(symbol, temporaryMarket.history));
+  }
+
+  if (persistentHistories.length) await replaceMysqlObjects(persistentHistories);
+}
+
 export async function recalculateAssetCombinationPool() {
   if (assetCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
   const pending = readAssetCombinationPendingConfig();
-  if (!pending || sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的组合池变更');
+  const config = pending && !sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)
+    ? pending
+    : readAssetCombinationConfig();
   assetCombinationPoolUpdateInFlight = true;
   const workspaceRoot = createCalculationWorkspace();
-  writeCalculationText(workspaceRoot, assetCombinationConfigPath, strategyConfigText(assetCombinationConfigPath, pending));
+  writeCalculationText(workspaceRoot, assetCombinationConfigPath, strategyConfigText(assetCombinationConfigPath, config));
   try {
-    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'download-asset-rotation-history.cjs')], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        ROTATION_CALCULATION_ROOT: workspaceRoot,
-        ASSET_ROTATION_CONFIG_FILE: 'combination-config.json',
-        ASSET_ROTATION_ONLY_MISSING: '1',
-      },
-      timeout: 180_000,
-      maxBuffer: 2 * 1024 * 1024,
-    });
+    await prepareCombinationHistory(config, workspaceRoot, assetRotationHistoryDirectory);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-asset-rotation.cjs')], {
       cwd: process.cwd(),
       env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 900_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    const documents = calculationArtifacts(workspaceRoot, [assetCombinationConfigPath, ...calculationJsonFiles(workspaceRoot, assetRotationHistoryDirectory)]);
+    const documents = calculationArtifacts(workspaceRoot, [assetCombinationConfigPath]);
     await importCombinationFile(calculationPath(workspaceRoot, assetRotationCombinationsPath), 'asset-rotation', undefined, documents);
     if (storedFileExists(assetCombinationPendingConfigPath)) deleteStoredFile(assetCombinationPendingConfigPath);
     await flushMysqlWrites();

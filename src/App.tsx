@@ -1314,17 +1314,37 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
   const names = useMemo(() => new Map(result?.universe.map((item) => [item.code, item.name]) ?? []), [result]);
   const combinationUniverse = useMemo(() => new Map(result?.universe.map((item) => [item.code, item]) ?? []), [result]);
   const first = result?.best;
+  const usesSegmentedScoring = Boolean(
+    result?.periods.earlyFiveYear
+    && result.scoring.population.earlyFiveYearAnnualizedReturn
+    && result.scoring.population.earlyFiveYearDrawdownAbsolute
+    && result.scoring.population.rollingTwelveMonthReturnP10,
+  );
   const scoreExample = first && result ? (() => {
     const zScore = (value: number, metric: { mean: number; standardDeviation: number }) => (value - metric.mean) / metric.standardDeviation;
     const population = result.scoring.population;
-    const rows = [
-      { label: '近 10 年年化', raw: first.tenYearAnnualizedReturn, weight: 0.3, zScore: zScore(first.tenYearAnnualizedReturn, population.tenYearAnnualizedReturn) },
-      { label: '近 5 年年化', raw: first.fiveYearAnnualizedReturn, weight: 0.25, zScore: zScore(first.fiveYearAnnualizedReturn, population.fiveYearAnnualizedReturn) },
-      { label: `${result.periods.currentYear.year} 年收益`, raw: first.currentYearReturn, weight: 0.1, zScore: zScore(first.currentYearReturn, population.currentYearReturn) },
-      { label: '近 10 年回撤', raw: Math.abs(first.tenYearMaxDrawdown), weight: -0.2, zScore: zScore(Math.abs(first.tenYearMaxDrawdown), population.tenYearDrawdownAbsolute) },
-      { label: '近 5 年回撤', raw: Math.abs(first.fiveYearMaxDrawdown), weight: -0.1, zScore: zScore(Math.abs(first.fiveYearMaxDrawdown), population.fiveYearDrawdownAbsolute) },
-      { label: `${result.periods.currentYear.year} 年回撤`, raw: Math.abs(first.currentYearMaxDrawdown), weight: -0.05, zScore: zScore(Math.abs(first.currentYearMaxDrawdown), population.currentYearDrawdownAbsolute) },
-    ].map((row) => ({ ...row, contribution: row.weight * row.zScore }));
+    const earlyPeriod = result.periods.earlyFiveYear;
+    const earlyLabel = earlyPeriod ? `${earlyPeriod.start.slice(0, 4)}—${earlyPeriod.end.slice(0, 4)}` : '2016—2020';
+    const recentLabel = `${result.periods.fiveYear.start.slice(0, 4)}—${result.periods.fiveYear.end.slice(0, 4)}`;
+    const rows = (usesSegmentedScoring ? [
+      { label: `${earlyLabel} 年化`, raw: first.earlyFiveYearAnnualizedReturn, weight: 0.15, metric: population.earlyFiveYearAnnualizedReturn! },
+      { label: `${recentLabel} 年化`, raw: first.fiveYearAnnualizedReturn, weight: 0.2, metric: population.fiveYearAnnualizedReturn },
+      { label: `${result.periods.currentYear.year} 年收益`, raw: first.currentYearReturn, weight: 0.1, metric: population.currentYearReturn },
+      { label: `${earlyLabel} 回撤`, raw: Math.abs(first.earlyFiveYearMaxDrawdown), weight: -0.15, metric: population.earlyFiveYearDrawdownAbsolute! },
+      { label: `${recentLabel} 回撤`, raw: Math.abs(first.fiveYearMaxDrawdown), weight: -0.2, metric: population.fiveYearDrawdownAbsolute },
+      { label: `${result.periods.currentYear.year} 年回撤`, raw: Math.abs(first.currentYearMaxDrawdown), weight: -0.1, metric: population.currentYearDrawdownAbsolute },
+      { label: '滚动 12 月低分位', raw: first.rollingTwelveMonthReturnP10, weight: 0.1, metric: population.rollingTwelveMonthReturnP10! },
+    ] : [
+      { label: '近 10 年年化', raw: first.tenYearAnnualizedReturn, weight: 0.3, metric: population.tenYearAnnualizedReturn! },
+      { label: '近 5 年年化', raw: first.fiveYearAnnualizedReturn, weight: 0.25, metric: population.fiveYearAnnualizedReturn },
+      { label: `${result.periods.currentYear.year} 年收益`, raw: first.currentYearReturn, weight: 0.1, metric: population.currentYearReturn },
+      { label: '近 10 年回撤', raw: Math.abs(first.tenYearMaxDrawdown), weight: -0.2, metric: population.tenYearDrawdownAbsolute! },
+      { label: '近 5 年回撤', raw: Math.abs(first.fiveYearMaxDrawdown), weight: -0.1, metric: population.fiveYearDrawdownAbsolute },
+      { label: `${result.periods.currentYear.year} 年回撤`, raw: Math.abs(first.currentYearMaxDrawdown), weight: -0.05, metric: population.currentYearDrawdownAbsolute },
+    ]).map((row) => {
+      const standardized = zScore(row.raw, row.metric);
+      return { ...row, zScore: standardized, contribution: row.weight * standardized };
+    });
     return { rows, total: rows.reduce((sum, row) => sum + row.contribution, 0) };
   })() : null;
   const signedNumber = (value: number, digits: number) => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
@@ -1434,7 +1454,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
     setReplaceNotice(null);
     try {
       await onReplaceRotationPool(item.codes);
-      setReplaceNotice({ type: 'success', message: `已将轮动标的池替换为排名第 ${item.displayRank} 的 ${item.size} 只 ETF，请点击上方“重新计算”后生效。` });
+      setReplaceNotice({ type: 'success', message: `已将轮动标的池替换为综合排名第 ${item.compositeRank} 的 ${item.size} 只 ETF，请点击上方“重新计算”后生效。` });
     } catch (reason) {
       setReplaceNotice({ type: 'error', message: reason instanceof Error ? reason.message : '轮动标的池替换失败' });
     } finally {
@@ -1457,7 +1477,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
           label="管理组合池"
           description="仅组合池内 ETF 参与排列组合"
           statusText={poolCalculating ? '正在补齐行情并重新计算全组合收益排名' : undefined}
-          action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={!result.poolDraft.dirty || poolUpdating || poolCalculating} title={result.poolDraft.dirty ? '应用组合池变更并重新计算全组合收益排名' : '当前没有待计算的组合池变更'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
+          action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={poolUpdating || poolCalculating} title={result.poolDraft.dirty ? '应用组合池变更并重新计算全组合收益排名' : '检查最新行情并重新计算全组合收益排名'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
           onAdd={(item) => updatePool('add', item)}
         />
         <div className="combination-pool-strip">
@@ -1496,27 +1516,35 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
                 <div className="score-explanation-popover">
                   <div className="score-explanation-head"><strong>综合得分计算</strong><span>各项先标准化，再按权重加减</span></div>
                   <div className="score-explanation-groups">
-                    <div><strong>收益加分</strong><span><b>+30%</b>近 10 年年化收益</span><span><b>+25%</b>近 5 年年化收益</span><span><b>+10%</b>{result.periods.currentYear.year} 年收益</span></div>
-                    <div><strong>回撤扣分</strong><span><b>−20%</b>近 10 年最大回撤绝对值</span><span><b>−10%</b>近 5 年最大回撤绝对值</span><span><b>−5%</b>{result.periods.currentYear.year} 年最大回撤绝对值</span></div>
+                    {usesSegmentedScoring ? <>
+                      <div><strong>收益与稳定性加分</strong><span><b>+15%</b>2016—2020 年化收益</span><span><b>+20%</b>2021—2025 年化收益</span><span><b>+10%</b>{result.periods.currentYear.year} 年收益</span><span><b>+10%</b>滚动 12 个月收益第 10 百分位</span></div>
+                      <div><strong>回撤扣分</strong><span><b>−15%</b>2016—2020 最大回撤绝对值</span><span><b>−20%</b>2021—2025 最大回撤绝对值</span><span><b>−10%</b>{result.periods.currentYear.year} 年最大回撤绝对值</span></div>
+                    </> : <>
+                      <div><strong>收益加分</strong><span><b>+30%</b>近 10 年年化收益</span><span><b>+25%</b>近 5 年年化收益</span><span><b>+10%</b>{result.periods.currentYear.year} 年收益</span></div>
+                      <div><strong>回撤扣分</strong><span><b>−20%</b>近 10 年最大回撤绝对值</span><span><b>−10%</b>近 5 年最大回撤绝对值</span><span><b>−5%</b>{result.periods.currentYear.year} 年最大回撤绝对值</span></div>
+                    </>}
                   </div>
                   {scoreExample && <div className="score-example">
                     <div className="score-example-head"><strong>第一名计算示例</strong><span>{first.codes.map((code) => names.get(code) ?? code).join(' / ')}</span></div>
                     <div className="score-example-table">
-                      <div className="score-example-row is-header"><span>指标</span><span>计算值</span><span>标准分</span><span>得分贡献</span></div>
+                      <div className="score-example-row is-header"><span>指标</span><span>计算值</span><span>得分比重</span><span>标准分计算（指标值 − 均值）÷ 标准差</span><span>得分贡献</span></div>
                       {scoreExample.rows.map((row) => <div className="score-example-row" key={row.label}>
                         <span>{row.label}</span>
                         <span>{row.weight < 0 ? row.raw.toFixed(2) : signedNumber(row.raw, 2)}%</span>
-                        <span>{signedNumber(row.zScore, 4)}</span>
+                        <span className={`score-example-weight ${row.weight >= 0 ? 'positive' : 'negative'}`}>{signedNumber(row.weight * 100, 0)}%</span>
+                        <span>({row.raw.toFixed(4)} − {row.metric.mean.toFixed(4)}) ÷ {row.metric.standardDeviation.toFixed(4)} = {signedNumber(row.zScore, 4)}</span>
                         <span>{signedNumber(row.contribution, 4)}</span>
                       </div>)}
-                      <div className="score-example-row score-example-total"><span>合计</span><span /><span /><strong>{scoreExample.total.toFixed(6)}</strong></div>
+                      <div className="score-example-row score-example-total"><span>合计</span><span /><span /><span /><strong>{scoreExample.total.toFixed(6)}</strong></div>
                     </div>
                     <p className="score-example-formula"><b>例：</b>{scoreExample.rows.map((row, index) => <span key={row.label}>{index > 0 ? row.weight >= 0 ? ' + ' : ' − ' : ''}{Math.abs(row.weight).toFixed(2)} × ({signedNumber(row.zScore, 4)})</span>)} ≈ <strong>{first.compositeScore.toFixed(6)}</strong></p>
                   </div>}
                   <div className="score-explanation-notes">
                     <p><b>标准化</b>使用全部组合的总体均值与总体标准差。</p>
                     <p><b>示例精度</b>最终得分按未四舍五入的标准分计算；表中标准分与贡献保留 4 位小数。</p>
-                    <p><b>近 5 年</b>{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}。</p>
+                    {usesSegmentedScoring && result.periods.earlyFiveYear
+                      ? <><p><b>分段区间</b>{result.periods.earlyFiveYear.start} 至 {result.periods.earlyFiveYear.end}；{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}，两个区间不重叠。</p><p><b>稳定性</b>近 10 年每日滚动 252 个交易日收益的第 10 百分位，数值越高越好。</p></>
+                      : <p><b>近 5 年</b>{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}。</p>}
                     <p><b>组合范围</b>完整枚举 3—{result.universe.length} 只 ETF，排除仅含 2 只 ETF 的组合。</p>
                     <p><b>执行规则</b>{isAssetRotation ? '周末收盘信号、20 日涨幅排名、MA28 与前 2 名持有。' : '每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有。'}未计手续费、滑点与冲击成本。</p>
                   </div>
@@ -1542,10 +1570,11 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
         </form>
         <div className="combination-table-wrap">
           <table className="combination-table">
-            <thead><tr><th>排名</th><th>ETF 组合</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>10年年化</th><th>10年回撤</th><th>{sortableHeader('five-year', '近5年收益')}</th><th>5年年化</th><th>5年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>{isAssetRotation ? '周度交易' : '每日交易'}</th><th>当前持仓</th><th>操作</th></tr></thead>
+            <thead><tr><th>序号</th><th title="全部组合中的固定综合排名，筛选后不变">排名</th><th>ETF 组合</th><th>数量</th><th>{sortableHeader('score', '综合得分')}</th><th>{sortableHeader('ten-year', '近10年收益')}</th><th>10年年化</th><th>10年回撤</th><th>{sortableHeader('five-year', '近5年收益')}</th><th>5年年化</th><th>5年回撤</th><th>{sortableHeader('current-year', `${result.periods.currentYear.year}收益`)}</th><th>今年回撤</th><th>{isAssetRotation ? '周度交易' : '每日交易'}</th><th>当前持仓</th><th>操作</th></tr></thead>
             <tbody>{result.combinations.map((item) => (
               <tr key={item.id}>
-                <td><RankBadge rank={item.displayRank} /></td>
+                <td className="combination-sequence">{item.displayRank.toLocaleString()}</td>
+                <td><RankBadge rank={item.compositeRank} /></td>
                 <td><CombinationAssetsCell codes={item.codes} assetClasses={item.assetClasses} universe={combinationUniverse} /></td>
                 <td>{item.size}</td>
                 <td className={item.compositeScore >= 0 ? 'up' : 'down'}>{item.compositeScore.toFixed(4)}</td>

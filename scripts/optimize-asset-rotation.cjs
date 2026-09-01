@@ -35,6 +35,66 @@ function popcount(value) {
   return count;
 }
 
+function createP2Quantile(probability) {
+  const initial = [];
+  let heights = null;
+  let positions = null;
+  let desired = null;
+  const increments = [0, probability / 2, probability, (1 + probability) / 2, 1];
+  return {
+    add(value) {
+      if (!Number.isFinite(value)) return;
+      if (!heights) {
+        initial.push(value);
+        if (initial.length < 5) return;
+        initial.sort((left, right) => left - right);
+        heights = [...initial];
+        positions = [1, 2, 3, 4, 5];
+        desired = [1, 1 + 2 * probability, 1 + 4 * probability, 3 + 2 * probability, 5];
+        return;
+      }
+      let bucket;
+      if (value < heights[0]) {
+        heights[0] = value;
+        bucket = 0;
+      } else if (value < heights[1]) bucket = 0;
+      else if (value < heights[2]) bucket = 1;
+      else if (value < heights[3]) bucket = 2;
+      else if (value <= heights[4]) bucket = 3;
+      else {
+        heights[4] = value;
+        bucket = 3;
+      }
+      for (let index = bucket + 1; index < 5; index += 1) positions[index] += 1;
+      for (let index = 0; index < 5; index += 1) desired[index] += increments[index];
+      for (let index = 1; index <= 3; index += 1) {
+        const distance = desired[index] - positions[index];
+        const direction = distance >= 1 ? 1 : distance <= -1 ? -1 : 0;
+        if (!direction || positions[index + direction] - positions[index] === direction) continue;
+        const leftSpan = positions[index] - positions[index - 1];
+        const rightSpan = positions[index + 1] - positions[index];
+        const estimate = heights[index] + direction / (positions[index + 1] - positions[index - 1]) * (
+          (leftSpan + direction) * (heights[index + 1] - heights[index]) / rightSpan
+          + (rightSpan - direction) * (heights[index] - heights[index - 1]) / leftSpan
+        );
+        heights[index] = estimate > heights[index - 1] && estimate < heights[index + 1]
+          ? estimate
+          : heights[index] + direction * (heights[index + direction] - heights[index]) / (positions[index + direction] - positions[index]);
+        positions[index] += direction;
+      }
+    },
+    value() {
+      if (heights) return heights[2];
+      if (!initial.length) return 0;
+      const sorted = [...initial].sort((left, right) => left - right);
+      const position = (sorted.length - 1) * probability;
+      const lower = Math.floor(position);
+      const upper = Math.ceil(position);
+      return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+    },
+  };
+}
+
 const universe = [];
 const series = {};
 const allDates = new Set();
@@ -74,14 +134,21 @@ for (const file of historyFiles) {
 
 const dates = [...allDates].sort();
 const reviewDates = new Set(dates.filter((date, index) => {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+  if (day === 5) return true;
   const nextDate = dates[index + 1];
-  if (!nextDate) return true;
+  if (!nextDate) return false;
   const currentWeek = new Date(`${date}T00:00:00Z`);
   const nextWeek = new Date(`${nextDate}T00:00:00Z`);
   currentWeek.setUTCDate(currentWeek.getUTCDate() - ((currentWeek.getUTCDay() + 6) % 7));
   nextWeek.setUTCDate(nextWeek.getUTCDate() - ((nextWeek.getUTCDay() + 6) % 7));
   return currentWeek.getTime() !== nextWeek.getTime();
 }));
+
+function throughLastCommonDate(codes, periodDates) {
+  const lastCommonDate = [...periodDates].reverse().find((date) => codes.every((code) => series[code].closes.has(date)));
+  return lastCommonDate ? periodDates.filter((date) => date <= lastCommonDate) : [];
+}
 
 function nextPositionFor(codes, date, current) {
   const ranked = codes
@@ -96,7 +163,16 @@ function nextPositionFor(codes, date, current) {
   return leader && leader.close >= leader.ma28 ? leader.code : null;
 }
 
-function simulate(codes, periodDates, initialPosition, previousDate, captureBeforeDate = null) {
+function positionBefore(codes, periodStart) {
+  let position = null;
+  for (const date of reviewDates) {
+    if (date >= periodStart) break;
+    position = nextPositionFor(codes, date, position);
+  }
+  return position;
+}
+
+function simulate(codes, periodDates, initialPosition, previousDate, captureBeforeDate = null, rollingWindow = 0) {
   let position = initialPosition;
   let value = 1;
   let capturedValue = 1;
@@ -105,8 +181,12 @@ function simulate(codes, periodDates, initialPosition, previousDate, captureBefo
   let captureStarted = false;
   let peak = 1;
   let maxDrawdown = 0;
+  let priorMaxDrawdown = 0;
   let trades = 0;
-  for (const date of periodDates) {
+  const rollingQuantile = rollingWindow ? createP2Quantile(0.1) : null;
+  const rollingValues = rollingWindow ? new Array(rollingWindow) : null;
+  for (let dateIndex = 0; dateIndex < periodDates.length; dateIndex += 1) {
+    const date = periodDates[dateIndex];
     if (captureBeforeDate && !captureStarted && date >= captureBeforeDate) {
       captureStarted = true;
       capturedValue = value;
@@ -119,10 +199,18 @@ function simulate(codes, periodDates, initialPosition, previousDate, captureBefo
     }
     peak = Math.max(peak, value);
     maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
+    if (!captureStarted) priorMaxDrawdown = Math.min(priorMaxDrawdown, value / peak - 1);
     if (captureBeforeDate && date < captureBeforeDate) capturedValue = value;
     if (captureStarted) {
       capturedPeak = Math.max(capturedPeak, value);
       capturedMaxDrawdown = Math.min(capturedMaxDrawdown, value / capturedPeak - 1);
+    }
+    if (rollingQuantile && rollingValues) {
+      const slot = dateIndex % rollingWindow;
+      if (dateIndex >= rollingWindow && rollingValues[slot] > 0) {
+        rollingQuantile.add((value / rollingValues[slot] - 1) * 100);
+      }
+      rollingValues[slot] = value;
     }
     if (reviewDates.has(date)) {
       const nextPosition = nextPositionFor(codes, date, position);
@@ -134,7 +222,9 @@ function simulate(codes, periodDates, initialPosition, previousDate, captureBefo
   return {
     value,
     capturedValue,
+    priorMaxDrawdown: priorMaxDrawdown * 100,
     capturedMaxDrawdown: capturedMaxDrawdown * 100,
+    rollingTwelveMonthReturnP10: rollingQuantile?.value() ?? 0,
     cumulativeReturn: (value - 1) * 100,
     maxDrawdown: maxDrawdown * 100,
     trades,
@@ -143,12 +233,15 @@ function simulate(codes, periodDates, initialPosition, previousDate, captureBefo
 }
 
 const tenYearDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
+const tenYearPreviousDate = dates.filter((date) => date < tenYearDates[0]).at(-1) ?? null;
 const fiveYearStart = '2021-01-01';
+const earlyFiveYearDates = tenYearDates.filter((date) => date < fiveYearStart);
 const fiveYearDates = tenYearDates.filter((date) => date >= fiveYearStart);
 const currentYear = Number(dates.at(-1).slice(0, 4));
 const currentYearDates = dates.filter((date) => date >= `${currentYear}-01-01`);
 const previousYearDate = dates.filter((date) => date < `${currentYear}-01-01`).at(-1) ?? null;
 const yearsElapsed = (new Date(`${tenYearDates.at(-1)}T00:00:00Z`) - new Date(`${tenYearDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
+const earlyFiveYearsElapsed = (new Date(`${earlyFiveYearDates.at(-1)}T00:00:00Z`) - new Date(`${earlyFiveYearDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
 const fiveYearsElapsed = (new Date(`${fiveYearDates.at(-1)}T00:00:00Z`) - new Date(`${fiveYearDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
 const combinations = [];
 
@@ -157,20 +250,29 @@ for (let mask = 1; mask < 2 ** universe.length; mask += 1) {
   if (size < 3) continue;
   const selected = universe.filter((_, index) => mask & (1 << index));
   const codes = selected.map((item) => item.code);
-  const tenYear = simulate(codes, tenYearDates, null, null, fiveYearStart);
+  const combinationTenYearDates = throughLastCommonDate(codes, tenYearDates);
+  const combinationCurrentYearDates = throughLastCommonDate(codes, currentYearDates);
+  if (!combinationTenYearDates.length || !combinationCurrentYearDates.length) continue;
+  const initialPosition = positionBefore(codes, combinationTenYearDates[0]);
+  const tenYear = simulate(codes, combinationTenYearDates, initialPosition, tenYearPreviousDate, fiveYearStart, 252);
+  const earlyFiveYearReturn = (tenYear.capturedValue - 1) * 100;
   const fiveYearReturn = (tenYear.value / tenYear.capturedValue - 1) * 100;
-  const current = simulate(codes, currentYearDates, tenYear.holding, previousYearDate);
+  const current = simulate(codes, combinationCurrentYearDates, tenYear.holding, previousYearDate);
   combinations.push({
     id: codes.join('-'),
     size,
     codes,
     assetClasses: [...new Set(selected.map((item) => item.assetClass))],
     tenYearReturn: round(tenYear.cumulativeReturn),
+    earlyFiveYearReturn: round(earlyFiveYearReturn),
     fiveYearReturn: round(fiveYearReturn),
     tenYearAnnualizedReturn: round(((1 + tenYear.cumulativeReturn / 100) ** (1 / yearsElapsed) - 1) * 100),
+    earlyFiveYearAnnualizedReturn: round(((1 + earlyFiveYearReturn / 100) ** (1 / earlyFiveYearsElapsed) - 1) * 100),
     fiveYearAnnualizedReturn: round(((1 + fiveYearReturn / 100) ** (1 / fiveYearsElapsed) - 1) * 100),
     tenYearMaxDrawdown: round(tenYear.maxDrawdown),
+    earlyFiveYearMaxDrawdown: round(tenYear.priorMaxDrawdown),
     fiveYearMaxDrawdown: round(tenYear.capturedMaxDrawdown),
+    rollingTwelveMonthReturnP10: round(tenYear.rollingTwelveMonthReturnP10),
     tenYearTrades: tenYear.trades,
     currentYearReturn: round(current.cumulativeReturn),
     currentYearMaxDrawdown: round(current.maxDrawdown),
@@ -191,22 +293,24 @@ function populationStats(values) {
 }
 
 const scoreMetrics = {
-  tenYearAnnualizedReturn: populationStats(combinations.map((item) => item.tenYearAnnualizedReturn)),
+  earlyFiveYearAnnualizedReturn: populationStats(combinations.map((item) => item.earlyFiveYearAnnualizedReturn)),
   fiveYearAnnualizedReturn: populationStats(combinations.map((item) => item.fiveYearAnnualizedReturn)),
   currentYearReturn: populationStats(combinations.map((item) => item.currentYearReturn)),
-  tenYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.tenYearMaxDrawdown))),
+  earlyFiveYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.earlyFiveYearMaxDrawdown))),
   fiveYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.fiveYearMaxDrawdown))),
   currentYearDrawdownAbsolute: populationStats(combinations.map((item) => Math.abs(item.currentYearMaxDrawdown))),
+  rollingTwelveMonthReturnP10: populationStats(combinations.map((item) => item.rollingTwelveMonthReturnP10)),
 };
 const zScore = (value, stats) => (value - stats.mean) / stats.standardDeviation;
 for (const item of combinations) {
   item.compositeScore = round(
-    0.3 * zScore(item.tenYearAnnualizedReturn, scoreMetrics.tenYearAnnualizedReturn)
-    + 0.25 * zScore(item.fiveYearAnnualizedReturn, scoreMetrics.fiveYearAnnualizedReturn)
+    0.15 * zScore(item.earlyFiveYearAnnualizedReturn, scoreMetrics.earlyFiveYearAnnualizedReturn)
+    + 0.2 * zScore(item.fiveYearAnnualizedReturn, scoreMetrics.fiveYearAnnualizedReturn)
     + 0.1 * zScore(item.currentYearReturn, scoreMetrics.currentYearReturn)
-    - 0.2 * zScore(Math.abs(item.tenYearMaxDrawdown), scoreMetrics.tenYearDrawdownAbsolute)
-    - 0.1 * zScore(Math.abs(item.fiveYearMaxDrawdown), scoreMetrics.fiveYearDrawdownAbsolute)
-    - 0.05 * zScore(Math.abs(item.currentYearMaxDrawdown), scoreMetrics.currentYearDrawdownAbsolute),
+    - 0.15 * zScore(Math.abs(item.earlyFiveYearMaxDrawdown), scoreMetrics.earlyFiveYearDrawdownAbsolute)
+    - 0.2 * zScore(Math.abs(item.fiveYearMaxDrawdown), scoreMetrics.fiveYearDrawdownAbsolute)
+    - 0.1 * zScore(Math.abs(item.currentYearMaxDrawdown), scoreMetrics.currentYearDrawdownAbsolute)
+    + 0.1 * zScore(item.rollingTwelveMonthReturnP10, scoreMetrics.rollingTwelveMonthReturnP10),
     6,
   );
 }
@@ -215,11 +319,12 @@ compositeOrder.forEach((item, index) => { item.compositeRank = index + 1; });
 
 const result = {
   _comment: '页面“全组合收益排名”表格的数据，包括每个 ETF 组合的近10年、近5年、2026年收益、回撤、综合得分和排名。',
-  version: 'asset-rotation-combinations-weekly-v5',
+  version: 'asset-rotation-combinations-weekly-v7',
   strategy: 'asset-rotation',
   generatedAt: new Date().toISOString(),
   rule: {
     frequency: 'weekly',
+    initialPosition: 'previous-year-end-signal',
     momentumPeriod: 20,
     movingAveragePeriod: 28,
     holdRankLimit: 2,
@@ -227,6 +332,7 @@ const result = {
   },
   periods: {
     tenYear: { start: tenYearDates[0], end: tenYearDates.at(-1) },
+    earlyFiveYear: { start: earlyFiveYearDates[0], end: earlyFiveYearDates.at(-1) },
     fiveYear: { start: fiveYearDates[0], end: fiveYearDates.at(-1) },
     currentYear: { year: currentYear, start: currentYearDates[0], end: currentYearDates.at(-1) },
   },
@@ -236,7 +342,7 @@ const result = {
   bestCurrentYearId: currentYearOrder[0].id,
   bestCompositeId: compositeOrder[0].id,
   scoring: {
-    formula: '0.30*z(tenYearAnnualizedReturn)+0.25*z(fiveYearAnnualizedReturn)+0.10*z(currentYearReturn)-0.20*z(abs(tenYearMaxDrawdown))-0.10*z(abs(fiveYearMaxDrawdown))-0.05*z(abs(currentYearMaxDrawdown))',
+    formula: '0.15*z(earlyFiveYearAnnualizedReturn)+0.20*z(fiveYearAnnualizedReturn)+0.10*z(currentYearReturn)-0.15*z(abs(earlyFiveYearMaxDrawdown))-0.20*z(abs(fiveYearMaxDrawdown))-0.10*z(abs(currentYearMaxDrawdown))+0.10*z(rollingTwelveMonthReturnP10)',
     population: scoreMetrics,
   },
   combinations,

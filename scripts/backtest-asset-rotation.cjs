@@ -43,9 +43,10 @@ function run() {
     });
     series[code] = { closes, indicators };
   }
-  const dates = [...allDates].filter((date) => date >= '2016-01-01' && date <= '2025-12-31').sort();
-  const rebalanceDates = new Set(dates.filter((date, index) => {
-    const nextDate = dates[index + 1];
+  const simulationDates = [...allDates].filter((date) => date <= '2025-12-31').sort();
+  const dates = simulationDates.filter((date) => date >= '2016-01-01');
+  const rebalanceDates = new Set(simulationDates.filter((date, index) => {
+    const nextDate = simulationDates[index + 1];
     if (!nextDate) return true;
     const current = new Date(`${date}T00:00:00Z`);
     const next = new Date(`${nextDate}T00:00:00Z`);
@@ -57,7 +58,22 @@ function run() {
   let peak = 1;
   let maxDrawdown = 0;
   let position = null;
-  let previousDate = null;
+  const rankingFor = (date) => codes
+    .map((code) => ({ code, ...series[code].indicators.get(date) }))
+    .filter((item) => Number.isFinite(item.return20))
+    .sort((left, right) => right.return20 - left.return20);
+  const positionFor = (ranked, current) => {
+    let nextPosition = current;
+    const holding = ranked.findIndex((item) => item.code === current);
+    if (current && (holding < 0 || holding > 1 || ranked[holding].close < ranked[holding].ma28)) nextPosition = null;
+    if (!nextPosition && ranked[0]?.close >= ranked[0]?.ma28) nextPosition = ranked[0].code;
+    return nextPosition;
+  };
+  for (const date of simulationDates) {
+    if (date >= dates[0]) break;
+    if (rebalanceDates.has(date)) position = positionFor(rankingFor(date), position);
+  }
+  let previousDate = simulationDates.filter((date) => date < dates[0]).at(-1) ?? null;
   let trades = 0;
   const yearStats = {};
   for (const date of dates) {
@@ -75,15 +91,9 @@ function run() {
     state.peak = Math.max(state.peak, value);
     state.maxDrawdown = Math.min(state.maxDrawdown, value / state.peak - 1);
     if (rebalanceDates.has(date)) {
-      const ranked = codes
-        .map((code) => ({ code, ...series[code].indicators.get(date) }))
-        .filter((item) => Number.isFinite(item.return20))
-        .sort((left, right) => right.return20 - left.return20);
+      const ranked = rankingFor(date);
       state.available = Math.max(state.available, ranked.length);
-      const holding = ranked.findIndex((item) => item.code === position);
-      let nextPosition = position;
-      if (position && (holding < 0 || holding > 1 || ranked[holding].close < ranked[holding].ma28)) nextPosition = null;
-      if (!nextPosition && ranked[0]?.close >= ranked[0]?.ma28) nextPosition = ranked[0].code;
+      const nextPosition = positionFor(ranked, position);
       if (nextPosition !== position) {
         trades += 1;
         state.trades += 1;
@@ -108,7 +118,7 @@ function run() {
 const selected = run();
 const backtest = {
   _comment: '页面“全球大类资产 ETF 轮动”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。',
-  version: 'asset-rotation-return20-ma28-weekly-v1',
+  version: 'asset-rotation-return20-ma28-weekly-v2',
   strategy: 'asset-rotation',
   configVersion: config.version,
   symbols: config.symbols,

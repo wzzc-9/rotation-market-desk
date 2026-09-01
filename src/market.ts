@@ -38,11 +38,15 @@ export type AssetRotationCombination = {
   codes: string[];
   assetClasses: string[];
   tenYearReturn: number;
+  earlyFiveYearReturn: number;
   fiveYearReturn: number;
   tenYearAnnualizedReturn: number;
+  earlyFiveYearAnnualizedReturn: number;
   fiveYearAnnualizedReturn: number;
   tenYearMaxDrawdown: number;
+  earlyFiveYearMaxDrawdown: number;
   fiveYearMaxDrawdown: number;
+  rollingTwelveMonthReturnP10: number;
   tenYearTrades: number;
   currentYearReturn: number;
   currentYearMaxDrawdown: number;
@@ -65,6 +69,7 @@ export type AssetRotationCombinationsResponse = {
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
+    earlyFiveYear?: { start: string; end: string };
     fiveYear: { start: string; end: string };
     currentYear: { year: number; start: string; end: string };
   };
@@ -81,12 +86,15 @@ export type AssetRotationCombinationsResponse = {
   scoring: {
     formula: string;
     population: {
-      tenYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
+      tenYearAnnualizedReturn?: AssetRotationScoreMetricPopulation;
+      earlyFiveYearAnnualizedReturn?: AssetRotationScoreMetricPopulation;
       fiveYearAnnualizedReturn: AssetRotationScoreMetricPopulation;
       currentYearReturn: AssetRotationScoreMetricPopulation;
-      tenYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+      tenYearDrawdownAbsolute?: AssetRotationScoreMetricPopulation;
+      earlyFiveYearDrawdownAbsolute?: AssetRotationScoreMetricPopulation;
       fiveYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
       currentYearDrawdownAbsolute: AssetRotationScoreMetricPopulation;
+      rollingTwelveMonthReturnP10?: AssetRotationScoreMetricPopulation;
     };
   };
   sort: 'score' | 'ten-year' | 'five-year' | 'current-year';

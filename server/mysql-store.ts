@@ -23,11 +23,15 @@ type StoredCombination = {
   codes: string[];
   assetClasses: string[];
   tenYearReturn: number;
+  earlyFiveYearReturn: number;
   fiveYearReturn: number;
   tenYearAnnualizedReturn: number;
+  earlyFiveYearAnnualizedReturn: number;
   fiveYearAnnualizedReturn: number;
   tenYearMaxDrawdown: number;
+  earlyFiveYearMaxDrawdown: number;
   fiveYearMaxDrawdown: number;
+  rollingTwelveMonthReturnP10: number;
   tenYearTrades: number;
   currentYearReturn: number;
   currentYearMaxDrawdown: number;
@@ -158,11 +162,15 @@ const schemaComments: Record<string, SchemaComment> = {
       combination_key: { definition: 'VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: 'ETF代码拼接形成的组合编码' },
       etf_count: { definition: 'TINYINT UNSIGNED NOT NULL', comment: '组合包含的ETF数量' },
       ten_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年累计收益率，单位百分比' },
+      early_five_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '2016至2020年累计收益率，单位百分比' },
       five_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年累计收益率，单位百分比' },
       ten_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年年化收益率，单位百分比' },
+      early_five_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '2016至2020年年化收益率，单位百分比' },
       five_year_annualized_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年年化收益率，单位百分比' },
       ten_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年最大回撤，单位百分比' },
+      early_five_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '2016至2020年最大回撤，单位百分比' },
       five_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近5年最大回撤，单位百分比' },
+      rolling_twelve_month_return_p10: { definition: 'DECIMAL(18,6) NOT NULL', comment: '近10年滚动252交易日收益的第10百分位，单位百分比' },
       ten_year_trades: { definition: 'INT UNSIGNED NOT NULL', comment: '近10年交易或调仓次数' },
       current_year_return: { definition: 'DECIMAL(18,6) NOT NULL', comment: '当年累计收益率，单位百分比' },
       current_year_max_drawdown: { definition: 'DECIMAL(18,6) NOT NULL', comment: '当年最大回撤，单位百分比' },
@@ -189,7 +197,7 @@ const schemaComments: Record<string, SchemaComment> = {
     table: 'ETF组合批次回测区间表',
     columns: {
       run_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属组合计算批次主键' },
-      period_type: { definition: 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '区间类型：tenYear、fiveYear或currentYear' },
+      period_type: { definition: 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '区间类型：tenYear、earlyFiveYear、fiveYear或currentYear' },
       period_year: { definition: 'SMALLINT UNSIGNED NULL', comment: '当年区间对应年份，长期区间为空' },
       start_date: { definition: 'DATE NOT NULL', comment: '回测区间起始交易日' },
       end_date: { definition: 'DATE NOT NULL', comment: '回测区间结束交易日' },
@@ -383,11 +391,15 @@ async function createSchema(connection: PoolConnection | Pool) {
       combination_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'ETF代码拼接形成的组合编码',
       etf_count TINYINT UNSIGNED NOT NULL COMMENT '组合包含的ETF数量',
       ten_year_return DECIMAL(18,6) NOT NULL COMMENT '近10年累计收益率，单位百分比',
+      early_five_year_return DECIMAL(18,6) NOT NULL COMMENT '2016至2020年累计收益率，单位百分比',
       five_year_return DECIMAL(18,6) NOT NULL COMMENT '近5年累计收益率，单位百分比',
       ten_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '近10年年化收益率，单位百分比',
+      early_five_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '2016至2020年年化收益率，单位百分比',
       five_year_annualized_return DECIMAL(18,6) NOT NULL COMMENT '近5年年化收益率，单位百分比',
       ten_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '近10年最大回撤，单位百分比',
+      early_five_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '2016至2020年最大回撤，单位百分比',
       five_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '近5年最大回撤，单位百分比',
+      rolling_twelve_month_return_p10 DECIMAL(18,6) NOT NULL COMMENT '近10年滚动252交易日收益的第10百分位，单位百分比',
       ten_year_trades INT UNSIGNED NOT NULL COMMENT '近10年交易或调仓次数',
       current_year_return DECIMAL(18,6) NOT NULL COMMENT '当年累计收益率，单位百分比',
       current_year_max_drawdown DECIMAL(18,6) NOT NULL COMMENT '当年最大回撤，单位百分比',
@@ -409,6 +421,12 @@ async function createSchema(connection: PoolConnection | Pool) {
       KEY idx_combination_current_return (run_id, current_year_return)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合排名计算结果明细表'
   `);
+  const combinationResultAdditions: string[] = [];
+  if (!(await hasColumn(connection, 'combination_results', 'early_five_year_return'))) combinationResultAdditions.push("ADD COLUMN early_five_year_return DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '2016至2020年累计收益率，单位百分比'");
+  if (!(await hasColumn(connection, 'combination_results', 'early_five_year_annualized_return'))) combinationResultAdditions.push("ADD COLUMN early_five_year_annualized_return DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '2016至2020年年化收益率，单位百分比'");
+  if (!(await hasColumn(connection, 'combination_results', 'early_five_year_max_drawdown'))) combinationResultAdditions.push("ADD COLUMN early_five_year_max_drawdown DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '2016至2020年最大回撤，单位百分比'");
+  if (!(await hasColumn(connection, 'combination_results', 'rolling_twelve_month_return_p10'))) combinationResultAdditions.push("ADD COLUMN rolling_twelve_month_return_p10 DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '近10年滚动252交易日收益的第10百分位，单位百分比'");
+  if (combinationResultAdditions.length) await connection.query(`ALTER TABLE combination_results ${combinationResultAdditions.join(', ')}`);
   await connection.query(`CREATE TABLE IF NOT EXISTS combination_run_rules (
     run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', frequency VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '调仓频率：daily或weekly',
     momentum_period SMALLINT UNSIGNED NOT NULL COMMENT '动量计算交易日数', moving_average_period SMALLINT UNSIGNED NOT NULL COMMENT '趋势均线交易日数',
@@ -416,7 +434,7 @@ async function createSchema(connection: PoolConnection | Pool) {
     PRIMARY KEY (run_id), CONSTRAINT fk_combination_rule_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次交易规则表'`);
   await connection.query(`CREATE TABLE IF NOT EXISTS combination_run_periods (
-    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', period_type VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '区间类型：tenYear、fiveYear或currentYear',
+    run_id BIGINT UNSIGNED NOT NULL COMMENT '所属组合计算批次主键', period_type VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '区间类型：tenYear、earlyFiveYear、fiveYear或currentYear',
     period_year SMALLINT UNSIGNED NULL COMMENT '当年区间对应年份，长期区间为空', start_date DATE NOT NULL COMMENT '回测区间起始交易日', end_date DATE NOT NULL COMMENT '回测区间结束交易日',
     PRIMARY KEY (run_id, period_type), CONSTRAINT fk_combination_period_run FOREIGN KEY (run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF组合批次回测区间表'`);
@@ -513,6 +531,38 @@ export type MysqlEtfDailyPrice = {
   low: number;
   volume: number;
 };
+
+export async function getMysqlEtfDailyPriceHistories(codes: string[]) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const normalizedCodes = [...new Set(codes.map((code) => code.trim()).filter((code) => /^\d{6}$/.test(code)))];
+  const histories = new Map<string, MysqlEtfDailyPrice[]>();
+  if (!normalizedCodes.length) return histories;
+  await flushMysqlWrites();
+  const [rows] = await pool.query<Array<RowDataPacket & {
+    etf_code: string;
+    trade_date: Date | string;
+    open_price: number;
+    close_price: number;
+    high_price: number;
+    low_price: number;
+    volume: number;
+  }>>(`SELECT etf_code, trade_date, open_price, close_price, high_price, low_price, volume
+    FROM etf_daily_prices WHERE etf_code IN (?) ORDER BY etf_code, trade_date`, [normalizedCodes]);
+  for (const row of rows) {
+    const history = histories.get(row.etf_code) ?? [];
+    history.push({
+      etfCode: row.etf_code,
+      tradeDate: mysqlDateString(row.trade_date),
+      open: Number(row.open_price),
+      close: Number(row.close_price),
+      high: Number(row.high_price),
+      low: Number(row.low_price),
+      volume: Number(row.volume),
+    });
+    histories.set(row.etf_code, history);
+  }
+  return histories;
+}
 
 function updateCachedDailyPrices(prices: MysqlEtfDailyPrice[]) {
   const pricesByCode = new Map<string, Map<string, MysqlEtfDailyPrice>>();
@@ -626,7 +676,7 @@ function mysqlDateString(value: string | Date) {
 
 async function insertCombinationBatch(connection: PoolConnection, runId: number, items: StoredCombination[]) {
   if (!items.length) return;
-  const columns = 19;
+  const columns = 23;
   const placeholders = items.map(() => `(${new Array(columns).fill('?').join(',')})`).join(',');
   const values = items.flatMap((item) => [
     runId,
@@ -634,11 +684,15 @@ async function insertCombinationBatch(connection: PoolConnection, runId: number,
     item.id,
     item.size,
     item.tenYearReturn,
+    item.earlyFiveYearReturn,
     item.fiveYearReturn,
     item.tenYearAnnualizedReturn,
+    item.earlyFiveYearAnnualizedReturn,
     item.fiveYearAnnualizedReturn,
     item.tenYearMaxDrawdown,
+    item.earlyFiveYearMaxDrawdown,
     item.fiveYearMaxDrawdown,
+    item.rollingTwelveMonthReturnP10,
     item.tenYearTrades,
     item.currentYearReturn,
     item.currentYearMaxDrawdown,
@@ -652,8 +706,9 @@ async function insertCombinationBatch(connection: PoolConnection, runId: number,
   await connection.query(
     `INSERT INTO combination_results (
       run_id, combination_hash, combination_key, etf_count,
-      ten_year_return, five_year_return, ten_year_annualized_return, five_year_annualized_return,
-      ten_year_max_drawdown, five_year_max_drawdown, ten_year_trades,
+      ten_year_return, early_five_year_return, five_year_return,
+      ten_year_annualized_return, early_five_year_annualized_return, five_year_annualized_return,
+      ten_year_max_drawdown, early_five_year_max_drawdown, five_year_max_drawdown, rolling_twelve_month_return_p10, ten_year_trades,
       current_year_return, current_year_max_drawdown, current_year_trades, current_holding,
       ten_year_rank, current_year_rank, composite_score, composite_rank
     ) VALUES ${placeholders}`,
@@ -867,11 +922,15 @@ export async function getMysqlCombinationPage(
     codes: codeMap.get(Number(row.id)) ?? [],
     assetClasses: [...new Set((codeMap.get(Number(row.id)) ?? []).map((code) => assetClassByCode.get(code)).filter((value): value is string => Boolean(value)))],
     tenYearReturn: Number(row.ten_year_return),
+    earlyFiveYearReturn: Number(row.early_five_year_return),
     fiveYearReturn: Number(row.five_year_return),
     tenYearAnnualizedReturn: Number(row.ten_year_annualized_return),
+    earlyFiveYearAnnualizedReturn: Number(row.early_five_year_annualized_return),
     fiveYearAnnualizedReturn: Number(row.five_year_annualized_return),
     tenYearMaxDrawdown: Number(row.ten_year_max_drawdown),
+    earlyFiveYearMaxDrawdown: Number(row.early_five_year_max_drawdown),
     fiveYearMaxDrawdown: Number(row.five_year_max_drawdown),
+    rollingTwelveMonthReturnP10: Number(row.rolling_twelve_month_return_p10),
     tenYearTrades: Number(row.ten_year_trades),
     currentYearReturn: Number(row.current_year_return),
     currentYearMaxDrawdown: Number(row.current_year_max_drawdown),

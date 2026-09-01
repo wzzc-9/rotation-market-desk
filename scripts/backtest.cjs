@@ -45,6 +45,8 @@ const dates = [...allDates].sort();
 let value = 1;
 let position = null;
 let previousDate = null;
+let peak = 1;
+let maxDrawdown = 0;
 const years = {};
 for (const date of dates) {
   const year = Number(date.slice(0, 4));
@@ -55,6 +57,8 @@ for (const date of dates) {
     const currentClose = series[position].closes.get(date);
     if (previousClose && currentClose) value *= currentClose / previousClose;
   }
+  peak = Math.max(peak, value);
+  maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
   const state = years[year];
   state.endValue = value;
   state.peak = Math.max(state.peak, value);
@@ -93,9 +97,10 @@ const annualReturns = result.map((item) => ({
   yearEndHolding: item.yearEndHolding,
 }));
 const backtestDates = dates.filter((date) => date >= '2016-01-01' && date <= '2025-12-31');
+const yearsElapsed = (new Date(`${backtestDates.at(-1)}T00:00:00Z`) - new Date(`${backtestDates[0]}T00:00:00Z`)) / (365.25 * 86400_000);
 const backtest = {
   _comment: '页面“宽基 20 日动量轮动”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。',
-  version: 'rotation-ma20-daily-v1',
+  version: 'rotation-ma20-daily-v2',
   strategy: 'rotation',
   configVersion: config.version,
   symbols: config.symbols,
@@ -104,9 +109,9 @@ const backtest = {
   annualReturns,
   summary: {
     cumulativeReturn: cumulative * 100,
-    annualizedReturn: ((1 + cumulative) ** (1 / annualReturns.length) - 1) * 100,
+    annualizedReturn: ((1 + cumulative) ** (1 / yearsElapsed) - 1) * 100,
     positiveYears: annualReturns.filter((item) => item.returnRate > 0).length,
-    worstDrawdown: Math.min(...annualReturns.map((item) => item.maxDrawdown)),
+    worstDrawdown: maxDrawdown * 100,
   },
 };
 const outputPath = path.join(strategyDirectory, 'backtest.json');
