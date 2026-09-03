@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity,
@@ -14,6 +14,7 @@ import {
   CircleDollarSign,
   CircleHelp,
   Filter,
+  FolderOpen,
   GitMerge,
   History,
   LayoutDashboard,
@@ -23,6 +24,7 @@ import {
   Plus,
   Replace,
   RefreshCw,
+  Save,
   Search,
   Settings2,
   SlidersHorizontal,
@@ -37,7 +39,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
 import { assetRotationVideoBenchmark, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
-import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type VolumeSnapshot } from './market';
+import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type SavedRotationPool, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
@@ -59,6 +61,29 @@ const menuItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'screener', label: '条件选股', icon: SlidersHorizontal },
   { id: 'strategy', label: '策略中心', icon: Target },
 ];
+
+type WorkspaceTab = {
+  id: string;
+  label: string;
+  view: View;
+  strategyId?: StrategyId;
+  icon: typeof LayoutDashboard;
+  closable: boolean;
+};
+
+const homeWorkspaceTab: WorkspaceTab = { id: 'dashboard', label: '主页', view: 'dashboard', icon: LayoutDashboard, closable: false };
+const screenerWorkspaceTab: WorkspaceTab = { id: 'screener', label: '条件选股', view: 'screener', icon: SlidersHorizontal, closable: true };
+const strategyWorkspaceTabs: Record<StrategyId, WorkspaceTab> = {
+  rotation: { id: 'strategy:rotation', label: '宽基动量轮动', view: 'strategy', strategyId: 'rotation', icon: Activity, closable: true },
+  'asset-rotation': { id: 'strategy:asset-rotation', label: '全球大类资产轮动', view: 'strategy', strategyId: 'asset-rotation', icon: GitMerge, closable: true },
+  'dual-etf': { id: 'strategy:dual-etf', label: '双 ETF 动量轮动', view: 'strategy', strategyId: 'dual-etf', icon: ArrowUpDown, closable: true },
+  intersection: { id: 'strategy:intersection', label: '策略交集', view: 'strategy', strategyId: 'intersection', icon: GitMerge, closable: true },
+  macd: { id: 'strategy:macd', label: 'MACD 金叉共振', view: 'strategy', strategyId: 'macd', icon: TrendingUp, closable: true },
+  'macd-pullback': { id: 'strategy:macd-pullback', label: 'MACD 零轴回踩', view: 'strategy', strategyId: 'macd-pullback', icon: Target, closable: true },
+  'macd-kdj': { id: 'strategy:macd-kdj', label: 'MACD + KDJ 共振', view: 'strategy', strategyId: 'macd-kdj', icon: BarChart3, closable: true },
+  'volume-signals': { id: 'strategy:volume-signals', label: '量价三信号', view: 'strategy', strategyId: 'volume-signals', icon: Activity, closable: true },
+  'bull-points': { id: 'strategy:bull-points', label: '多空趋势多点', view: 'strategy', strategyId: 'bull-points', icon: TrendingUp, closable: true },
+};
 
 const screenedStockHistoryCache = new Map<string, MarketHistoryResponse>();
 const screenedStockHistoryRequests = new Map<string, Promise<MarketHistoryResponse>>();
@@ -664,7 +689,132 @@ function StockKlineCell({ code, name }: { code: string; name: string }) {
   </button>;
 }
 
-function AssetPoolEditor({ markets, updating, deferred = false, label = '管理标的池', description = '按名称或 6 位代码搜索沪深 ETF', statusText, action, onAdd }: { markets: PoolSymbol[]; updating: boolean; deferred?: boolean; label?: string; description?: string; statusText?: string; action?: ReactNode; onAdd: (result: EtfSearchResult) => Promise<void> }) {
+type SavedPoolStrategy = 'rotation' | 'asset-rotation';
+
+function SavedPoolManager({ strategy, markets, updating, onApply }: { strategy: SavedPoolStrategy; markets: PoolSymbol[]; updating: boolean; onApply: (codes: string[]) => Promise<void> }) {
+  const [savedPools, setSavedPools] = useState<SavedRotationPool[]>([]);
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [applyingId, setApplyingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const currentCodesKey = useMemo(() => markets.map((market) => market.code).sort().join(','), [markets]);
+  const loadSavedPools = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await apiFetch(`/api/strategy/${strategy}/saved-pools`, { cache: 'no-store' });
+      const payload = await response.json() as { pools?: SavedRotationPool[]; message?: string };
+      if (!response.ok) throw new Error(payload.message || '已保存标的池读取失败');
+      setSavedPools(Array.isArray(payload.pools) ? payload.pools : []);
+    } catch (reason) {
+      setMessage({ type: 'error', text: reason instanceof Error ? reason.message : '已保存标的池读取失败' });
+    } finally {
+      setLoading(false);
+    }
+  }, [strategy]);
+  useEffect(() => { void loadSavedPools(); }, [loadSavedPools]);
+  const saveCurrentPool = async () => {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      setMessage({ type: 'error', text: '请先输入标的池名称' });
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await apiFetch(`/api/strategy/${strategy}/saved-pools`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: normalizedName, codes: markets.map((market) => market.code) }),
+      });
+      const payload = await response.json() as { savedPool?: SavedRotationPool; message?: string };
+      if (!response.ok || !payload.savedPool) throw new Error(payload.message || '标的池保存失败');
+      setSavedPools((current) => [payload.savedPool!, ...current.filter((item) => item.id !== payload.savedPool!.id)]);
+      setName('');
+      setMessage({ type: 'success', text: `已保存“${payload.savedPool.name}”，以后可一键恢复。` });
+    } catch (reason) {
+      setMessage({ type: 'error', text: reason instanceof Error ? reason.message : '标的池保存失败' });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const applySavedPool = async (savedPool: SavedRotationPool) => {
+    setApplyingId(savedPool.id);
+    setMessage(null);
+    try {
+      await onApply(savedPool.symbols.map((symbol) => symbol.code));
+      setMessage({ type: 'success', text: `已用“${savedPool.name}”覆盖当前标的池，请点击“重新计算”后生效。` });
+    } catch (reason) {
+      setMessage({ type: 'error', text: reason instanceof Error ? reason.message : '标的池覆盖失败' });
+    } finally {
+      setApplyingId(null);
+    }
+  };
+  const deleteSavedPool = async (savedPool: SavedRotationPool) => {
+    if (confirmDeleteId !== savedPool.id) {
+      setConfirmDeleteId(savedPool.id);
+      setMessage(null);
+      return;
+    }
+    setDeletingId(savedPool.id);
+    try {
+      const response = await apiFetch(`/api/strategy/${strategy}/saved-pools/${savedPool.id}`, { method: 'DELETE' });
+      const payload = await response.json() as { success?: boolean; message?: string };
+      if (!response.ok) throw new Error(payload.message || '已保存标的池删除失败');
+      setSavedPools((current) => current.filter((item) => item.id !== savedPool.id));
+      setMessage({ type: 'success', text: `已删除“${savedPool.name}”。` });
+    } catch (reason) {
+      setMessage({ type: 'error', text: reason instanceof Error ? reason.message : '已保存标的池删除失败' });
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+  return <div className="saved-pool-manager">
+    <div className="saved-pool-heading">
+      <div className="saved-pool-title"><FolderOpen size={15} /><span><strong>已保存标的池</strong><small>点击方案即可覆盖当前标的池</small></span></div>
+      <form className="saved-pool-form" onSubmit={(event) => { event.preventDefault(); void saveCurrentPool(); }}>
+        <input value={name} maxLength={40} disabled={updating || saving} placeholder="方案名称（同名将更新）" aria-label="已保存标的池名称" onChange={(event) => setName(event.target.value)} />
+        <button type="submit" disabled={updating || saving || !name.trim()} title="保存当前轮动标的池">{saving ? <RefreshCw className="spin-icon" size={14} /> : <Save size={14} />}<span>{saving ? '保存中' : '保存当前'}</span></button>
+      </form>
+    </div>
+    <div className="saved-pool-list">
+      {loading && <div className="saved-pool-state"><RefreshCw className="spin-icon" size={14} />正在读取</div>}
+      {!loading && savedPools.length === 0 && <div className="saved-pool-state">暂无已保存方案</div>}
+      {!loading && savedPools.map((savedPool) => {
+        const isCurrent = savedPool.symbols.map((symbol) => symbol.code).sort().join(',') === currentCodesKey;
+        const applying = applyingId === savedPool.id;
+        const deleting = deletingId === savedPool.id;
+        const details = savedPool.symbols.map((symbol) => `${symbol.name} ${symbol.code}`).join('、');
+        return <div className={`saved-pool-item${isCurrent ? ' is-current' : ''}`} key={savedPool.id} title={details}>
+          <button type="button" className="saved-pool-apply" disabled={updating || applyingId !== null || deletingId !== null || isCurrent} onClick={() => void applySavedPool(savedPool)}>
+            {applying ? <RefreshCw className="spin-icon" size={14} /> : isCurrent ? <Check size={14} /> : <FolderOpen size={14} />}
+            <span><strong>{savedPool.name}</strong><small>{savedPool.symbols.length} 只 ETF{isCurrent ? ' · 当前' : ''}</small></span>
+          </button>
+          <button type="button" className={`saved-pool-delete${confirmDeleteId === savedPool.id ? ' is-confirming' : ''}`} disabled={updating || applyingId !== null || deleting} title={confirmDeleteId === savedPool.id ? `再次点击确认删除 ${savedPool.name}` : `删除 ${savedPool.name}`} aria-label={confirmDeleteId === savedPool.id ? `确认删除 ${savedPool.name}` : `删除 ${savedPool.name}`} onClick={() => void deleteSavedPool(savedPool)}>{deleting ? <RefreshCw className="spin-icon" size={13} /> : confirmDeleteId === savedPool.id ? <Check size={13} /> : <Trash2 size={13} />}</button>
+        </div>;
+      })}
+    </div>
+    {message && <div className={`saved-pool-message ${message.type}`}><span>{message.text}</span><button type="button" title="关闭提示" aria-label="关闭提示" onClick={() => setMessage(null)}><X size={13} /></button></div>}
+  </div>;
+}
+
+type AssetPoolEditorProps = {
+  markets: PoolSymbol[];
+  updating: boolean;
+  deferred?: boolean;
+  label?: string;
+  description?: string;
+  statusText?: string;
+  action?: ReactNode;
+  savedPoolStrategy?: SavedPoolStrategy;
+  onReplaceSavedPool?: (codes: string[]) => Promise<void>;
+  onAdd: (result: EtfSearchResult) => Promise<void>;
+};
+
+function AssetPoolEditor({ markets, updating, deferred = false, label = '管理标的池', description = '按名称或 6 位代码搜索沪深 ETF', statusText, action, savedPoolStrategy, onReplaceSavedPool, onAdd }: AssetPoolEditorProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<EtfSearchResult[]>([]);
   const [searchHistory, setSearchHistory] = useState(readEtfSearchHistory);
@@ -768,8 +918,9 @@ function AssetPoolEditor({ markets, updating, deferred = false, label = '管理�
 
   const showResults = query.trim().length >= 2;
   return <div className="asset-pool-editor">
-    <div className="etf-search-copy"><strong>{label}</strong><span>{description}</span></div>
-    <div className="etf-search-control" ref={searchControlRef}>
+    <div className="asset-pool-editor-main">
+      <div className="etf-search-copy"><strong>{label}</strong><span>{description}</span></div>
+      <div className="etf-search-control" ref={searchControlRef}>
       <Search size={16} />
       <input ref={searchInputRef} value={query} disabled={updating} placeholder="例如：黄金ETF / 518880" aria-label="搜索 ETF" onFocus={() => setHistoryOpen(query.trim().length === 0)} onKeyDown={(event) => { if (event.key === 'Escape') setHistoryOpen(false); }} onChange={(event) => { setQuery(event.target.value); setHistoryOpen(event.target.value.trim().length === 0); }} />
       {query && !updating && <button type="button" className="etf-search-clear" title="清空搜索" aria-label="清空搜索" onClick={() => { setQuery(''); setHistoryOpen(true); searchInputRef.current?.focus(); }}><X size={14} /></button>}
@@ -798,9 +949,11 @@ function AssetPoolEditor({ markets, updating, deferred = false, label = '管理�
           </div>;
         })}
       </div>}
+      </div>
+      {updating && <div className="pool-update-state"><RefreshCw className="spin-icon" size={14} />{statusText ?? (deferred ? '正在保存标的池变更' : '正在补齐历史行情并重算 2016—2025 与今年以来收益')}</div>}
+      {action && <div className="pool-editor-action">{action}</div>}
     </div>
-    {updating && <div className="pool-update-state"><RefreshCw className="spin-icon" size={14} />{statusText ?? (deferred ? '正在保存标的池变更' : '正在补齐历史行情并重算 2016—2025 与今年以来收益')}</div>}
-    {action && <div className="pool-editor-action">{action}</div>}
+    {savedPoolStrategy && onReplaceSavedPool && <SavedPoolManager strategy={savedPoolStrategy} markets={markets} updating={updating} onApply={onReplaceSavedPool} />}
   </div>;
 }
 
@@ -1985,8 +2138,10 @@ function AssetRotationStrategy() {
         markets={snapshot.poolDraft?.symbols ?? snapshot.markets}
         updating={poolUpdating || poolCalculating}
         deferred
+        savedPoolStrategy="asset-rotation"
+        onReplaceSavedPool={replacePool}
         statusText={poolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
-        action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={!snapshot.poolDraft?.dirty || poolUpdating || poolCalculating} title={snapshot.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '当前没有待计算的变更'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
+        action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={poolUpdating || poolCalculating} title={snapshot.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '获取最新行情并按当前标的池重新计算'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
         onAdd={(item) => updatePool('add', item)}
       />}
       poolSymbols={snapshot.poolDraft?.symbols}
@@ -3162,6 +3317,8 @@ function StrategyIntersection({ latestTradingDate }: { latestTradingDate?: strin
 export default function App() {
   const [view, setView] = useState<View>('dashboard');
   const [strategyId, setStrategyId] = useState<StrategyId>('rotation');
+  const [openTabs, setOpenTabs] = useState<WorkspaceTab[]>([homeWorkspaceTab]);
+  const [activeTabId, setActiveTabId] = useState(homeWorkspaceTab.id);
   const [markets, setMarkets] = useState<RankedMarket[]>([]);
   const [marketMeta, setMarketMeta] = useState<RotationResponse | null>(null);
   const [selectedCode, setSelectedCode] = useState('');
@@ -3176,6 +3333,8 @@ export default function App() {
   const [expandedStrategyGroups, setExpandedStrategyGroups] = useState<Set<StrategyGroupId>>(() => new Set(['index', 'stock']));
   const [query, setQuery] = useState('');
   const didLoad = useRef(false);
+  const workspaceTabsRef = useRef<HTMLDivElement>(null);
+  const tabScrollPositionsRef = useRef(new Map<string, number>([[homeWorkspaceTab.id, 0]]));
 
   const loadMarkets = useCallback(async (forceRefresh = true) => {
     setLoading(true);
@@ -3274,6 +3433,16 @@ export default function App() {
     void loadMarkets(false);
   }, [loadMarkets]);
 
+  useEffect(() => {
+    const container = workspaceTabsRef.current;
+    const activeTab = container?.querySelector<HTMLElement>('.workspace-tab.active');
+    if (!container || !activeTab) return;
+    const leftEdge = activeTab.offsetLeft;
+    const rightEdge = leftEdge + activeTab.offsetWidth;
+    if (leftEdge < container.scrollLeft) container.scrollTo({ left: leftEdge, behavior: 'smooth' });
+    else if (rightEdge > container.scrollLeft + container.clientWidth) container.scrollTo({ left: rightEdge - container.clientWidth, behavior: 'smooth' });
+  }, [activeTabId, openTabs.length]);
+
   const selected = markets.find(market => market.code === selectedCode) ?? markets[0];
   const setSelected = (market: RankedMarket) => setSelectedCode(market.code);
 
@@ -3289,16 +3458,48 @@ export default function App() {
     });
   };
 
-  const navigate = (next: View) => {
-    setView(next);
+  const activateWorkspaceTab = (tab: WorkspaceTab) => {
+    tabScrollPositionsRef.current.set(activeTabId, window.scrollY);
+    const targetScrollY = tabScrollPositionsRef.current.get(tab.id) ?? 0;
+    setActiveTabId(tab.id);
+    setView(tab.view);
+    if (tab.strategyId) setStrategyId(tab.strategyId);
     setSidebarOpen(false);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      window.scrollTo({ top: targetScrollY, left: 0, behavior: 'auto' });
+      window.dispatchEvent(new Event('resize'));
+    }));
+  };
+
+  const openWorkspaceTab = (tab: WorkspaceTab) => {
+    setOpenTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
+    activateWorkspaceTab(tab);
+  };
+
+  const closeWorkspaceTab = (event: MouseEvent<HTMLButtonElement>, tabId: string) => {
+    event.stopPropagation();
+    const closingIndex = openTabs.findIndex((tab) => tab.id === tabId);
+    const closingTab = openTabs[closingIndex];
+    if (!closingTab?.closable) return;
+    const nextTabs = openTabs.filter((tab) => tab.id !== tabId);
+    setOpenTabs(nextTabs);
+    if (activeTabId === tabId) {
+      const fallback = nextTabs[Math.max(0, closingIndex - 1)] ?? homeWorkspaceTab;
+      activateWorkspaceTab(fallback);
+    }
+    tabScrollPositionsRef.current.delete(tabId);
+  };
+
+  const navigate = (next: View) => {
+    if (next === 'dashboard') openWorkspaceTab(homeWorkspaceTab);
+    else if (next === 'screener') openWorkspaceTab(screenerWorkspaceTab);
+    else openWorkspaceTab(strategyWorkspaceTabs[strategyId]);
   };
 
   const openStrategy = (next: StrategyId) => {
     const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' || next === 'dual-etf' ? 'index' : 'stock';
     setExpandedStrategyGroups((current) => current.has(group) ? current : new Set(current).add(group));
-    setStrategyId(next);
-    navigate('strategy');
+    openWorkspaceTab(strategyWorkspaceTabs[next]);
   };
 
   const toggleStrategyGroup = (group: StrategyGroupId) => {
@@ -3330,7 +3531,7 @@ export default function App() {
           {searchResults.length > 0 && (
             <div className="search-results">
               {searchResults.map((market) => (
-                <button key={market.code} onClick={() => { setSelected(market); setView('dashboard'); setQuery(''); }}>
+                <button key={market.code} onClick={() => { setSelected(market); navigate('dashboard'); setQuery(''); }}>
                   <span><strong>{market.name}</strong><small>{market.code}</small></span>
                   <Change value={market.change} />
                 </button>
@@ -3434,6 +3635,19 @@ export default function App() {
       </aside>
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="关闭菜单" />}
 
+      <nav className="workspace-tabs" role="tablist" aria-label="已打开页面">
+        <div className="workspace-tabs-scroll" ref={workspaceTabsRef}>
+          {openTabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = tab.id === activeTabId;
+            return <div className={`workspace-tab${active ? ' active' : ''}`} key={tab.id}>
+              <button type="button" className="workspace-tab-trigger" role="tab" aria-selected={active} title={tab.label} onClick={() => activateWorkspaceTab(tab)}><Icon size={14} /><span>{tab.label}</span></button>
+              {tab.closable && <button type="button" className="workspace-tab-close" title={`关闭 ${tab.label}`} aria-label={`关闭 ${tab.label}`} onClick={(event) => closeWorkspaceTab(event, tab.id)}><X size={13} /></button>}
+            </div>;
+          })}
+        </div>
+      </nav>
+
       <main className="content">
         {error && markets.length > 0 && (
           <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>
@@ -3447,35 +3661,39 @@ export default function App() {
         {!loading && error && !selected && (
           <section className="data-state error-state"><AlertTriangle size={26} /><strong>真实行情加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadMarkets(true)}><RefreshCw size={15} />重新加载</button></section>
         )}
-        {selected && view === 'dashboard' && <Dashboard markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
-        {selected && view === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
-        {view === 'strategy' && strategyId === 'rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter
-          markets={markets}
-          yearPerformance={marketMeta.yearPerformance}
-          strategyBacktest={marketMeta.backtest}
-          poolEditor={<AssetPoolEditor
-            markets={marketMeta.poolDraft?.symbols ?? markets}
-            updating={rotationPoolUpdating || rotationPoolCalculating}
-            deferred
-            statusText={rotationPoolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
-            action={<button type="button" className={`pool-recalculate-button${rotationPoolCalculating ? ' is-calculating' : ''}`} disabled={!marketMeta.poolDraft?.dirty || rotationPoolUpdating || rotationPoolCalculating} title={marketMeta.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '当前没有待计算的变更'} onClick={() => void recalculateRotationPool()}><RefreshCw className={rotationPoolCalculating ? 'spin-icon' : undefined} size={14} />{rotationPoolCalculating ? '正在计算' : '重新计算'}</button>}
-            onAdd={(item) => updateRotationPool('add', item)}
+        {openTabs.map((tab) => <div className="workspace-tab-pane" key={tab.id} hidden={tab.id !== activeTabId}>
+          {selected && tab.id === 'dashboard' && <Dashboard markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
+          {selected && tab.id === 'screener' && <Screener markets={markets} selected={selected} setSelected={setSelected} watchlist={watchlist} toggleWatch={toggleWatch} />}
+          {tab.id === 'strategy:rotation' && selected && marketMeta?.yearPerformance && <StrategyCenter
+            markets={markets}
+            yearPerformance={marketMeta.yearPerformance}
+            strategyBacktest={marketMeta.backtest}
+            poolEditor={<AssetPoolEditor
+              markets={marketMeta.poolDraft?.symbols ?? markets}
+              updating={rotationPoolUpdating || rotationPoolCalculating}
+              deferred
+              savedPoolStrategy="rotation"
+              onReplaceSavedPool={replaceRotationPool}
+              statusText={rotationPoolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
+              action={<button type="button" className={`pool-recalculate-button${rotationPoolCalculating ? ' is-calculating' : ''}`} disabled={rotationPoolUpdating || rotationPoolCalculating} title={marketMeta.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '获取最新行情并按当前标的池重新计算'} onClick={() => void recalculateRotationPool()}><RefreshCw className={rotationPoolCalculating ? 'spin-icon' : undefined} size={14} />{rotationPoolCalculating ? '正在计算' : '重新计算'}</button>}
+              onAdd={(item) => updateRotationPool('add', item)}
+            />}
+            poolSymbols={marketMeta.poolDraft?.symbols}
+            poolUpdating={rotationPoolUpdating || rotationPoolCalculating}
+            onRemoveMarket={setPendingRotationRemoval}
+            onReplaceCombination={replaceRotationPool}
+            refreshing={loading || rotationPoolUpdating || rotationPoolCalculating}
+            onRefresh={() => void loadMarkets(true)}
           />}
-          poolSymbols={marketMeta.poolDraft?.symbols}
-          poolUpdating={rotationPoolUpdating || rotationPoolCalculating}
-          onRemoveMarket={setPendingRotationRemoval}
-          onReplaceCombination={replaceRotationPool}
-          refreshing={loading || rotationPoolUpdating || rotationPoolCalculating}
-          onRefresh={() => void loadMarkets(true)}
-        />}
-        {view === 'strategy' && strategyId === 'asset-rotation' && <AssetRotationStrategy />}
-        {view === 'strategy' && strategyId === 'dual-etf' && <DualEtfStrategy />}
-        {view === 'strategy' && strategyId === 'macd' && <MacdConfluenceStrategy />}
-        {view === 'strategy' && strategyId === 'macd-pullback' && <MacdPullbackStrategy />}
-        {view === 'strategy' && strategyId === 'macd-kdj' && <MacdKdjStrategy />}
-        {view === 'strategy' && strategyId === 'volume-signals' && <VolumeSignalStrategy />}
-        {view === 'strategy' && strategyId === 'bull-points' && <BullPointStrategy />}
-        {view === 'strategy' && strategyId === 'intersection' && <StrategyIntersection latestTradingDate={marketMeta?.lastTradingDate} />}
+          {tab.id === 'strategy:asset-rotation' && <AssetRotationStrategy />}
+          {tab.id === 'strategy:dual-etf' && <DualEtfStrategy />}
+          {tab.id === 'strategy:macd' && <MacdConfluenceStrategy />}
+          {tab.id === 'strategy:macd-pullback' && <MacdPullbackStrategy />}
+          {tab.id === 'strategy:macd-kdj' && <MacdKdjStrategy />}
+          {tab.id === 'strategy:volume-signals' && <VolumeSignalStrategy />}
+          {tab.id === 'strategy:bull-points' && <BullPointStrategy />}
+          {tab.id === 'strategy:intersection' && <StrategyIntersection latestTradingDate={marketMeta?.lastTradingDate} />}
+        </div>)}
       </main>
 
       {pendingRotationRemoval && <PoolRemovalDialog market={pendingRotationRemoval} strategyName="宽基 20 日动量轮动" deferred onCancel={() => setPendingRotationRemoval(null)} onConfirm={confirmRotationRemoval} />}

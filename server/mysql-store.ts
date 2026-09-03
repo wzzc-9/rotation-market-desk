@@ -6,6 +6,22 @@ import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, 
 
 type CombinationStrategy = 'rotation' | 'asset-rotation';
 
+export type MysqlSavedPoolStrategy = 'rotation' | 'asset-rotation';
+
+export type MysqlSavedRotationPool = {
+  id: number;
+  strategy: MysqlSavedPoolStrategy;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  symbols: Array<{
+    marketCode: string;
+    code: string;
+    name: string;
+    category: string;
+  }>;
+};
+
 export type MysqlCombinationFilters = {
   size?: number;
   tenYearDrawdown?: number;
@@ -532,6 +548,36 @@ export type MysqlEtfDailyPrice = {
   volume: number;
 };
 
+export type MysqlEtf = {
+  marketCode: string;
+  code: string;
+  name: string;
+  category: string;
+};
+
+export async function getMysqlEtfs(codes: string[]) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const normalizedCodes = [...new Set(codes.map((code) => code.trim()).filter((code) => /^\d{6}$/.test(code)))];
+  const etfs = new Map<string, MysqlEtf>();
+  if (!normalizedCodes.length) return etfs;
+  await flushMysqlWrites();
+  const [rows] = await pool.query<Array<RowDataPacket & {
+    etf_code: string;
+    market_code: string | null;
+    etf_name: string;
+    category: string | null;
+  }>>('SELECT etf_code, market_code, etf_name, category FROM etfs WHERE etf_code IN (?)', [normalizedCodes]);
+  for (const row of rows) {
+    etfs.set(row.etf_code, {
+      marketCode: row.market_code ?? '',
+      code: row.etf_code,
+      name: row.etf_name,
+      category: row.category ?? '',
+    });
+  }
+  return etfs;
+}
+
 export async function getMysqlEtfDailyPriceHistories(codes: string[]) {
   if (!pool) throw new Error('MySQL 尚未初始化');
   const normalizedCodes = [...new Set(codes.map((code) => code.trim()).filter((code) => /^\d{6}$/.test(code)))];
@@ -653,6 +699,136 @@ export function queueMysqlObjectDelete(path: string) {
 
 export async function flushMysqlWrites() {
   while (pendingWrites.size) await Promise.all([...pendingWrites]);
+}
+
+function normalizeSavedPoolStrategy(strategy: string): MysqlSavedPoolStrategy {
+  if (strategy === 'rotation' || strategy === 'asset-rotation') return strategy;
+  throw new Error('仅策略一和策略二支持保存轮动标的池');
+}
+
+function normalizeSavedPoolName(name: string) {
+  const normalized = name.trim().replace(/\s+/g, ' ');
+  if (!normalized) throw new Error('请输入标的池名称');
+  if ([...normalized].length > 40) throw new Error('标的池名称最多 40 个字符');
+  return normalized;
+}
+
+function normalizeSavedPoolCodes(codes: string[]) {
+  const normalized = [...new Set(codes.map((code) => code.trim()))];
+  if (normalized.length < 2 || normalized.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
+  if (normalized.some((code) => !/^\d{6}$/.test(code))) throw new Error('标的池包含无效 ETF 代码');
+  return normalized;
+}
+
+function mysqlDateTimeString(value: string | Date) {
+  if (value instanceof Date) return value.toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+export async function listMysqlSavedRotationPools(strategy: string): Promise<MysqlSavedRotationPool[]> {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const normalizedStrategy = normalizeSavedPoolStrategy(strategy);
+  await flushMysqlWrites();
+  const [rows] = await pool.query<Array<RowDataPacket & {
+    id: number;
+    strategy_code: MysqlSavedPoolStrategy;
+    pool_name: string;
+    created_at: Date | string;
+    updated_at: Date | string;
+    etf_code: string | null;
+    market_code: string | null;
+    etf_name: string | null;
+    category: string | null;
+  }>>(`SELECT saved.id, saved.strategy_code, saved.pool_name, saved.created_at, saved.updated_at,
+      member.etf_code, etf.market_code, etf.etf_name, etf.category
+    FROM strategy_saved_pools saved
+    LEFT JOIN strategy_saved_pool_etfs member ON member.saved_pool_id=saved.id
+    LEFT JOIN etfs etf ON etf.etf_code=member.etf_code
+    WHERE saved.strategy_code=?
+    ORDER BY saved.updated_at DESC, saved.id DESC, member.display_order`, [normalizedStrategy]);
+  const records = new Map<number, MysqlSavedRotationPool>();
+  for (const row of rows) {
+    let record = records.get(Number(row.id));
+    if (!record) {
+      record = {
+        id: Number(row.id),
+        strategy: row.strategy_code,
+        name: row.pool_name,
+        createdAt: mysqlDateTimeString(row.created_at),
+        updatedAt: mysqlDateTimeString(row.updated_at),
+        symbols: [],
+      };
+      records.set(record.id, record);
+    }
+    if (row.etf_code) {
+      record.symbols.push({
+        marketCode: row.market_code ?? '',
+        code: row.etf_code,
+        name: row.etf_name ?? row.etf_code,
+        category: row.category ?? '未分类',
+      });
+    }
+  }
+  return [...records.values()];
+}
+
+export async function saveMysqlRotationPool(strategy: string, name: string, codes: string[]) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const normalizedStrategy = normalizeSavedPoolStrategy(strategy);
+  const normalizedName = normalizeSavedPoolName(name);
+  const normalizedCodes = normalizeSavedPoolCodes(codes);
+  await flushMysqlWrites();
+  const connection = await pool.getConnection();
+  let savedPoolId = 0;
+  try {
+    await connection.beginTransaction();
+    const [etfRows] = await connection.query<Array<RowDataPacket & { etf_code: string }>>(
+      'SELECT etf_code FROM etfs WHERE etf_code IN (?)', [normalizedCodes],
+    );
+    const existingCodes = new Set(etfRows.map((row) => row.etf_code));
+    const missingCodes = normalizedCodes.filter((code) => !existingCodes.has(code));
+    if (missingCodes.length) throw new Error(`ETF 基础信息不存在：${missingCodes.join('、')}`);
+    const [savedRows] = await connection.query<Array<RowDataPacket & { id: number }>>(
+      'SELECT id FROM strategy_saved_pools WHERE strategy_code=? AND pool_name=? FOR UPDATE',
+      [normalizedStrategy, normalizedName],
+    );
+    savedPoolId = Number(savedRows[0]?.id ?? 0);
+    if (savedPoolId) {
+      await connection.execute('UPDATE strategy_saved_pools SET updated_at=NOW(3) WHERE id=?', [savedPoolId]);
+      await connection.execute('DELETE FROM strategy_saved_pool_etfs WHERE saved_pool_id=?', [savedPoolId]);
+    } else {
+      const [result] = await connection.execute<mysql.ResultSetHeader>(
+        'INSERT INTO strategy_saved_pools (strategy_code, pool_name, created_at, updated_at) VALUES (?, ?, NOW(3), NOW(3))',
+        [normalizedStrategy, normalizedName],
+      );
+      savedPoolId = Number(result.insertId);
+    }
+    const placeholders = normalizedCodes.map(() => '(?, ?, ?)').join(', ');
+    await connection.query(`INSERT INTO strategy_saved_pool_etfs (saved_pool_id, etf_code, display_order) VALUES ${placeholders}`,
+      normalizedCodes.flatMap((code, index) => [savedPoolId, code, index]));
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  const savedPools = await listMysqlSavedRotationPools(normalizedStrategy);
+  const savedPool = savedPools.find((item) => item.id === savedPoolId);
+  if (!savedPool) throw new Error('标的池已保存，但重新读取失败');
+  return savedPool;
+}
+
+export async function deleteMysqlSavedRotationPool(strategy: string, id: number) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  const normalizedStrategy = normalizeSavedPoolStrategy(strategy);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('无效的已保存标的池编号');
+  await flushMysqlWrites();
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'DELETE FROM strategy_saved_pools WHERE id=? AND strategy_code=?', [id, normalizedStrategy],
+  );
+  if (!result.affectedRows) throw new Error('已保存的标的池不存在或已被删除');
 }
 
 function jsonValue<T>(value: unknown): T {

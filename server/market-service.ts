@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
+import { flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -1767,6 +1767,24 @@ function inferEtfCategory(name: string): MarketCategory {
   return 'A股宽基';
 }
 
+async function resolveRotationPoolSymbols(codes: string[]): Promise<SymbolConfig[]> {
+  const storedEtfs = await getMysqlEtfs(codes);
+  const missingCodes = codes.filter((code) => !storedEtfs.has(code));
+  if (missingCodes.length) throw new Error(`ETF 基础信息不存在：${missingCodes.join('、')}`);
+  return codes.map((code) => {
+    const etf = storedEtfs.get(code)!;
+    const category = ['A股宽基', '海外指数', '商品', '债券'].includes(etf.category)
+      ? etf.category as MarketCategory
+      : inferEtfCategory(etf.name);
+    return {
+      marketCode: etf.marketCode || `${code.startsWith('5') ? 'sh' : 'sz'}${code}`,
+      code,
+      name: etf.name,
+      category,
+    };
+  });
+}
+
 export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
   const normalized = query.trim();
   if (normalized.length < 2 || normalized.length > 30) return [];
@@ -1970,16 +1988,14 @@ export async function replaceRotationPool(codes: string[]) {
   const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
   if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
   if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
-  const availableSymbols = new Map(readRotationCombinationConfig().symbols.map((symbol) => [symbol.code, symbol]));
-  const symbols = normalizedCodes.map((code) => availableSymbols.get(code));
-  if (symbols.some((symbol) => !symbol)) throw new Error('组合中包含已不在组合池内的 ETF，请重新计算全组合排名');
+  const symbols = await resolveRotationPoolSymbols(normalizedCodes);
   rotationPoolUpdateInFlight = true;
   try {
     const current = readRotationPendingConfig() ?? readRotationConfig();
     const draft = writeRotationPoolDraft({
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
-      symbols: symbols as SymbolConfig[],
+      symbols,
     });
     await flushMysqlWrites();
     return draft;
@@ -1990,11 +2006,12 @@ export async function replaceRotationPool(codes: string[]) {
 
 export async function recalculateRotationPool() {
   if (rotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const active = readRotationConfig();
   const pending = readRotationPendingConfig();
-  if (!pending || sameSymbolSet(readRotationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的标的池变更');
+  const config = pending && !sameSymbolSet(active.symbols, pending.symbols) ? pending : active;
   rotationPoolUpdateInFlight = true;
   try {
-    const snapshot = await rebuildRotationPool('rotation', pending);
+    const snapshot = await rebuildRotationPool('rotation', config);
     if (storedFileExists(rotationPendingConfigPath)) deleteStoredFile(rotationPendingConfigPath);
     await flushMysqlWrites();
     return { ...snapshot, poolDraft: getRotationPoolDraft() };
@@ -2069,16 +2086,14 @@ export async function replaceAssetRotationPool(codes: string[]) {
   const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
   if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
   if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
-  const availableSymbols = new Map(readAssetCombinationConfig().symbols.map((symbol) => [symbol.code, symbol]));
-  const symbols = normalizedCodes.map((code) => availableSymbols.get(code));
-  if (symbols.some((symbol) => !symbol)) throw new Error('组合中包含已不在组合池内的 ETF，请重新计算全组合排名');
+  const symbols = await resolveRotationPoolSymbols(normalizedCodes);
   assetRotationPoolUpdateInFlight = true;
   try {
     const current = readAssetRotationPendingConfig() ?? readAssetRotationConfig();
     const draft = writeAssetRotationPoolDraft({
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
-      symbols: symbols as SymbolConfig[],
+      symbols,
     });
     await flushMysqlWrites();
     return draft;
@@ -2089,11 +2104,12 @@ export async function replaceAssetRotationPool(codes: string[]) {
 
 export async function recalculateAssetRotationPool() {
   if (assetRotationPoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const active = readAssetRotationConfig();
   const pending = readAssetRotationPendingConfig();
-  if (!pending || sameSymbolSet(readAssetRotationConfig().symbols, pending.symbols)) throw new Error('当前没有待计算的标的池变更');
+  const config = pending && !sameSymbolSet(active.symbols, pending.symbols) ? pending : active;
   assetRotationPoolUpdateInFlight = true;
   try {
-    const snapshot = await rebuildRotationPool('asset-rotation', pending);
+    const snapshot = await rebuildRotationPool('asset-rotation', config);
     if (storedFileExists(assetRotationPendingConfigPath)) deleteStoredFile(assetRotationPendingConfigPath);
     await flushMysqlWrites();
     return { ...snapshot, poolDraft: getAssetRotationPoolDraft() };

@@ -7,6 +7,20 @@ export type EtfSearchResult = {
   category: MarketCategory;
 };
 
+export type SavedRotationPool = {
+  id: number;
+  strategy: 'rotation' | 'asset-rotation';
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  symbols: Array<{
+    marketCode: string;
+    code: string;
+    name: string;
+    category: string;
+  }>;
+};
+
 export type RotationBacktestResponse = {
   version: string;
   strategy: 'rotation' | 'asset-rotation' | 'dual-etf';

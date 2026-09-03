@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
-import { closeMysqlStore, initializeMysqlStore, mysqlStoreStats } from './mysql-store.js';
+import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
 type CombinationQuery = {
@@ -21,6 +21,10 @@ const combinationFilters = (query: CombinationQuery) => ({
   currentYearDrawdown: Number(query.currentYearDrawdown),
   codes: String(query.codes ?? '').split(',').map((code) => code.trim()).filter(Boolean),
 });
+const savedPoolStrategy = (strategy: string): MysqlSavedPoolStrategy => {
+  if (strategy === 'rotation' || strategy === 'asset-rotation') return strategy;
+  throw new Error('仅策略一和策略二支持保存轮动标的池');
+};
 const allowedCorsOrigins = new Set([
   'https://wzzc-9.github.io',
   'http://127.0.0.1:4173',
@@ -201,6 +205,43 @@ app.get<{ Querystring: { q?: string } }>('/api/etfs/search', async (request, rep
   } catch (error) {
     request.log.error(error);
     return reply.code(502).send({ error: 'ETF_SEARCH_ERROR', message: error instanceof Error ? error.message : 'ETF 搜索暂时不可用' });
+  }
+});
+
+app.get<{ Params: { strategy: string } }>('/api/strategy/:strategy/saved-pools', async (request, reply) => {
+  try {
+    const pools = await listMysqlSavedRotationPools(savedPoolStrategy(request.params.strategy));
+    reply.header('Cache-Control', 'no-store');
+    return { pools };
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(400).send({ error: 'SAVED_POOL_LIST_ERROR', message: error instanceof Error ? error.message : '已保存标的池读取失败' });
+  }
+});
+
+app.post<{ Params: { strategy: string }; Body: { name?: string; codes?: string[] } }>('/api/strategy/:strategy/saved-pools', async (request, reply) => {
+  try {
+    const savedPool = await saveMysqlRotationPool(
+      savedPoolStrategy(request.params.strategy),
+      String(request.body?.name ?? ''),
+      Array.isArray(request.body?.codes) ? request.body.codes : [],
+    );
+    reply.header('Cache-Control', 'no-store');
+    return { savedPool };
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(400).send({ error: 'SAVED_POOL_SAVE_ERROR', message: error instanceof Error ? error.message : '标的池保存失败' });
+  }
+});
+
+app.delete<{ Params: { strategy: string; id: string } }>('/api/strategy/:strategy/saved-pools/:id', async (request, reply) => {
+  try {
+    await deleteMysqlSavedRotationPool(savedPoolStrategy(request.params.strategy), Number(request.params.id));
+    reply.header('Cache-Control', 'no-store');
+    return { success: true };
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(400).send({ error: 'SAVED_POOL_DELETE_ERROR', message: error instanceof Error ? error.message : '已保存标的池删除失败' });
   }
 });
 

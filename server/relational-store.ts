@@ -49,6 +49,24 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
       display_order: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: 'ETF在标的池中的显示顺序' },
     },
   },
+  strategy_saved_pools: {
+    table: '用户命名保存的指数策略轮动标的池表',
+    columns: {
+      id: { definition: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', comment: '已保存标的池主键' },
+      strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '所属指数策略编码' },
+      pool_name: { definition: 'VARCHAR(40) NOT NULL', comment: '用户为标的池设置的名称' },
+      created_at: { definition: 'DATETIME(3) NOT NULL', comment: '标的池首次保存时间' },
+      updated_at: { definition: 'DATETIME(3) NOT NULL', comment: '标的池最近覆盖保存时间' },
+    },
+  },
+  strategy_saved_pool_etfs: {
+    table: '用户命名保存的轮动标的池ETF成员表',
+    columns: {
+      saved_pool_id: { definition: 'BIGINT UNSIGNED NOT NULL', comment: '所属已保存标的池主键' },
+      etf_code: { definition: 'CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '标的池包含的ETF六位交易代码' },
+      display_order: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: 'ETF在已保存标的池中的显示顺序' },
+    },
+  },
   strategy_history_etfs: {
     table: '策略可用ETF历史行情清单表',
     columns: {
@@ -264,6 +282,22 @@ export async function createRelationalSchema(db: Database) {
     CONSTRAINT fk_config_etf_config FOREIGN KEY (config_id) REFERENCES strategy_configs(id) ON DELETE CASCADE,
     CONSTRAINT fk_config_etf_etf FOREIGN KEY (etf_code) REFERENCES etfs(etf_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数策略配置ETF成员表'`);
+  await db.query(`CREATE TABLE IF NOT EXISTS strategy_saved_pools (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '已保存标的池主键',
+    strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '所属指数策略编码',
+    pool_name VARCHAR(40) NOT NULL COMMENT '用户为标的池设置的名称',
+    created_at DATETIME(3) NOT NULL COMMENT '标的池首次保存时间', updated_at DATETIME(3) NOT NULL COMMENT '标的池最近覆盖保存时间',
+    PRIMARY KEY (id), UNIQUE KEY uk_saved_pool_name (strategy_code, pool_name), KEY idx_saved_pool_updated (strategy_code, updated_at),
+    CONSTRAINT fk_saved_pool_strategy FOREIGN KEY (strategy_code) REFERENCES strategies(strategy_code) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户命名保存的指数策略轮动标的池表'`);
+  await db.query(`CREATE TABLE IF NOT EXISTS strategy_saved_pool_etfs (
+    saved_pool_id BIGINT UNSIGNED NOT NULL COMMENT '所属已保存标的池主键',
+    etf_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '标的池包含的ETF六位交易代码',
+    display_order SMALLINT UNSIGNED NOT NULL COMMENT 'ETF在已保存标的池中的显示顺序',
+    PRIMARY KEY (saved_pool_id, etf_code), UNIQUE KEY uk_saved_pool_etf_order (saved_pool_id, display_order),
+    CONSTRAINT fk_saved_pool_etf_pool FOREIGN KEY (saved_pool_id) REFERENCES strategy_saved_pools(id) ON DELETE CASCADE,
+    CONSTRAINT fk_saved_pool_etf_etf FOREIGN KEY (etf_code) REFERENCES etfs(etf_code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户命名保存的轮动标的池ETF成员表'`);
   await db.query(`CREATE TABLE IF NOT EXISTS strategy_history_etfs (
     strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '使用该历史行情的指数策略编码', etf_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'ETF六位交易代码',
     display_name VARCHAR(100) NOT NULL COMMENT '生成历史数据时使用的ETF名称', updated_at DATETIME(3) NOT NULL COMMENT '历史行情最近同步时间', PRIMARY KEY (strategy_code, etf_code),
