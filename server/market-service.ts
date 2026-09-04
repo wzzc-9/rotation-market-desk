@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
+import { activateMysqlStrategyPoolCache, flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
 type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
@@ -695,19 +695,22 @@ function writeStrategyConfig(path: string, config: AssetRotationConfig) {
   writeTextAtomic(path, strategyConfigText(path, config));
 }
 
-function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
-  const backtest = JSON.parse(readStoredText(path)) as AssetRotationBacktest;
-  const expectedVersion = strategy === 'asset-rotation'
+function strategyBacktestVersion(strategy: IndexStrategy) {
+  return strategy === 'asset-rotation'
     ? 'asset-rotation-return20-ma28-weekly-v2'
     : strategy === 'dual-etf'
       ? 'dual-etf-return20-ma20-daily-v1'
       : 'rotation-ma20-daily-v2';
+}
+
+function readStrategyBacktest(path: string, strategy: IndexStrategy, config: AssetRotationConfig, label: string): AssetRotationBacktest {
+  const backtest = JSON.parse(readStoredText(path)) as AssetRotationBacktest;
+  const expectedVersion = strategyBacktestVersion(strategy);
   if (
     backtest.version !== expectedVersion
     || backtest.strategy !== strategy
-    || backtest.configVersion !== config.version
     || !Array.isArray(backtest.symbols)
-    || backtest.symbols.map((item) => item.code).join(',') !== config.symbols.map((item) => item.code).join(',')
+    || !sameSymbolSet(backtest.symbols, config.symbols)
     || !Array.isArray(backtest.annualReturns)
   ) throw new Error(`${label}近 10 年回测与当前标的池不一致，请重新计算`);
   return backtest;
@@ -779,21 +782,23 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
   const path = resolve(directory, `${year}.json`);
   if (!storedFileExists(path)) return null;
   try {
-    const record = JSON.parse(readStoredText(path)) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number };
+    const record = JSON.parse(readStoredText(path)) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number; symbols?: SymbolConfig[] };
     const expectedVersion = strategy === 'asset-rotation'
       ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
         ? 'dual-etf-year-performance-v2'
         : 'rotation-year-performance-v5';
-    const expectedConfigVersion = strategy === 'asset-rotation'
-      ? readAssetRotationConfig().version
+    const expectedConfig = strategy === 'asset-rotation'
+      ? readAssetRotationConfig()
       : strategy === 'dual-etf'
-        ? readDualEtfConfig().version
-        : readRotationConfig().version;
+        ? readDualEtfConfig()
+        : readRotationConfig();
+    const expectedCodes = new Set(expectedConfig.symbols.map((symbol) => symbol.code));
     if (
       record.version !== expectedVersion
       || record.strategy !== strategy
-      || record.configVersion !== expectedConfigVersion
+      || !Array.isArray(record.symbols)
+      || !sameSymbolSet(record.symbols, expectedConfig.symbols)
       || record.year !== year
       || !Array.isArray(record.nodes)
       || !Array.isArray(record.equityCurve)
@@ -802,6 +807,7 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
       || record.equityCurve.some((point) => typeof point.date !== 'string' || typeof point.returnRate !== 'number')
       || (record.currentTradeReturn !== null && typeof record.currentTradeReturn !== 'number')
       || record.nodes.some((node) => node.tradeReturn !== null && typeof node.tradeReturn !== 'number')
+      || record.nodes.some((node) => (node.fromCode !== null && !expectedCodes.has(node.fromCode)) || (node.toCode !== null && !expectedCodes.has(node.toCode)))
     ) return null;
     return record;
   } catch {
@@ -1346,6 +1352,31 @@ async function fetchFullQfqSymbol(config: SymbolConfig) {
   };
 }
 
+async function fetchQfqSymbolRange(config: SymbolConfig, start: string, end: string) {
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${config.marketCode},day,${start},${end},640,qfq`;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!response.ok) throw new Error(`${config.code} 增量行情接口返回 HTTP ${response.status}`);
+      const payload = await response.json() as {
+        data?: Record<string, { qfqday?: TencentRow[]; day?: TencentRow[] }>;
+      };
+      const block = payload.data?.[config.marketCode];
+      const rows = block?.qfqday ?? block?.day ?? [];
+      if (!rows.length) throw new Error(`${config.code} 未返回 ${start} 至 ${end} 的增量行情`);
+      return rows.map(parseRow).sort((left, right) => left.date.localeCompare(right.date));
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolvePromise) => setTimeout(resolvePromise, attempt * 400));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${config.code} 增量行情获取失败`);
+}
+
 function calculateRotationYearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[]): RotationYearPerformance {
   const names = new Map(markets.map((market) => [market.code, market.name]));
   const closes = new Map(markets.map((market) => [
@@ -1824,8 +1855,36 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
   const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : 'backtest.cjs';
   const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
   const workspaceRoot = createCalculationWorkspace();
-  writeCalculationText(workspaceRoot, configPath, strategyConfigText(configPath, config));
+  let artifactsCommitted = false;
+  const configContent = strategyConfigText(configPath, config);
+  writeCalculationText(workspaceRoot, configPath, configContent);
   try {
+    const cacheHit = await activateMysqlStrategyPoolCache(strategy, config.symbols, configPath, configContent, strategyBacktestVersion(strategy));
+    if (cacheHit) {
+      artifactsCommitted = true;
+      const historyState = await prepareCombinationHistory(config, workspaceRoot, historyDirectory);
+      if (!historyState.historyRevised) {
+        if (isAsset) {
+          cachedAssetRotationSnapshot = null;
+          cachedAssetRotationAt = 0;
+          const snapshot = await getAssetRotationSnapshot(false);
+          await flushMysqlWrites();
+          return snapshot;
+        }
+        if (isDual) {
+          cachedDualEtfSnapshot = null;
+          cachedDualEtfAt = 0;
+          const snapshot = await getDualEtfSnapshot(false);
+          await flushMysqlWrites();
+          return snapshot;
+        }
+        cachedSnapshot = null;
+        cachedAt = 0;
+        const snapshot = await getRotationSnapshot(false);
+        await flushMysqlWrites();
+        return snapshot;
+      }
+    }
     await stageMysqlEtfHistories(workspaceRoot, historyDirectory, config.symbols);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', downloadScript)], {
       cwd: process.cwd(),
@@ -1840,6 +1899,7 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       maxBuffer: 2 * 1024 * 1024,
     });
     await syncCalculationArtifacts(workspaceRoot, [configPath, backtestPath, ...calculationJsonFiles(workspaceRoot, historyDirectory)]);
+    artifactsCommitted = true;
     if (isAsset) {
       readAssetRotationBacktest(config);
       cachedAssetRotationSnapshot = null;
@@ -1872,6 +1932,20 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     } else {
       cachedSnapshot = null;
       cachedAt = 0;
+    }
+    if (artifactsCommitted) {
+      try {
+        const recoveredSnapshot = isAsset
+          ? await getAssetRotationSnapshot(false)
+          : isDual
+            ? await getDualEtfSnapshot(false)
+            : await getRotationSnapshot(false);
+        await flushMysqlWrites();
+        return recoveredSnapshot;
+      } catch (recoveryError) {
+        await flushMysqlWrites();
+        throw new Error(`标的池和历史回测已更新，但最新行情快照生成失败：${recoveryError instanceof Error ? recoveryError.message : '未知错误'}`);
+      }
     }
     await flushMysqlWrites();
     throw new Error(`标的池更新失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
@@ -2176,6 +2250,7 @@ async function prepareCombinationHistory(config: AssetRotationConfig, workspaceR
   if (missingQuotes.length) throw new Error(`以下 ETF 未返回有效实时行情：${missingQuotes.map((item) => item.code).join('、')}`);
 
   const persistentHistories: Array<{ path: string; content: string }> = [];
+  let historyRevised = false;
   const databaseHistories = await mysqlEtfHistories(config.symbols);
   for (const symbol of config.symbols) {
     const logicalPath = resolve(historyDirectory, `${symbol.code}.json`);
@@ -2186,13 +2261,37 @@ async function prepareCombinationHistory(config: AssetRotationConfig, workspaceR
     const storedLastDate = completedHistory.at(-1)?.date ?? '';
 
     if (storedLastDate < quoteDate) {
-      const downloaded = await fetchFullQfqSymbol(symbol);
-      completedHistory = downloaded.history.filter((candle) => completed || candle.date < quoteDate);
-      if (completed) {
-        completedHistory = mergeCurrentQuote({ ...downloaded, history: completedHistory, candles: completedHistory.slice(-90) }, quote).history;
+      let symbolHistoryRevised = false;
+      if (storedLastDate) {
+        const incremental = await fetchQfqSymbolRange(symbol, storedLastDate, quoteDate);
+        const storedOverlap = completedHistory.find((candle) => candle.date === storedLastDate);
+        const fetchedOverlap = incremental.find((candle) => candle.date === storedLastDate);
+        symbolHistoryRevised = Boolean(storedOverlap && fetchedOverlap && (
+          Math.abs(storedOverlap.open - fetchedOverlap.open) > 1e-8
+          || Math.abs(storedOverlap.close - fetchedOverlap.close) > 1e-8
+          || Math.abs(storedOverlap.high - fetchedOverlap.high) > 1e-8
+          || Math.abs(storedOverlap.low - fetchedOverlap.low) > 1e-8
+        ));
+        if (symbolHistoryRevised) {
+          historyRevised = true;
+          const downloaded = await fetchFullQfqSymbol(symbol);
+          completedHistory = downloaded.history.filter((candle) => completed || candle.date < quoteDate);
+        } else {
+          const merged = new Map(completedHistory.map((candle) => [candle.date, candle]));
+          for (const candle of incremental) if (completed || candle.date < quoteDate) merged.set(candle.date, candle);
+          completedHistory = [...merged.values()].sort((left, right) => left.date.localeCompare(right.date));
+        }
+      } else {
+        const downloaded = await fetchFullQfqSymbol(symbol);
+        completedHistory = downloaded.history.filter((candle) => completed || candle.date < quoteDate);
       }
-      const content = historyRecordContent(symbol, completedHistory);
-      persistentHistories.push({ path: logicalPath, content });
+      if (completed) {
+        completedHistory = mergeCurrentQuote({ ...symbol, rawLastDate: completedHistory.at(-1)!.date, history: completedHistory, candles: completedHistory.slice(-90) }, quote).history;
+      }
+      if (symbolHistoryRevised || completedHistory.at(-1)?.date !== storedLastDate) {
+        const content = historyRecordContent(symbol, completedHistory);
+        persistentHistories.push({ path: logicalPath, content });
+      }
     }
 
     if (completedHistory.length < 28) throw new Error(`${symbol.code} 可用历史行情不足 28 条`);
@@ -2206,6 +2305,7 @@ async function prepareCombinationHistory(config: AssetRotationConfig, workspaceR
   }
 
   if (persistentHistories.length) await replaceMysqlObjects(persistentHistories);
+  return { historyRevised };
 }
 
 export async function recalculateAssetCombinationPool() {
@@ -2251,12 +2351,24 @@ export async function updateDualEtfPool(action: 'add' | 'remove', code: string) 
   }
 }
 
+function snapshotMatchesConfig(snapshot: RotationSnapshot, config: AssetRotationConfig) {
+  const expectedCodes = new Set(config.symbols.map((symbol) => symbol.code));
+  const backtestMatches = snapshot.backtest
+    && snapshot.backtest.version === strategyBacktestVersion(snapshot.backtest.strategy)
+    && sameSymbolSet(snapshot.backtest.symbols, config.symbols);
+  const yearNodesMatch = snapshot.yearPerformance.nodes.every((node) => (
+    (node.fromCode === null || expectedCodes.has(node.fromCode))
+    && (node.toCode === null || expectedCodes.has(node.toCode))
+  ));
+  return sameSymbolSet(snapshot.markets, config.symbols) && Boolean(backtestMatches) && yearNodesMatch;
+}
+
 export async function getRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
-  if (!forceRefresh && cachedSnapshot && Date.now() - cachedAt < cacheTtlMs) {
+  const config = readRotationConfig();
+  if (!forceRefresh && cachedSnapshot && Date.now() - cachedAt < cacheTtlMs && snapshotMatchesConfig(cachedSnapshot, config)) {
     return { ...cachedSnapshot, poolDraft: getRotationPoolDraft(), cached: true };
   }
 
-  const config = readRotationConfig();
   const fetched = [];
   for (const symbol of config.symbols) fetched.push(await fetchSymbol(symbol));
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
@@ -2313,11 +2425,11 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
 }
 
 export async function getAssetRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
-  if (!forceRefresh && cachedAssetRotationSnapshot && Date.now() - cachedAssetRotationAt < cacheTtlMs) {
+  const config = readAssetRotationConfig();
+  if (!forceRefresh && cachedAssetRotationSnapshot && Date.now() - cachedAssetRotationAt < cacheTtlMs && snapshotMatchesConfig(cachedAssetRotationSnapshot, config)) {
     return { ...cachedAssetRotationSnapshot, poolDraft: getAssetRotationPoolDraft(), cached: true };
   }
 
-  const config = readAssetRotationConfig();
   let quotes = new Map<string, TencentQuote>();
   let completedTradingDay = false;
   if (forceRefresh) {
@@ -2401,11 +2513,11 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
 }
 
 export async function getDualEtfSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
-  if (!forceRefresh && cachedDualEtfSnapshot && Date.now() - cachedDualEtfAt < cacheTtlMs) {
+  const config = readDualEtfConfig();
+  if (!forceRefresh && cachedDualEtfSnapshot && Date.now() - cachedDualEtfAt < cacheTtlMs && snapshotMatchesConfig(cachedDualEtfSnapshot, config)) {
     return { ...cachedDualEtfSnapshot, cached: true };
   }
 
-  const config = readDualEtfConfig();
   const fetched = [];
   for (const symbol of config.symbols) fetched.push(await fetchSymbol(symbol));
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql2/promise';
-import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, migrateLegacyDocuments, persistRelationalObject, relationalSchemaComments } from './relational-store.js';
+import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, loadStrategyPoolResultObjects, migrateLegacyDocuments, persistRelationalObject, relationalSchemaComments } from './relational-store.js';
+import { strategyPoolHash } from './pool-cache.js';
 
 type CombinationStrategy = 'rotation' | 'asset-rotation';
 
@@ -682,6 +683,50 @@ export async function replaceMysqlObjects(objects: Array<{ path: string; content
     for (const record of records) await persistRelationalObject(connection, record.key, record.content);
     await connection.commit();
     for (const record of records) objectCache.set(record.key, record.content);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function activateMysqlStrategyPoolCache(
+  strategy: 'rotation' | 'asset-rotation' | 'dual-etf',
+  symbols: Array<{ code: string }>,
+  configPath: string,
+  configContent: string,
+  expectedBacktestVersion: string,
+) {
+  if (!pool) throw new Error('MySQL 尚未初始化');
+  JSON.parse(configContent);
+  await flushMysqlWrites();
+  const configKey = storageKey(configPath);
+  const poolHash = strategyPoolHash(symbols);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const cachedObjects = await loadStrategyPoolResultObjects(connection, strategy, poolHash);
+    const backtestKey = `data/${strategy}/backtest.json`;
+    const backtestContent = cachedObjects.get(backtestKey);
+    if (!backtestContent) {
+      await connection.rollback();
+      return false;
+    }
+    const backtest = JSON.parse(backtestContent) as { version?: string; symbols?: Array<{ code: string }> };
+    if (backtest.version !== expectedBacktestVersion || strategyPoolHash(backtest.symbols ?? []) !== poolHash) {
+      await connection.rollback();
+      return false;
+    }
+    await persistRelationalObject(connection, configKey, configContent);
+    await connection.commit();
+
+    objectCache.set(configKey, configContent);
+    objectCache.delete(backtestKey);
+    const yearPrefix = `data/${strategy}/year-performance/`;
+    for (const key of objectCache.keys()) if (key.startsWith(yearPrefix)) objectCache.delete(key);
+    for (const [key, content] of cachedObjects) objectCache.set(key, content);
+    return true;
   } catch (error) {
     await connection.rollback();
     throw error;

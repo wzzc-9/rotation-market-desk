@@ -1,4 +1,5 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
+import { strategyPoolHash } from './pool-cache.js';
 
 type Database = Pool | PoolConnection;
 
@@ -94,6 +95,7 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
     columns: {
       id: { definition: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', comment: '回测主键' },
       strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '所属指数策略编码' },
+      pool_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '回测标的池ETF代码集合SHA-256哈希' },
       backtest_version: { definition: 'VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '回测算法版本' },
       config_version: { definition: 'INT UNSIGNED NOT NULL', comment: '回测使用的标的池配置版本' },
       generated_at: { definition: 'DATETIME(3) NOT NULL', comment: '回测生成时间' },
@@ -131,6 +133,7 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
     columns: {
       id: { definition: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', comment: '年度表现主键' },
       strategy_code: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '所属指数策略编码' },
+      pool_hash: { definition: 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '年度表现标的池ETF代码集合SHA-256哈希' },
       performance_year: { definition: 'SMALLINT UNSIGNED NOT NULL', comment: '统计年份' },
       performance_version: { definition: 'VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '年度表现计算版本' },
       config_version: { definition: 'INT UNSIGNED NOT NULL', comment: '计算使用的标的池配置版本' },
@@ -252,6 +255,78 @@ const strategyDefinitions = [
   ['bull-point', '多空趋势多点', 'stock_scan', '同花顺风格多空趋势多点扫描'],
 ] as const;
 
+async function schemaColumnExists(db: Database, table: string, column: string) {
+  const [rows] = await db.query<Array<RowDataPacket & { total: number }>>(
+    `SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`,
+    [table, column],
+  );
+  return Number(rows[0]?.total) > 0;
+}
+
+async function schemaIndexExists(db: Database, table: string, index: string) {
+  const [rows] = await db.query<Array<RowDataPacket & { total: number }>>(
+    `SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?`,
+    [table, index],
+  );
+  return Number(rows[0]?.total) > 0;
+}
+
+async function schemaColumnAllowsNull(db: Database, table: string, column: string) {
+  const [rows] = await db.query<Array<RowDataPacket & { is_nullable: string }>>(
+    `SELECT IS_NULLABLE AS is_nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`,
+    [table, column],
+  );
+  return rows[0]?.is_nullable === 'YES';
+}
+
+async function ensureStrategyResultPoolHashes(db: Database) {
+  const definitions = [
+    {
+      table: 'strategy_backtests',
+      memberTable: 'strategy_backtest_etfs',
+      parentColumn: 'backtest_id',
+      oldIndex: 'uk_strategy_backtest',
+      newIndex: 'uk_strategy_backtest_pool',
+      comment: '回测标的池ETF代码集合SHA-256哈希',
+      uniqueColumns: 'strategy_code, pool_hash',
+    },
+    {
+      table: 'strategy_year_performance',
+      memberTable: 'strategy_year_etfs',
+      parentColumn: 'performance_id',
+      oldIndex: 'uk_strategy_year',
+      newIndex: 'uk_strategy_year_pool',
+      comment: '年度表现标的池ETF代码集合SHA-256哈希',
+      uniqueColumns: 'strategy_code, pool_hash, performance_year',
+    },
+  ] as const;
+
+  for (const definition of definitions) {
+    if (!(await schemaColumnExists(db, definition.table, 'pool_hash'))) {
+      await db.query(`ALTER TABLE ${definition.table} ADD COLUMN pool_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT '${definition.comment}' AFTER strategy_code`);
+    }
+    const [rows] = await db.query<Array<RowDataPacket & { id: number; pool_hash: string | null; codes: string | null }>>(
+      `SELECT parent.id, parent.pool_hash, GROUP_CONCAT(member.etf_code ORDER BY member.etf_code SEPARATOR ',') AS codes
+       FROM ${definition.table} parent LEFT JOIN ${definition.memberTable} member ON member.${definition.parentColumn}=parent.id
+       GROUP BY parent.id, parent.pool_hash`,
+    );
+    for (const row of rows) {
+      if (/^[0-9a-f]{64}$/.test(row.pool_hash ?? '')) continue;
+      const symbols = String(row.codes ?? '').split(',').filter(Boolean).map((code) => ({ code }));
+      await db.execute(`UPDATE ${definition.table} SET pool_hash=? WHERE id=?`, [strategyPoolHash(symbols), row.id]);
+    }
+    if (await schemaColumnAllowsNull(db, definition.table, 'pool_hash')) {
+      await db.query(`ALTER TABLE ${definition.table} MODIFY pool_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '${definition.comment}'`);
+    }
+    if (!(await schemaIndexExists(db, definition.table, definition.newIndex))) {
+      await db.query(`ALTER TABLE ${definition.table} ADD UNIQUE KEY ${definition.newIndex} (${definition.uniqueColumns})`);
+    }
+    if (await schemaIndexExists(db, definition.table, definition.oldIndex)) {
+      await db.query(`ALTER TABLE ${definition.table} DROP INDEX ${definition.oldIndex}`);
+    }
+  }
+}
+
 export async function createRelationalSchema(db: Database) {
   await db.query(`CREATE TABLE IF NOT EXISTS strategies (
     strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '策略唯一编码',
@@ -310,12 +385,12 @@ export async function createRelationalSchema(db: Database) {
     PRIMARY KEY (etf_code, trade_date), KEY idx_etf_trade_date (trade_date), CONSTRAINT fk_daily_price_etf FOREIGN KEY (etf_code) REFERENCES etfs(etf_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF前复权日线行情表'`);
   await db.query(`CREATE TABLE IF NOT EXISTS strategy_backtests (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '回测主键', strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '所属指数策略编码',
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '回测主键', strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '所属指数策略编码', pool_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '回测标的池ETF代码集合SHA-256哈希',
     backtest_version VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '回测算法版本', config_version INT UNSIGNED NOT NULL COMMENT '回测使用的标的池配置版本',
     generated_at DATETIME(3) NOT NULL COMMENT '回测生成时间', start_date DATE NOT NULL COMMENT '回测起始交易日', end_date DATE NOT NULL COMMENT '回测结束交易日',
     cumulative_return DECIMAL(20,8) NOT NULL COMMENT '回测累计收益率，单位百分比', annualized_return DECIMAL(20,8) NOT NULL COMMENT '回测年化收益率，单位百分比',
     positive_years SMALLINT UNSIGNED NOT NULL COMMENT '正收益年份数量', worst_drawdown DECIMAL(20,8) NOT NULL COMMENT '回测最大回撤，单位百分比', updated_at DATETIME(3) NOT NULL COMMENT '回测记录更新时间',
-    PRIMARY KEY (id), UNIQUE KEY uk_strategy_backtest (strategy_code), CONSTRAINT fk_backtest_strategy FOREIGN KEY (strategy_code) REFERENCES strategies(strategy_code)
+    PRIMARY KEY (id), UNIQUE KEY uk_strategy_backtest_pool (strategy_code, pool_hash), CONSTRAINT fk_backtest_strategy FOREIGN KEY (strategy_code) REFERENCES strategies(strategy_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数策略近十年回测汇总表'`);
   await db.query(`CREATE TABLE IF NOT EXISTS strategy_backtest_etfs (
     backtest_id BIGINT UNSIGNED NOT NULL COMMENT '所属回测主键', etf_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '回测使用的ETF代码',
@@ -329,12 +404,12 @@ export async function createRelationalSchema(db: Database) {
     CONSTRAINT fk_backtest_year_backtest FOREIGN KEY (backtest_id) REFERENCES strategy_backtests(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数策略回测年度收益表'`);
   await db.query(`CREATE TABLE IF NOT EXISTS strategy_year_performance (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '年度表现主键', strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '所属指数策略编码', performance_year SMALLINT UNSIGNED NOT NULL COMMENT '统计年份',
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '年度表现主键', strategy_code VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '所属指数策略编码', pool_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '年度表现标的池ETF代码集合SHA-256哈希', performance_year SMALLINT UNSIGNED NOT NULL COMMENT '统计年份',
     performance_version VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '年度表现计算版本', config_version INT UNSIGNED NOT NULL COMMENT '计算使用的标的池配置版本', provider VARCHAR(80) NOT NULL COMMENT '行情数据提供方',
     calculated_at DATETIME(3) NOT NULL COMMENT '计算完成时间', start_date DATE NOT NULL COMMENT '年度统计起始交易日', last_trading_date DATE NOT NULL COMMENT '年度统计截至交易日',
     cumulative_return DECIMAL(20,8) NOT NULL COMMENT '年内累计收益率，单位百分比', current_holding VARCHAR(100) NULL COMMENT '当前持仓ETF名称，空仓时为空',
     current_trade_return DECIMAL(20,8) NULL COMMENT '当前持仓单次收益率，单位百分比', updated_at DATETIME(3) NOT NULL COMMENT '年度表现记录更新时间', PRIMARY KEY (id),
-    UNIQUE KEY uk_strategy_year (strategy_code, performance_year), CONSTRAINT fk_year_performance_strategy FOREIGN KEY (strategy_code) REFERENCES strategies(strategy_code)
+    UNIQUE KEY uk_strategy_year_pool (strategy_code, pool_hash, performance_year), CONSTRAINT fk_year_performance_strategy FOREIGN KEY (strategy_code) REFERENCES strategies(strategy_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数策略年度实时表现汇总表'`);
   const [holdingColumns] = await db.query<Array<RowDataPacket & { DATA_TYPE: string; CHARACTER_MAXIMUM_LENGTH: number; CHARACTER_SET_NAME: string }>>(
     `SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, CHARACTER_SET_NAME FROM information_schema.COLUMNS
@@ -349,6 +424,7 @@ export async function createRelationalSchema(db: Database) {
     display_order SMALLINT UNSIGNED NOT NULL COMMENT 'ETF在年度标的池中的顺序', PRIMARY KEY (performance_id, etf_code), UNIQUE KEY uk_year_etf_order (performance_id, display_order),
     CONSTRAINT fk_year_etf_performance FOREIGN KEY (performance_id) REFERENCES strategy_year_performance(id) ON DELETE CASCADE, CONSTRAINT fk_year_etf_etf FOREIGN KEY (etf_code) REFERENCES etfs(etf_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数策略年度表现ETF快照表'`);
+  await ensureStrategyResultPoolHashes(db);
   await db.query(`CREATE TABLE IF NOT EXISTS strategy_equity_points (
     performance_id BIGINT UNSIGNED NOT NULL COMMENT '所属年度表现主键', trade_date DATE NOT NULL COMMENT '收益曲线交易日期', return_rate DECIMAL(20,8) NOT NULL COMMENT '截至该日累计收益率，单位百分比',
     PRIMARY KEY (performance_id, trade_date), CONSTRAINT fk_equity_performance FOREIGN KEY (performance_id) REFERENCES strategy_year_performance(id) ON DELETE CASCADE
@@ -489,12 +565,13 @@ async function saveHistory(db: Database, key: string, value: any) {
 
 async function saveBacktest(db: Database, key: string, value: any) {
   const strategy = backtestPath(key)!;
+  const poolHash = strategyPoolHash(value.symbols ?? []);
   for (const symbol of value.symbols ?? []) await upsertEtf(db, symbol);
-  await db.execute(`INSERT INTO strategy_backtests (strategy_code, backtest_version, config_version, generated_at, start_date, end_date, cumulative_return, annualized_return, positive_years, worst_drawdown, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE backtest_version=VALUES(backtest_version), config_version=VALUES(config_version), generated_at=VALUES(generated_at), start_date=VALUES(start_date), end_date=VALUES(end_date),
+  await db.execute(`INSERT INTO strategy_backtests (strategy_code, pool_hash, backtest_version, config_version, generated_at, start_date, end_date, cumulative_return, annualized_return, positive_years, worst_drawdown, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE backtest_version=VALUES(backtest_version), config_version=VALUES(config_version), generated_at=VALUES(generated_at), start_date=VALUES(start_date), end_date=VALUES(end_date),
     cumulative_return=VALUES(cumulative_return), annualized_return=VALUES(annualized_return), positive_years=VALUES(positive_years), worst_drawdown=VALUES(worst_drawdown), updated_at=NOW(3)`,
-  [strategy, value.version, value.configVersion, new Date(value.generatedAt), value.period.start, value.period.end, value.summary.cumulativeReturn, value.summary.annualizedReturn, value.summary.positiveYears, value.summary.worstDrawdown]);
-  const [rows] = await db.query<Array<RowDataPacket & { id: number }>>('SELECT id FROM strategy_backtests WHERE strategy_code=?', [strategy]);
+  [strategy, poolHash, value.version, value.configVersion, new Date(value.generatedAt), value.period.start, value.period.end, value.summary.cumulativeReturn, value.summary.annualizedReturn, value.summary.positiveYears, value.summary.worstDrawdown]);
+  const [rows] = await db.query<Array<RowDataPacket & { id: number }>>('SELECT id FROM strategy_backtests WHERE strategy_code=? AND pool_hash=?', [strategy, poolHash]);
   const id = rows[0].id;
   await db.execute('DELETE FROM strategy_backtest_etfs WHERE backtest_id=?', [id]);
   await db.execute('DELETE FROM strategy_backtest_years WHERE backtest_id=?', [id]);
@@ -506,12 +583,13 @@ async function saveBacktest(db: Database, key: string, value: any) {
 
 async function saveYearPerformance(db: Database, key: string, value: any) {
   const path = yearPath(key)!;
+  const poolHash = strategyPoolHash(value.symbols ?? []);
   for (const symbol of value.symbols ?? []) await upsertEtf(db, symbol);
-  await db.execute(`INSERT INTO strategy_year_performance (strategy_code, performance_year, performance_version, config_version, provider, calculated_at, start_date, last_trading_date, cumulative_return, current_holding, current_trade_return, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE performance_version=VALUES(performance_version), config_version=VALUES(config_version), provider=VALUES(provider), calculated_at=VALUES(calculated_at),
+  await db.execute(`INSERT INTO strategy_year_performance (strategy_code, pool_hash, performance_year, performance_version, config_version, provider, calculated_at, start_date, last_trading_date, cumulative_return, current_holding, current_trade_return, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE performance_version=VALUES(performance_version), config_version=VALUES(config_version), provider=VALUES(provider), calculated_at=VALUES(calculated_at),
     start_date=VALUES(start_date), last_trading_date=VALUES(last_trading_date), cumulative_return=VALUES(cumulative_return), current_holding=VALUES(current_holding), current_trade_return=VALUES(current_trade_return), updated_at=NOW(3)`,
-  [path.strategy, path.year, value.version, value.configVersion, value.provider, new Date(value.calculatedAt), value.startDate, value.lastTradingDate, value.cumulativeReturn, value.currentHolding, value.currentTradeReturn]);
-  const [rows] = await db.query<Array<RowDataPacket & { id: number }>>('SELECT id FROM strategy_year_performance WHERE strategy_code=? AND performance_year=?', [path.strategy, path.year]);
+  [path.strategy, poolHash, path.year, value.version, value.configVersion, value.provider, new Date(value.calculatedAt), value.startDate, value.lastTradingDate, value.cumulativeReturn, value.currentHolding, value.currentTradeReturn]);
+  const [rows] = await db.query<Array<RowDataPacket & { id: number }>>('SELECT id FROM strategy_year_performance WHERE strategy_code=? AND pool_hash=? AND performance_year=?', [path.strategy, poolHash, path.year]);
   const id = rows[0].id;
   await db.execute('DELETE FROM strategy_year_etfs WHERE performance_id=?', [id]);
   await db.execute('DELETE FROM strategy_equity_points WHERE performance_id=?', [id]);
@@ -568,8 +646,42 @@ export async function deleteRelationalObject(db: Database, key: string) {
   throw new Error(`没有对应关系表的数据类型：${key}`);
 }
 
+export async function loadStrategyPoolResultObjects(db: Database, strategy: string, poolHash: string) {
+  const objects = new Map<string, string>();
+  const [backtests] = await db.query<Array<RowDataPacket & Record<string, any>>>(
+    'SELECT * FROM strategy_backtests WHERE strategy_code=? AND pool_hash=? ORDER BY id DESC LIMIT 1',
+    [strategy, poolHash],
+  );
+  const backtest = backtests[0];
+  if (backtest) {
+    const [symbols] = await db.query<Array<RowDataPacket & Record<string, any>>>(`SELECT e.market_code, e.etf_code, e.etf_name, e.category FROM strategy_backtest_etfs m INNER JOIN etfs e ON e.etf_code=m.etf_code WHERE m.backtest_id=? ORDER BY m.display_order`, [backtest.id]);
+    const [years] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_backtest_years WHERE backtest_id=? ORDER BY performance_year', [backtest.id]);
+    objects.set(`data/${strategy}/backtest.json`, jsonText({ version: backtest.backtest_version, strategy: backtest.strategy_code, configVersion: Number(backtest.config_version),
+      symbols: symbols.map((item) => ({ marketCode: item.market_code, code: item.etf_code, name: item.etf_name, category: item.category })), generatedAt: dateTimeValue(backtest.generated_at),
+      period: { start: dateValue(backtest.start_date), end: dateValue(backtest.end_date) }, annualReturns: years.map((item) => ({ year: Number(item.performance_year), returnRate: Number(item.return_rate), maxDrawdown: Number(item.max_drawdown), trades: Number(item.trade_count), availableAssets: Number(item.available_assets), yearEndHolding: item.year_end_holding })),
+      summary: { cumulativeReturn: Number(backtest.cumulative_return), annualizedReturn: Number(backtest.annualized_return), positiveYears: Number(backtest.positive_years), worstDrawdown: Number(backtest.worst_drawdown) } }));
+  }
+
+  const [performances] = await db.query<Array<RowDataPacket & Record<string, any>>>(
+    'SELECT * FROM strategy_year_performance WHERE strategy_code=? AND pool_hash=? ORDER BY performance_year',
+    [strategy, poolHash],
+  );
+  for (const performance of performances) {
+    const [symbols] = await db.query<Array<RowDataPacket & Record<string, any>>>(`SELECT e.market_code, e.etf_code, e.etf_name, e.category FROM strategy_year_etfs m INNER JOIN etfs e ON e.etf_code=m.etf_code WHERE m.performance_id=? ORDER BY m.display_order`, [performance.id]);
+    const [points] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_equity_points WHERE performance_id=? ORDER BY trade_date', [performance.id]);
+    const [nodes] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_trade_nodes WHERE performance_id=? ORDER BY node_order', [performance.id]);
+    const value = { version: performance.performance_version, strategy: performance.strategy_code, configVersion: Number(performance.config_version), symbols: symbols.map((item) => ({ marketCode: item.market_code, code: item.etf_code, name: item.etf_name, category: item.category })),
+      provider: performance.provider, calculatedAt: dateTimeValue(performance.calculated_at), year: Number(performance.performance_year), startDate: dateValue(performance.start_date), lastTradingDate: dateValue(performance.last_trading_date), cumulativeReturn: Number(performance.cumulative_return), nodeCount: nodes.length,
+      currentHolding: performance.current_holding, currentTradeReturn: performance.current_trade_return === null ? null : Number(performance.current_trade_return), equityCurve: points.map((item) => ({ date: dateValue(item.trade_date), returnRate: Number(item.return_rate) })),
+      nodes: nodes.map((item) => ({ date: dateValue(item.trade_date), action: item.action_type, fromCode: item.from_etf_code, fromName: item.from_etf_name, toCode: item.to_etf_code, toName: item.to_etf_name, reason: item.reason, tradeReturn: item.trade_return === null ? null : Number(item.trade_return), cumulativeReturn: Number(item.cumulative_return) })) };
+    objects.set(`data/${strategy}/year-performance/${performance.performance_year}.json`, jsonText(value));
+  }
+  return objects;
+}
+
 export async function loadRelationalObjects(db: Database) {
   const objects = new Map<string, string>();
+  const activePoolHashes = new Map<string, string>();
   const [configs] = await db.query<Array<RowDataPacket & Record<string, any>>>(`SELECT c.*, e.etf_code, e.market_code, e.etf_name, e.category, m.display_order
     FROM strategy_configs c LEFT JOIN strategy_config_etfs m ON m.config_id=c.id LEFT JOIN etfs e ON e.etf_code=m.etf_code ORDER BY c.id, m.display_order`);
   const configGroups = new Map<number, any>();
@@ -581,6 +693,7 @@ export async function loadRelationalObjects(db: Database) {
   for (const { row, symbols } of configGroups.values()) {
     const file = row.config_kind === 'combination_pool' ? (row.config_state === 'pending' ? 'combination-pending-config' : 'combination-config') : (row.config_state === 'pending' ? 'pending-config' : 'config');
     objects.set(`data/${row.strategy_code}/${file}.json`, jsonText({ version: Number(row.version), updatedAt: dateTimeValue(row.updated_at), symbols }));
+    if (row.config_kind === 'rotation_pool' && row.config_state === 'active') activePoolHashes.set(row.strategy_code, strategyPoolHash(symbols));
   }
   const [historyLinks] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT strategy_code, etf_code, display_name FROM strategy_history_etfs ORDER BY strategy_code, etf_code');
   const historyCodes = [...new Set(historyLinks.map((row) => String(row.etf_code)))];
@@ -594,25 +707,9 @@ export async function loadRelationalObjects(db: Database) {
     }
   }
   for (const row of historyLinks) objects.set(`data/${row.strategy_code}/history/${row.etf_code}.json`, jsonText({ code: row.etf_code, name: row.display_name, rows: pricesByCode.get(row.etf_code) ?? [] }));
-  const [backtests] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_backtests ORDER BY id');
-  for (const row of backtests) {
-    const [symbols] = await db.query<Array<RowDataPacket & Record<string, any>>>(`SELECT e.market_code, e.etf_code, e.etf_name, e.category FROM strategy_backtest_etfs m INNER JOIN etfs e ON e.etf_code=m.etf_code WHERE m.backtest_id=? ORDER BY m.display_order`, [row.id]);
-    const [years] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_backtest_years WHERE backtest_id=? ORDER BY performance_year', [row.id]);
-    objects.set(`data/${row.strategy_code}/backtest.json`, jsonText({ version: row.backtest_version, strategy: row.strategy_code, configVersion: Number(row.config_version),
-      symbols: symbols.map((item) => ({ marketCode: item.market_code, code: item.etf_code, name: item.etf_name, category: item.category })), generatedAt: dateTimeValue(row.generated_at),
-      period: { start: dateValue(row.start_date), end: dateValue(row.end_date) }, annualReturns: years.map((item) => ({ year: Number(item.performance_year), returnRate: Number(item.return_rate), maxDrawdown: Number(item.max_drawdown), trades: Number(item.trade_count), availableAssets: Number(item.available_assets), yearEndHolding: item.year_end_holding })),
-      summary: { cumulativeReturn: Number(row.cumulative_return), annualizedReturn: Number(row.annualized_return), positiveYears: Number(row.positive_years), worstDrawdown: Number(row.worst_drawdown) } }));
-  }
-  const [performances] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_year_performance ORDER BY strategy_code, performance_year');
-  for (const row of performances) {
-    const [symbols] = await db.query<Array<RowDataPacket & Record<string, any>>>(`SELECT e.market_code, e.etf_code, e.etf_name, e.category FROM strategy_year_etfs m INNER JOIN etfs e ON e.etf_code=m.etf_code WHERE m.performance_id=? ORDER BY m.display_order`, [row.id]);
-    const [points] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_equity_points WHERE performance_id=? ORDER BY trade_date', [row.id]);
-    const [nodes] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM strategy_trade_nodes WHERE performance_id=? ORDER BY node_order', [row.id]);
-    const value = { version: row.performance_version, strategy: row.strategy_code, configVersion: Number(row.config_version), symbols: symbols.map((item) => ({ marketCode: item.market_code, code: item.etf_code, name: item.etf_name, category: item.category })),
-      provider: row.provider, calculatedAt: dateTimeValue(row.calculated_at), year: Number(row.performance_year), startDate: dateValue(row.start_date), lastTradingDate: dateValue(row.last_trading_date), cumulativeReturn: Number(row.cumulative_return), nodeCount: nodes.length,
-      currentHolding: row.current_holding, currentTradeReturn: row.current_trade_return === null ? null : Number(row.current_trade_return), equityCurve: points.map((item) => ({ date: dateValue(item.trade_date), returnRate: Number(item.return_rate) })),
-      nodes: nodes.map((item) => ({ date: dateValue(item.trade_date), action: item.action_type, fromCode: item.from_etf_code, fromName: item.from_etf_name, toCode: item.to_etf_code, toName: item.to_etf_name, reason: item.reason, tradeReturn: item.trade_return === null ? null : Number(item.trade_return), cumulativeReturn: Number(item.cumulative_return) })) };
-    objects.set(`data/${row.strategy_code}/year-performance/${row.performance_year}.json`, jsonText(value));
+  for (const [strategy, poolHash] of activePoolHashes) {
+    const results = await loadStrategyPoolResultObjects(db, strategy, poolHash);
+    for (const [key, value] of results) objects.set(key, value);
   }
   const [runs] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM stock_scan_runs ORDER BY strategy_code, storage_date');
   const folderByStrategy = Object.fromEntries(Object.entries(scanFolders).map(([folder, strategy]) => [strategy, folder]));
