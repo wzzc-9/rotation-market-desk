@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Build and deploy website
 
 on:
   push:
@@ -9,22 +9,17 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write    # 允许推送代码到仓库
-      pages: write       # 允许部署到 Pages
-      id-token: write    # 用于 OIDC 认证
+      contents: write
 
     steps:
-      # 升级到 v4
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 升级到 v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
 
-      # 升级到 v3（这个最新就是 v3）
       - name: Install pnpm
         uses: pnpm/action-setup@v3
         with:
@@ -33,15 +28,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build project
+      - name: Build project site
         run: pnpm run build
         env:
           VITE_BASE_URL: /rotation-market-desk/
           VITE_API_BASE_URL: https://rotation-market-desk.onrender.com
 
-      # 升级到 v4（关键！）
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4   # 从 @v3 改为 @v4
+      - name: Deploy project site
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
           publish_dir: ./dist
+
+      - name: Build user site
+        run: pnpm run build
+        env:
+          VITE_BASE_URL: /
+          VITE_API_BASE_URL: https://rotation-market-desk.onrender.com
+
+      - name: Deploy user site
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
+          external_repository: wzzc-9/wzzc-9.github.io
+          publish_branch: main
+          publish_dir: ./dist
+          force_orphan: true
