@@ -6,6 +6,7 @@ const allowedTasks = new Set<DatabaseCalculationTask>([
   'rotation-history', 'rotation-backtest', 'rotation-optimize',
   'asset-history', 'asset-backtest', 'asset-optimize',
   'dual-history', 'dual-backtest',
+  'industry-history', 'industry-backtest', 'industry-optimize',
 ]);
 
 if (!task || !allowedTasks.has(task)) throw new Error('缺少或不支持的数据库计算任务');

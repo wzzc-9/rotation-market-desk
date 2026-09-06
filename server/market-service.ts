@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { activateMysqlStrategyPoolCache, flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
-type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf';
+type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20';
 
 type SymbolConfig = {
   marketCode: string;
@@ -105,7 +105,7 @@ type AssetRotationScoring = {
 
 export type AssetRotationCombinations = {
   version: string;
-  strategy: 'rotation' | 'asset-rotation';
+  strategy: 'rotation' | 'asset-rotation' | 'industry-ma20';
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
@@ -392,6 +392,15 @@ const dualEtfDirectory = resolve(process.cwd(), 'data', 'dual-etf');
 const dualEtfHistoryDirectory = resolve(dualEtfDirectory, 'history');
 const dualEtfConfigPath = resolve(dualEtfDirectory, 'config.json');
 const dualEtfBacktestPath = resolve(dualEtfDirectory, 'backtest.json');
+const industryMa20Directory = resolve(process.cwd(), 'data', 'industry-ma20');
+const industryMa20HistoryDirectory = resolve(industryMa20Directory, 'history');
+const industryMa20ConfigPath = resolve(industryMa20Directory, 'config.json');
+const industryMa20PendingConfigPath = resolve(industryMa20Directory, 'pending-config.json');
+const industryMa20CombinationConfigPath = resolve(industryMa20Directory, 'combination-config.json');
+const industryMa20CombinationPendingConfigPath = resolve(industryMa20Directory, 'combination-pending-config.json');
+const industryMa20BacktestPath = resolve(industryMa20Directory, 'backtest.json');
+const industryMa20CombinationsPath = resolve(industryMa20Directory, 'combinations.json');
+const industryMa20YearPerformanceDirectory = resolve(industryMa20Directory, 'year-performance');
 const macdSnapshotVersion = 'macd-10-20-7-first-cross-full-v1';
 const macdSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-snapshots');
 const macdPullbackSnapshotVersion = 'macd-5-34-5-zero-axis-pullback-v1';
@@ -410,11 +419,15 @@ let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
 let cachedDualEtfSnapshot: RotationSnapshot | null = null;
 let cachedDualEtfAt = 0;
+let cachedIndustryMa20Snapshot: RotationSnapshot | null = null;
+let cachedIndustryMa20At = 0;
 let rotationPoolUpdateInFlight = false;
 let rotationCombinationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
 let assetCombinationPoolUpdateInFlight = false;
 let dualEtfPoolUpdateInFlight = false;
+let industryMa20PoolUpdateInFlight = false;
+let industryMa20CombinationPoolUpdateInFlight = false;
 const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
 const macdKdjScansInFlight = new Map<string, Promise<MacdKdjSnapshot>>();
@@ -549,6 +562,16 @@ function readAssetRotationPendingConfig() {
     : null;
 }
 
+function readIndustryMa20Config() {
+  return readStrategyConfig(industryMa20ConfigPath, '行业 ETF 20 日均线');
+}
+
+function readIndustryMa20PendingConfig() {
+  return storedFileExists(industryMa20PendingConfigPath)
+    ? readStrategyConfig(industryMa20PendingConfigPath, '行业 ETF 20 日均线待应用')
+    : null;
+}
+
 function sameSymbolSet(left: Array<{ code: string }>, right: Array<{ code: string }>) {
   return left.map((item) => item.code).sort().join(',') === right.map((item) => item.code).sort().join(',');
 }
@@ -669,6 +692,52 @@ function writeAssetCombinationPoolDraft(config: AssetRotationConfig) {
   return getAssetCombinationPoolDraft();
 }
 
+export function getIndustryMa20PoolDraft(): AssetRotationPoolDraft {
+  const active = readIndustryMa20Config();
+  const pending = readIndustryMa20PendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return { dirty, activeVersion: active.version, version: current.version, updatedAt: current.updatedAt, symbols: current.symbols };
+}
+
+function writeIndustryMa20PoolDraft(config: AssetRotationConfig) {
+  const active = readIndustryMa20Config();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (storedFileExists(industryMa20PendingConfigPath)) deleteStoredFile(industryMa20PendingConfigPath);
+  } else {
+    writeStrategyConfig(industryMa20PendingConfigPath, config);
+  }
+  return getIndustryMa20PoolDraft();
+}
+
+function readIndustryMa20CombinationConfig() {
+  return readStrategyConfig(industryMa20CombinationConfigPath, '行业 ETF 20 日均线全组合收益排名');
+}
+
+function readIndustryMa20CombinationPendingConfig() {
+  return storedFileExists(industryMa20CombinationPendingConfigPath)
+    ? readStrategyConfig(industryMa20CombinationPendingConfigPath, '行业 ETF 20 日均线全组合收益排名待应用')
+    : null;
+}
+
+export function getIndustryMa20CombinationPoolDraft(): AssetRotationPoolDraft {
+  const active = readIndustryMa20CombinationConfig();
+  const pending = readIndustryMa20CombinationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return { dirty, activeVersion: active.version, version: current.version, updatedAt: current.updatedAt, symbols: current.symbols };
+}
+
+function writeIndustryMa20CombinationPoolDraft(config: AssetRotationConfig) {
+  const active = readIndustryMa20CombinationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (storedFileExists(industryMa20CombinationPendingConfigPath)) deleteStoredFile(industryMa20CombinationPendingConfigPath);
+  } else {
+    writeStrategyConfig(industryMa20CombinationPendingConfigPath, config);
+  }
+  return getIndustryMa20CombinationPoolDraft();
+}
+
 function readDualEtfConfig() {
   return readStrategyConfig(dualEtfConfigPath, '双 ETF 动量轮动');
 }
@@ -685,8 +754,12 @@ function strategyConfigText(path: string, config: AssetRotationConfig) {
       ? '页面“宽基 20 日动量轮动”的“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
       : path === assetRotationConfigPath || path === assetRotationPendingConfigPath
     ? '页面“全球大类资产 ETF 轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
-    : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
+      : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
       ? '页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
+      : path === industryMa20ConfigPath || path === industryMa20PendingConfigPath
+        ? '页面“行业 ETF 20 日均线”中的“轮动标的池”配置；放量突破 MA20 入场，跌破 MA20 退出。'
+        : path === industryMa20CombinationConfigPath || path === industryMa20CombinationPendingConfigPath
+          ? '页面“行业 ETF 20 日均线”的“全组合收益排名”组合池配置。'
       : null;
   return `${JSON.stringify(comment ? { _comment: comment, ...config } : config, null, 2)}\n`;
 }
@@ -700,6 +773,8 @@ function strategyBacktestVersion(strategy: IndexStrategy) {
     ? 'asset-rotation-return20-ma28-weekly-v2'
     : strategy === 'dual-etf'
       ? 'dual-etf-return20-ma20-daily-v1'
+      : strategy === 'industry-ma20'
+        ? 'industry-ma20-breakout-volume15-daily-v1'
       : 'rotation-ma20-daily-v2';
 }
 
@@ -724,6 +799,10 @@ function readAssetRotationBacktest(config = readAssetRotationConfig()) {
   return readStrategyBacktest(assetRotationBacktestPath, 'asset-rotation', config, '大类资产轮动');
 }
 
+function readIndustryMa20Backtest(config = readIndustryMa20Config()) {
+  return readStrategyBacktest(industryMa20BacktestPath, 'industry-ma20', config, '行业 ETF 20 日均线');
+}
+
 export async function getRotationCombinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
   const databasePage = await getMysqlCombinationPage('rotation', sort, direction, page, pageSize, filters);
   if (!databasePage) throw new Error('MySQL 中缺少策略 1 组合排名数据');
@@ -734,6 +813,16 @@ export async function getAssetRotationCombinations(sort: AssetRotationCombinatio
   const databasePage = await getMysqlCombinationPage('asset-rotation', sort, direction, page, pageSize, filters);
   if (!databasePage) throw new Error('MySQL 中缺少策略 2 组合排名数据');
   return { ...databasePage, poolDraft: getAssetCombinationPoolDraft() };
+}
+
+export async function getIndustryMa20Combinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
+  let databasePage = await getMysqlCombinationPage('industry-ma20', sort, direction, page, pageSize, filters);
+  if (!databasePage) {
+    await recalculateIndustryMa20CombinationPool();
+    databasePage = await getMysqlCombinationPage('industry-ma20', sort, direction, page, pageSize, filters);
+  }
+  if (!databasePage) throw new Error('MySQL 中缺少行业 ETF 20 日均线组合排名数据');
+  return { ...databasePage, poolDraft: getIndustryMa20CombinationPoolDraft() };
 }
 
 function readDualEtfBacktest(config = readDualEtfConfig()) {
@@ -750,11 +839,15 @@ function writeRotationYearPerformance(
     ? assetRotationYearPerformanceDirectory
     : strategy === 'dual-etf'
       ? dualEtfYearPerformanceDirectory
+      : strategy === 'industry-ma20'
+        ? industryMa20YearPerformanceDirectory
       : rotationYearPerformanceDirectory;
   const strategyConfig = strategy === 'asset-rotation'
     ? readAssetRotationConfig()
     : strategy === 'dual-etf'
       ? readDualEtfConfig()
+      : strategy === 'industry-ma20'
+        ? readIndustryMa20Config()
       : readRotationConfig();
   const path = resolve(directory, `${performance.year}.json`);
   const record = {
@@ -762,6 +855,8 @@ function writeRotationYearPerformance(
       ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
         ? 'dual-etf-year-performance-v2'
+        : strategy === 'industry-ma20'
+          ? 'industry-ma20-year-performance-v1'
         : 'rotation-year-performance-v5',
     strategy,
     configVersion: strategyConfig.version,
@@ -778,6 +873,8 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
     ? assetRotationYearPerformanceDirectory
     : strategy === 'dual-etf'
       ? dualEtfYearPerformanceDirectory
+      : strategy === 'industry-ma20'
+        ? industryMa20YearPerformanceDirectory
       : rotationYearPerformanceDirectory;
   const path = resolve(directory, `${year}.json`);
   if (!storedFileExists(path)) return null;
@@ -787,11 +884,15 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
       ? 'asset-rotation-year-performance-v5'
       : strategy === 'dual-etf'
         ? 'dual-etf-year-performance-v2'
+        : strategy === 'industry-ma20'
+          ? 'industry-ma20-year-performance-v1'
         : 'rotation-year-performance-v5';
     const expectedConfig = strategy === 'asset-rotation'
       ? readAssetRotationConfig()
       : strategy === 'dual-etf'
         ? readDualEtfConfig()
+        : strategy === 'industry-ma20'
+          ? readIndustryMa20Config()
         : readRotationConfig();
     const expectedCodes = new Set(expectedConfig.symbols.map((symbol) => symbol.code));
     if (
@@ -1545,6 +1646,100 @@ function calculateDualEtfYearPerformance(markets: Awaited<ReturnType<typeof fetc
   };
 }
 
+function calculateIndustryMa20YearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[]): RotationYearPerformance {
+  const names = new Map(markets.map((market) => [market.code, market.name]));
+  const closes = new Map(markets.map((market) => [
+    market.code,
+    new Map(market.history.map((candle) => [candle.date, candle.close])),
+  ]));
+  const indicators = new Map(markets.map((market) => {
+    const byDate = new Map<string, { close: number; ma20: number; momentum: number; crossAbove: boolean; volumeRatio: number }>();
+    market.history.forEach((candle, index) => {
+      if (index < 20) return;
+      const ma20 = market.history.slice(index - 19, index + 1).reduce((sum, item) => sum + item.close, 0) / 20;
+      const previousMa20 = market.history.slice(index - 20, index).reduce((sum, item) => sum + item.close, 0) / 20;
+      const averageVolume = market.history.slice(index - 5, index).reduce((sum, item) => sum + item.volume, 0) / 5;
+      byDate.set(candle.date, {
+        close: candle.close,
+        ma20,
+        momentum: candle.close / market.history[index - 20].close - 1,
+        crossAbove: market.history[index - 1].close <= previousMa20 && candle.close > ma20,
+        volumeRatio: averageVolume > 0 ? candle.volume / averageVolume : 0,
+      });
+    });
+    return [market.code, byDate] as const;
+  }));
+  const dates = [...new Set(markets.flatMap((market) => market.history.map((candle) => candle.date)))].sort();
+  const lastTradingDate = dates.at(-1)!;
+  const year = Number(lastTradingDate.slice(0, 4));
+  const yearStart = `${year}-01-01`;
+  const yearDates = dates.filter((date) => date >= yearStart);
+  const rankingFor = (date: string) => markets
+    .map((market) => ({ code: market.code, ...indicators.get(market.code)?.get(date) }))
+    .filter((item): item is { code: string; close: number; ma20: number; momentum: number; crossAbove: boolean; volumeRatio: number } => Number.isFinite(item.momentum))
+    .sort((left, right) => right.momentum - left.momentum);
+  const nextPositionFor = (date: string, current: string | null) => {
+    const ranked = rankingFor(date);
+    const holding = current ? ranked.find((item) => item.code === current) : null;
+    if (holding && holding.close >= holding.ma20) return current;
+    return ranked.find((item) => item.crossAbove && item.volumeRatio >= 1.5)?.code ?? null;
+  };
+
+  let position: string | null = null;
+  for (const date of dates) {
+    if (date >= yearStart) break;
+    position = nextPositionFor(date, position);
+  }
+  let previousDate = dates.filter((date) => date < yearStart).at(-1) ?? null;
+  let value = 1;
+  let operationStartValue = value;
+  const equityCurve: RotationEquityPoint[] = [];
+  const nodes: RotationTradeNode[] = [];
+  for (const date of yearDates) {
+    if (position && previousDate) {
+      const previousClose = closes.get(position)?.get(previousDate);
+      const currentClose = closes.get(position)?.get(date);
+      if (previousClose && currentClose) value *= currentClose / previousClose;
+    }
+    equityCurve.push({ date, returnRate: round((value - 1) * 100, 4) });
+    const ranked = rankingFor(date);
+    const nextPosition = nextPositionFor(date, position);
+    if (nextPosition !== position) {
+      const action = position ? (nextPosition ? '轮换' : '清仓') : '买入';
+      const fromName = position ? names.get(position) ?? position : null;
+      const toName = nextPosition ? names.get(nextPosition) ?? nextPosition : null;
+      const entry = nextPosition ? ranked.find((item) => item.code === nextPosition) : null;
+      nodes.push({
+        date,
+        action,
+        fromCode: position,
+        fromName,
+        toCode: nextPosition,
+        toName,
+        reason: nextPosition
+          ? `${toName} 放量突破 MA20（量比 ${entry?.volumeRatio.toFixed(2) ?? '--'}）`
+          : `${fromName ?? '持仓 ETF'} 收盘跌破 MA20，转为空仓`,
+        tradeReturn: action === '买入' ? null : round((value / operationStartValue - 1) * 100, 2),
+        cumulativeReturn: round((value - 1) * 100, 2),
+      });
+      operationStartValue = value;
+    }
+    position = nextPosition;
+    previousDate = date;
+  }
+  return {
+    year,
+    startDate: yearDates[0] ?? lastTradingDate,
+    lastTradingDate,
+    cumulativeReturn: round((value - 1) * 100, 2),
+    nodeCount: nodes.length,
+    currentHolding: position ? names.get(position) ?? position : null,
+    currentTradeReturn: position ? round((value / operationStartValue - 1) * 100, 2) : null,
+    equityCurve,
+    nodes,
+  };
+}
+
 function mergeCurrentQuote<T extends Awaited<ReturnType<typeof fetchSymbol>>>(market: T, quote?: TencentQuote): T & {
   realtimePreviousClose?: number;
   realtimeTimestamp?: string;
@@ -1713,7 +1908,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
 }
 
 function getSymbol(code: string) {
-  const symbol = [...readRotationConfig().symbols, ...readAssetRotationConfig().symbols, ...readDualEtfConfig().symbols].find((item) => item.code === code);
+  const symbol = [...readRotationConfig().symbols, ...readAssetRotationConfig().symbols, ...readDualEtfConfig().symbols, ...readIndustryMa20Config().symbols].find((item) => item.code === code);
   if (symbol) return symbol;
   if (/^[03]\d{5}$/.test(code)) return { marketCode: `sz${code}`, code, name: code, category: 'A股宽基' as const };
   if (/^6\d{5}$/.test(code)) return { marketCode: `sh${code}`, code, name: code, category: 'A股宽基' as const };
@@ -1848,12 +2043,13 @@ export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
 async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotationConfig): Promise<RotationSnapshot> {
   const isAsset = strategy === 'asset-rotation';
   const isDual = strategy === 'dual-etf';
-  const configPath = isAsset ? assetRotationConfigPath : isDual ? dualEtfConfigPath : rotationConfigPath;
-  const backtestPath = isAsset ? assetRotationBacktestPath : isDual ? dualEtfBacktestPath : rotationBacktestPath;
-  const historyDirectory = isAsset ? assetRotationHistoryDirectory : isDual ? dualEtfHistoryDirectory : rotationHistoryDirectory;
-  const downloadScript = isAsset ? 'download-asset-rotation-history.cjs' : isDual ? 'download-dual-etf-history.cjs' : 'download-history.cjs';
-  const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : 'backtest.cjs';
-  const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
+  const isIndustry = strategy === 'industry-ma20';
+  const configPath = isAsset ? assetRotationConfigPath : isDual ? dualEtfConfigPath : isIndustry ? industryMa20ConfigPath : rotationConfigPath;
+  const backtestPath = isAsset ? assetRotationBacktestPath : isDual ? dualEtfBacktestPath : isIndustry ? industryMa20BacktestPath : rotationBacktestPath;
+  const historyDirectory = isAsset ? assetRotationHistoryDirectory : isDual ? dualEtfHistoryDirectory : isIndustry ? industryMa20HistoryDirectory : rotationHistoryDirectory;
+  const downloadScript = isAsset ? 'download-asset-rotation-history.cjs' : isDual ? 'download-dual-etf-history.cjs' : isIndustry ? 'download-industry-ma20-history.cjs' : 'download-history.cjs';
+  const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : isIndustry ? 'backtest-industry-ma20.cjs' : 'backtest.cjs';
+  const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : isIndustry ? 'INDUSTRY_MA20_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
   const workspaceRoot = createCalculationWorkspace();
   let artifactsCommitted = false;
   const configContent = strategyConfigText(configPath, config);
@@ -1862,7 +2058,7 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     const cacheHit = await activateMysqlStrategyPoolCache(strategy, config.symbols, configPath, configContent, strategyBacktestVersion(strategy));
     if (cacheHit) {
       artifactsCommitted = true;
-      const historyState = await prepareCombinationHistory(config, workspaceRoot, historyDirectory);
+      const historyState = await prepareCombinationHistory(config, workspaceRoot, historyDirectory, isIndustry ? 21 : 28);
       if (!historyState.historyRevised) {
         if (isAsset) {
           cachedAssetRotationSnapshot = null;
@@ -1875,6 +2071,13 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
           cachedDualEtfSnapshot = null;
           cachedDualEtfAt = 0;
           const snapshot = await getDualEtfSnapshot(false);
+          await flushMysqlWrites();
+          return snapshot;
+        }
+        if (isIndustry) {
+          cachedIndustryMa20Snapshot = null;
+          cachedIndustryMa20At = 0;
+          const snapshot = await getIndustryMa20Snapshot(false);
           await flushMysqlWrites();
           return snapshot;
         }
@@ -1916,6 +2119,14 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       await flushMysqlWrites();
       return snapshot;
     }
+    if (isIndustry) {
+      readIndustryMa20Backtest(config);
+      cachedIndustryMa20Snapshot = null;
+      cachedIndustryMa20At = 0;
+      const snapshot = await getIndustryMa20Snapshot(true);
+      await flushMysqlWrites();
+      return snapshot;
+    }
     readRotationBacktest(config);
     cachedSnapshot = null;
     cachedAt = 0;
@@ -1929,6 +2140,9 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     } else if (isDual) {
       cachedDualEtfSnapshot = null;
       cachedDualEtfAt = 0;
+    } else if (isIndustry) {
+      cachedIndustryMa20Snapshot = null;
+      cachedIndustryMa20At = 0;
     } else {
       cachedSnapshot = null;
       cachedAt = 0;
@@ -1939,6 +2153,8 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
           ? await getAssetRotationSnapshot(false)
           : isDual
             ? await getDualEtfSnapshot(false)
+            : isIndustry
+              ? await getIndustryMa20Snapshot(false)
             : await getRotationSnapshot(false);
         await flushMysqlWrites();
         return recoveredSnapshot;
@@ -1957,7 +2173,8 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
 export type DatabaseCalculationTask =
   | 'rotation-history' | 'rotation-backtest' | 'rotation-optimize'
   | 'asset-history' | 'asset-backtest' | 'asset-optimize'
-  | 'dual-history' | 'dual-backtest';
+  | 'dual-history' | 'dual-backtest'
+  | 'industry-history' | 'industry-backtest' | 'industry-optimize';
 
 export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) {
   const definitions: Record<DatabaseCalculationTask, {
@@ -1965,7 +2182,7 @@ export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) 
     timeout: number;
     historyDirectory?: string;
     outputPath?: string;
-    combinationStrategy?: 'rotation' | 'asset-rotation';
+    combinationStrategy?: 'rotation' | 'asset-rotation' | 'industry-ma20';
   }> = {
     'rotation-history': { script: 'download-history.cjs', timeout: 180_000, historyDirectory: rotationHistoryDirectory },
     'rotation-backtest': { script: 'backtest.cjs', timeout: 60_000, outputPath: rotationBacktestPath },
@@ -1975,6 +2192,9 @@ export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) 
     'asset-optimize': { script: 'optimize-asset-rotation.cjs', timeout: 900_000, outputPath: assetRotationCombinationsPath, combinationStrategy: 'asset-rotation' },
     'dual-history': { script: 'download-dual-etf-history.cjs', timeout: 180_000, historyDirectory: dualEtfHistoryDirectory },
     'dual-backtest': { script: 'backtest-dual-etf.cjs', timeout: 60_000, outputPath: dualEtfBacktestPath },
+    'industry-history': { script: 'download-industry-ma20-history.cjs', timeout: 180_000, historyDirectory: industryMa20HistoryDirectory },
+    'industry-backtest': { script: 'backtest-industry-ma20.cjs', timeout: 60_000, outputPath: industryMa20BacktestPath },
+    'industry-optimize': { script: 'optimize-industry-ma20.cjs', timeout: 900_000, outputPath: industryMa20CombinationsPath, combinationStrategy: 'industry-ma20' },
   };
   const definition = definitions[task];
   const workspaceRoot = createCalculationWorkspace();
@@ -1989,6 +2209,10 @@ export async function runDatabaseCalculationTask(task: DatabaseCalculationTask) 
             ? { directory: assetRotationHistoryDirectory, symbols: readAssetCombinationConfig().symbols }
             : task === 'dual-backtest'
               ? { directory: dualEtfHistoryDirectory, symbols: readDualEtfConfig().symbols }
+              : task === 'industry-backtest'
+                ? { directory: industryMa20HistoryDirectory, symbols: readIndustryMa20Config().symbols }
+                : task === 'industry-optimize'
+                  ? { directory: industryMa20HistoryDirectory, symbols: readIndustryMa20CombinationConfig().symbols }
               : null;
     if (databaseHistoryInput) await stageMysqlEtfHistories(workspaceRoot, databaseHistoryInput.directory, databaseHistoryInput.symbols);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', definition.script)], {
@@ -2237,7 +2461,7 @@ async function stageMysqlEtfHistories(workspaceRoot: string, historyDirectory: s
   return histories;
 }
 
-async function prepareCombinationHistory(config: AssetRotationConfig, workspaceRoot: string, historyDirectory: string) {
+async function prepareCombinationHistory(config: AssetRotationConfig, workspaceRoot: string, historyDirectory: string, minimumHistory = 28) {
   const quoteCodes = config.symbols.map((symbol) => {
     const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
     return `${symbol.code}.${exchange}`;
@@ -2294,7 +2518,7 @@ async function prepareCombinationHistory(config: AssetRotationConfig, workspaceR
       }
     }
 
-    if (completedHistory.length < 28) throw new Error(`${symbol.code} 可用历史行情不足 28 条`);
+    if (completedHistory.length < minimumHistory) throw new Error(`${symbol.code} 可用历史行情不足 ${minimumHistory} 条`);
     const temporaryMarket = mergeCurrentQuote({
       ...symbol,
       rawLastDate: completedHistory.at(-1)!.date,
@@ -2336,6 +2560,100 @@ export async function recalculateAssetCombinationPool() {
   } finally {
     removeCalculationWorkspace(workspaceRoot);
     assetCombinationPoolUpdateInFlight = false;
+  }
+}
+
+export async function updateIndustryMa20Pool(action: 'add' | 'remove', code: string) {
+  if (industryMa20PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  industryMa20PoolUpdateInFlight = true;
+  try {
+    const current = readIndustryMa20PendingConfig() ?? readIndustryMa20Config();
+    const draft = writeIndustryMa20PoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    industryMa20PoolUpdateInFlight = false;
+  }
+}
+
+export async function replaceIndustryMa20Pool(codes: string[]) {
+  if (industryMa20PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
+  if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
+  if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
+  const symbols = await resolveRotationPoolSymbols(normalizedCodes);
+  industryMa20PoolUpdateInFlight = true;
+  try {
+    const current = readIndustryMa20PendingConfig() ?? readIndustryMa20Config();
+    const draft = writeIndustryMa20PoolDraft({ version: current.version + 1, updatedAt: new Date().toISOString(), symbols });
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    industryMa20PoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateIndustryMa20Pool() {
+  if (industryMa20PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const active = readIndustryMa20Config();
+  const pending = readIndustryMa20PendingConfig();
+  const config = pending && !sameSymbolSet(active.symbols, pending.symbols) ? pending : active;
+  industryMa20PoolUpdateInFlight = true;
+  try {
+    const snapshot = await rebuildRotationPool('industry-ma20', config);
+    if (storedFileExists(industryMa20PendingConfigPath)) deleteStoredFile(industryMa20PendingConfigPath);
+    await flushMysqlWrites();
+    return { ...snapshot, poolDraft: getIndustryMa20PoolDraft() };
+  } finally {
+    industryMa20PoolUpdateInFlight = false;
+  }
+}
+
+export async function updateIndustryMa20CombinationPool(action: 'add' | 'remove', code: string) {
+  if (industryMa20CombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  industryMa20CombinationPoolUpdateInFlight = true;
+  try {
+    const current = readIndustryMa20CombinationPendingConfig() ?? readIndustryMa20CombinationConfig();
+    const draft = writeIndustryMa20CombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    industryMa20CombinationPoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateIndustryMa20CombinationPool() {
+  if (industryMa20CombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const pending = readIndustryMa20CombinationPendingConfig();
+  const config = pending && !sameSymbolSet(readIndustryMa20CombinationConfig().symbols, pending.symbols)
+    ? pending
+    : readIndustryMa20CombinationConfig();
+  industryMa20CombinationPoolUpdateInFlight = true;
+  const workspaceRoot = createCalculationWorkspace();
+  writeCalculationText(workspaceRoot, industryMa20CombinationConfigPath, strategyConfigText(industryMa20CombinationConfigPath, config));
+  try {
+    await prepareCombinationHistory(config, workspaceRoot, industryMa20HistoryDirectory, 21);
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-industry-ma20.cjs')], {
+      cwd: process.cwd(),
+      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
+      timeout: 900_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const documents = calculationArtifacts(workspaceRoot, [industryMa20CombinationConfigPath]);
+    await importCombinationFile(calculationPath(workspaceRoot, industryMa20CombinationsPath), 'industry-ma20', undefined, documents);
+    if (storedFileExists(industryMa20CombinationPendingConfigPath)) deleteStoredFile(industryMa20CombinationPendingConfigPath);
+    await flushMysqlWrites();
+    return getIndustryMa20CombinationPoolDraft();
+  } catch (error) {
+    await flushMysqlWrites();
+    throw new Error(`组合排名计算失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally {
+    removeCalculationWorkspace(workspaceRoot);
+    industryMa20CombinationPoolUpdateInFlight = false;
   }
 }
 
@@ -2509,6 +2827,97 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('asset-rotation', yearPerformance, provider, fetchedAt);
   cachedAssetRotationSnapshot = snapshot;
   cachedAssetRotationAt = Date.now();
+  return snapshot;
+}
+
+export async function getIndustryMa20Snapshot(forceRefresh = false): Promise<RotationSnapshot> {
+  const config = readIndustryMa20Config();
+  if (!storedFileExists(industryMa20BacktestPath)) return rebuildRotationPool('industry-ma20', config);
+  if (!forceRefresh && cachedIndustryMa20Snapshot && Date.now() - cachedIndustryMa20At < cacheTtlMs && snapshotMatchesConfig(cachedIndustryMa20Snapshot, config)) {
+    return { ...cachedIndustryMa20Snapshot, poolDraft: getIndustryMa20PoolDraft(), cached: true };
+  }
+
+  let quotes = new Map<string, TencentQuote>();
+  let completedTradingDay = false;
+  if (forceRefresh) {
+    const quoteCodes = config.symbols.map((symbol) => {
+      const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
+      return `${symbol.code}.${exchange}`;
+    });
+    quotes = await fetchTencentQuotes(quoteCodes);
+    if (![...quotes.values()].some((quote) => quote.price !== undefined && quote.date !== undefined)) {
+      throw new Error('实时行情未返回有效数据，请稍后重试');
+    }
+    completedTradingDay = [...quotes.values()].some((quote) => quote.date && isCompletedTradingDay(quote.date));
+  }
+  const fetchedBase = await Promise.all(config.symbols.map((symbol) => (
+    completedTradingDay ? fetchFullQfqSymbol(symbol) : fetchSymbol(symbol)
+  )));
+  const fetched = fetchedBase.map((market) => mergeCurrentQuote(market, quotes.get(market.code)));
+  if (completedTradingDay) {
+    await upsertMysqlEtfDailyPrices(fetched.flatMap((market) => market.history.map((candle) => ({
+      etfCode: market.code,
+      tradeDate: candle.date,
+      open: candle.open,
+      close: candle.close,
+      high: candle.high,
+      low: candle.low,
+      volume: candle.volume,
+    }))));
+  }
+  const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
+  const year = Number(lastTradingDate.slice(0, 4));
+  const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('industry-ma20', year);
+  const yearPerformance = storedYearPerformance?.lastTradingDate === lastTradingDate
+    ? storedYearPerformance
+    : calculateIndustryMa20YearPerformance(fetched);
+  const currentHoldingCode = fetched.find((market) => market.name === yearPerformance.currentHolding)?.code ?? null;
+  const calculated = fetched.map((market) => {
+    const last = market.history.at(-1)!;
+    const previous = market.history.at(-2)!;
+    const previousClose = market.realtimePreviousClose ?? previous.close;
+    const ma20 = market.history.slice(-20).reduce((sum, candle) => sum + candle.close, 0) / 20;
+    const previousMa20 = market.history.slice(-21, -1).reduce((sum, candle) => sum + candle.close, 0) / 20;
+    const previous20 = market.history.at(-21)!;
+    const averageVolume = market.history.slice(-6, -1).reduce((sum, candle) => sum + candle.volume, 0) / 5;
+    const volumeRatio = averageVolume > 0 ? last.volume / averageVolume : 0;
+    return {
+      code: market.code,
+      name: market.name,
+      category: market.category,
+      candles: market.candles,
+      price: round(last.close),
+      previousClose: round(previousClose),
+      change: ((last.close / previousClose) - 1) * 100,
+      ma20: round(ma20),
+      momentum: ((last.close / previous20.close) - 1) * 100,
+      aboveMa: last.close >= ma20,
+      volumeRatio,
+      entrySignal: previous.close <= previousMa20 && last.close > ma20 && volumeRatio >= 1.5,
+    };
+  });
+  const markets: RankedMarket[] = calculated
+    .sort((left, right) => right.momentum - left.momentum)
+    .map((market, index) => ({
+      ...market,
+      rank: index + 1,
+      signal: market.code === currentHoldingCode ? '持有' : market.entrySignal ? '观察' : '规避',
+    }));
+  const provider = forceRefresh ? '腾讯证券公开日线 + 实时行情' : '腾讯证券公开行情';
+  const fetchedAt = new Date().toISOString();
+  const snapshot: RotationSnapshot = {
+    markets,
+    poolDraft: getIndustryMa20PoolDraft(),
+    yearPerformance,
+    provider,
+    fetchedAt,
+    lastTradingDate,
+    cached: false,
+    backtest: readIndustryMa20Backtest(config),
+  };
+  if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('industry-ma20', yearPerformance, provider, fetchedAt);
+  cachedIndustryMa20Snapshot = snapshot;
+  cachedIndustryMa20At = Date.now();
   return snapshot;
 }
 

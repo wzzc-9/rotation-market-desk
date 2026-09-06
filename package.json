@@ -18,7 +18,10 @@
     "optimize:asset": "tsx server/run-calculation.ts asset-optimize",
     "db:check": "tsx server/check-mysql.ts",
     "history:dual:download": "tsx server/run-calculation.ts dual-history",
-    "backtest:dual": "tsx server/run-calculation.ts dual-backtest"
+    "backtest:dual": "tsx server/run-calculation.ts dual-backtest",
+    "history:industry:download": "tsx server/run-calculation.ts industry-history",
+    "backtest:industry": "tsx server/run-calculation.ts industry-backtest",
+    "optimize:industry": "tsx server/run-calculation.ts industry-optimize"
   },
   "dependencies": {
     "echarts": "^5.6.0",

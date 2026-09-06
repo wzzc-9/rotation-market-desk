@@ -5,9 +5,9 @@ import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql
 import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, loadStrategyPoolResultObjects, migrateLegacyDocuments, persistRelationalObject, relationalSchemaComments } from './relational-store.js';
 import { strategyPoolHash } from './pool-cache.js';
 
-type CombinationStrategy = 'rotation' | 'asset-rotation';
+type CombinationStrategy = 'rotation' | 'asset-rotation' | 'industry-ma20';
 
-export type MysqlSavedPoolStrategy = 'rotation' | 'asset-rotation';
+export type MysqlSavedPoolStrategy = 'rotation' | 'asset-rotation' | 'industry-ma20';
 
 export type MysqlSavedRotationPool = {
   id: number;
@@ -478,6 +478,28 @@ async function createSchema(connection: PoolConnection | Pool) {
   await ensureSchemaComments(connection);
 }
 
+const industryMa20DefaultSymbols = [
+  { marketCode: 'sh512480', code: '512480', name: '半导体ETF', category: 'A股宽基' },
+  { marketCode: 'sh516160', code: '516160', name: '新能源ETF', category: 'A股宽基' },
+  { marketCode: 'sh512660', code: '512660', name: '军工ETF', category: 'A股宽基' },
+  { marketCode: 'sh512170', code: '512170', name: '医疗ETF', category: 'A股宽基' },
+  { marketCode: 'sh512800', code: '512800', name: '银行ETF', category: 'A股宽基' },
+  { marketCode: 'sh512400', code: '512400', name: '有色金属ETF', category: 'A股宽基' },
+  { marketCode: 'sh512690', code: '512690', name: '酒ETF', category: 'A股宽基' },
+  { marketCode: 'sh515170', code: '515170', name: '食品饮料ETF', category: 'A股宽基' },
+];
+
+async function ensureIndustryMa20Defaults(connection: Pool) {
+  const [rows] = await connection.query<Array<RowDataPacket & { config_kind: string }>>(
+    "SELECT config_kind FROM strategy_configs WHERE strategy_code='industry-ma20' AND config_state='active'",
+  );
+  const kinds = new Set(rows.map((row) => row.config_kind));
+  const updatedAt = new Date().toISOString();
+  const config = `${JSON.stringify({ version: 1, updatedAt, symbols: industryMa20DefaultSymbols }, null, 2)}\n`;
+  if (!kinds.has('rotation_pool')) await persistRelationalObject(connection, 'data/industry-ma20/config.json', config);
+  if (!kinds.has('combination_pool')) await persistRelationalObject(connection, 'data/industry-ma20/combination-config.json', config);
+}
+
 export async function initializeMysqlStore() {
   if (initialized) return Boolean(pool);
   initialized = true;
@@ -503,6 +525,7 @@ export async function initializeMysqlStore() {
   });
   await createSchema(pool);
   await migrateLegacyDocuments(pool);
+  await ensureIndustryMa20Defaults(pool);
   const objects = await loadRelationalObjects(pool);
   for (const [key, content] of objects) objectCache.set(key, content);
   return true;
@@ -692,7 +715,7 @@ export async function replaceMysqlObjects(objects: Array<{ path: string; content
 }
 
 export async function activateMysqlStrategyPoolCache(
-  strategy: 'rotation' | 'asset-rotation' | 'dual-etf',
+  strategy: 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20',
   symbols: Array<{ code: string }>,
   configPath: string,
   configContent: string,
@@ -747,8 +770,8 @@ export async function flushMysqlWrites() {
 }
 
 function normalizeSavedPoolStrategy(strategy: string): MysqlSavedPoolStrategy {
-  if (strategy === 'rotation' || strategy === 'asset-rotation') return strategy;
-  throw new Error('仅策略一和策略二支持保存轮动标的池');
+  if (strategy === 'rotation' || strategy === 'asset-rotation' || strategy === 'industry-ma20') return strategy;
+  throw new Error('该策略不支持保存轮动标的池');
 }
 
 function normalizeSavedPoolName(name: string) {
