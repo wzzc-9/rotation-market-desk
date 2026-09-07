@@ -38,7 +38,7 @@ pnpm run db:check
 - `strategy_history_etfs`、`etf_daily_prices`：各策略可用的 ETF 清单和统一的前复权日线行情。
 - `strategy_backtests`、`strategy_backtest_etfs`、`strategy_backtest_years`：近 10 年回测汇总、标的快照和年度收益。
 - `strategy_year_performance`、`strategy_year_etfs`、`strategy_equity_points`、`strategy_trade_nodes`：今年表现、收益曲线和每次操作节点。
-- `stock_scan_runs`、`stock_scan_results`：五类个股策略的扫描批次与结构化指标明细。
+- `stock_scan_runs`、`stock_scan_results`：六类个股策略的扫描批次与结构化指标明细。
 - `combination_runs`、`combination_results`、`combination_result_etfs`：组合计算批次、收益排名和组合 ETF 成员。
 - `combination_run_rules`、`combination_run_periods`、`combination_run_universe`、`combination_scoring`、`combination_score_metrics`：组合规则、区间、候选池和评分参数。
 - `active_combination_runs`：每个策略当前对外提供的完整组合版本；新版本全部写完后才切换。
@@ -77,6 +77,9 @@ pnpm run db:check
 - `GET /api/strategy/volume-signals`：读取 MA25 与量均线 5 / 60 的量价三信号候选
 - `GET /api/strategy/volume-signals?date=YYYYMMDD`：读取或计算指定日期的量价三信号快照
 - `GET /api/strategy/volume-signals/dates`：列出已保存的量价三信号快照日期
+- `GET /api/strategy/ma5-resonance`：读取 MA5 / MA10 / MA20 多头排列下的缩量回踩共振候选
+- `GET /api/strategy/ma5-resonance?date=YYYYMMDD`：读取或计算指定日期的 5 日线回踩共振快照
+- `GET /api/strategy/ma5-resonance/dates`：列出已保存的 5 日线回踩共振快照日期
 - `GET /api/strategy/bull-points`：读取目标交易日新出现的多空趋势“多点”
 - `GET /api/strategy/bull-points?date=YYYYMMDD`：读取或计算指定日期的多点快照
 - `GET /api/strategy/bull-points/dates`：列出已保存的多点快照日期
@@ -95,7 +98,7 @@ pnpm run db:check
 - 双 ETF 策略的标的池、历史行情、近 10 年回测和年度操作节点均存储在 MySQL；可运行 `pnpm run history:dual:download` 更新历史，运行 `pnpm run backtest:dual` 复算
 - MACD 策略扫描数据源：Tushare 日线接口；需要在 `.env.local` 配置 `TUSHARE_TOKEN`
 - MACD 系列策略快照存储在 MySQL；指定历史交易日记录不存在时自动计算并保存
-- 量价三信号和多空趋势多点快照均存储在 MySQL
+- 量价三信号、5 日线回踩共振和多空趋势多点快照均存储在 MySQL
 - 快照日期始终使用实际交易日；周末或节假日访问时自动读取上一个交易日，不生成非交易日 JSON
 - 价格类型：前复权日线
 - 信号时点：收盘后

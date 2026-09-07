@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
@@ -553,6 +553,26 @@ app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/vol
 app.get('/api/strategy/volume-signals/dates', async (_request, reply) => {
   reply.header('Cache-Control', 'no-store');
   return { dates: listVolumeSnapshotDates() };
+});
+
+app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/ma5-resonance', async (request, reply) => {
+  try {
+    const snapshot = await getMa5ResonanceSnapshot(request.query.refresh === '1', request.query.date);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '5 日线回踩共振扫描暂时不可用';
+    return reply.code(message.startsWith('本地快照不存在') ? 404 : 502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message,
+    });
+  }
+});
+
+app.get('/api/strategy/ma5-resonance/dates', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  return { dates: listMa5ResonanceSnapshotDates() };
 });
 
 app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/bull-points', async (request, reply) => {

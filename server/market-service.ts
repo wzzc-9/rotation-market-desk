@@ -343,6 +343,34 @@ export type VolumeSnapshot = {
   pullbackCount: number;
 };
 
+export type Ma5ResonanceSignal = {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  currentPrice?: number;
+  changeSinceSignal?: number;
+  ma5: number;
+  ma10: number;
+  ma20: number;
+  supportDistance: number;
+  pullback: number;
+  volumeRatio: number;
+  score: number;
+  signal: '5 日线回踩确认' | '多均线共振';
+};
+
+export type Ma5ResonanceSnapshot = {
+  signals: Ma5ResonanceSignal[];
+  storageDate: string;
+  provider: string;
+  fetchedAt: string;
+  lastTradingDate: string;
+  cached: boolean;
+  scannedCount: number;
+  excludedCount: number;
+};
+
 export type BullPointSignal = {
   code: string;
   name: string;
@@ -409,6 +437,8 @@ const macdKdjSnapshotVersion = 'macd-12-26-9-kdj-9-3-3-resonance-v1';
 const macdKdjSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-kdj-snapshots');
 const volumeSnapshotVersion = 'volume-ma25-volume-ma5-60-three-signals-v2';
 const volumeSnapshotDirectory = resolve(process.cwd(), 'data', 'volume-snapshots');
+const ma5ResonanceSnapshotVersion = 'ma5-ma10-ma20-pullback-resonance-v1';
+const ma5ResonanceSnapshotDirectory = resolve(process.cwd(), 'data', 'ma5-resonance-snapshots');
 const bullPointSnapshotVersion = 'bull-point-hhv21-hhv6-ma34-ma6-v1';
 const bullPointSnapshotDirectory = resolve(process.cwd(), 'data', 'bull-point-snapshots');
 const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'year-performance');
@@ -432,6 +462,7 @@ const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
 const macdKdjScansInFlight = new Map<string, Promise<MacdKdjSnapshot>>();
 const volumeScansInFlight = new Map<string, Promise<VolumeSnapshot>>();
+const ma5ResonanceScansInFlight = new Map<string, Promise<Ma5ResonanceSnapshot>>();
 const bullPointScansInFlight = new Map<string, Promise<BullPointSnapshot>>();
 const historyCache = new Map<string, { value: MarketHistory; cachedAt: number }>();
 const tradingDateCache = new Map<string, string>();
@@ -928,6 +959,7 @@ type CandidateSignal = Omit<MacdSignal, 'name'> & { tsCode: string };
 type PullbackCandidate = Omit<MacdPullbackSignal, 'name'> & { tsCode: string };
 type MacdKdjCandidate = Omit<MacdKdjSignal, 'name'> & { tsCode: string };
 type VolumeCandidate = Omit<VolumeSignal, 'name'> & { tsCode: string };
+type Ma5ResonanceCandidate = Omit<Ma5ResonanceSignal, 'name'> & { tsCode: string };
 type BullPointCandidate = Omit<BullPointSignal, 'name'> & { tsCode: string };
 
 function tushareToken() {
@@ -1114,6 +1146,34 @@ function writeVolumeSnapshot(snapshot: VolumeSnapshot) {
 
 export function listVolumeSnapshotDates() {
   return storedJsonNames(volumeSnapshotDirectory)
+    .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
+    .filter((date): date is string => Boolean(date))
+    .sort((left, right) => right.localeCompare(left));
+}
+
+function ma5ResonanceSnapshotPath(date: string) {
+  return resolve(ma5ResonanceSnapshotDirectory, `${date}.json`);
+}
+
+function readMa5ResonanceSnapshot(date: string): Ma5ResonanceSnapshot | null {
+  const path = ma5ResonanceSnapshotPath(date);
+  if (!storedFileExists(path)) return null;
+  try {
+    const snapshot = JSON.parse(readStoredText(path)) as Ma5ResonanceSnapshot & { version?: string };
+    if (snapshot.version !== ma5ResonanceSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
+    return { ...snapshot, storageDate: date, cached: true };
+  } catch {
+    return null;
+  }
+}
+
+function writeMa5ResonanceSnapshot(snapshot: Ma5ResonanceSnapshot) {
+  const path = ma5ResonanceSnapshotPath(snapshot.storageDate);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: ma5ResonanceSnapshotVersion, cached: false }, null, 2)}\n`);
+}
+
+export function listMa5ResonanceSnapshotDates() {
+  return storedJsonNames(ma5ResonanceSnapshotDirectory)
     .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
     .filter((date): date is string => Boolean(date))
     .sort((left, right) => right.localeCompare(left));
@@ -1334,6 +1394,28 @@ async function withCurrentMacdKdjPrices(snapshot: MacdKdjSnapshot) {
 }
 
 async function withCurrentVolumePrices(snapshot: VolumeSnapshot) {
+  try {
+    const tsCodes = snapshot.signals.map((item) => `${item.code}.${item.code.startsWith('6') ? 'SH' : 'SZ'}`);
+    const quotes = await fetchTencentQuotes(tsCodes);
+    return {
+      ...snapshot,
+      signals: snapshot.signals.map((signal) => {
+        const currentPrice = quotes.get(signal.code)?.price;
+        return {
+          ...signal,
+          currentPrice: currentPrice === undefined ? undefined : round(currentPrice),
+          changeSinceSignal: currentPrice === undefined || signal.close <= 0
+            ? undefined
+            : round(((currentPrice / signal.close) - 1) * 100, 2),
+        };
+      }),
+    };
+  } catch {
+    return snapshot;
+  }
+}
+
+async function withCurrentMa5ResonancePrices(snapshot: Ma5ResonanceSnapshot) {
   try {
     const tsCodes = snapshot.signals.map((item) => `${item.code}.${item.code.startsWith('6') ? 'SH' : 'SZ'}`);
     const quotes = await fetchTencentQuotes(tsCodes);
@@ -2749,18 +2831,18 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   }
 
   let quotes = new Map<string, TencentQuote>();
-  let completedTradingDay = false;
-  if (forceRefresh) {
-    const quoteCodes = config.symbols.map((symbol) => {
-      const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
-      return `${symbol.code}.${exchange}`;
-    });
+  const quoteCodes = config.symbols.map((symbol) => {
+    const exchange = symbol.marketCode.startsWith('sh') ? 'SH' : symbol.marketCode.startsWith('bj') ? 'BJ' : 'SZ';
+    return `${symbol.code}.${exchange}`;
+  });
+  try {
     quotes = await fetchTencentQuotes(quoteCodes);
-    if (![...quotes.values()].some((quote) => quote.price !== undefined && quote.date !== undefined)) {
-      throw new Error('实时行情未返回有效数据，请稍后重试');
-    }
-    completedTradingDay = [...quotes.values()].some((quote) => quote.date && isCompletedTradingDay(quote.date));
+  } catch (error) {
+    if (forceRefresh) throw error;
   }
+  const hasRealtimeQuotes = [...quotes.values()].some((quote) => quote.price !== undefined && quote.date !== undefined);
+  if (forceRefresh && !hasRealtimeQuotes) throw new Error('实时行情未返回有效数据，请稍后重试');
+  const completedTradingDay = [...quotes.values()].some((quote) => quote.date && isCompletedTradingDay(quote.date));
   const fetchedBase = await Promise.all(config.symbols.map((symbol) => (
     completedTradingDay ? fetchFullQfqSymbol(symbol) : fetchSymbol(symbol)
   )));
@@ -2779,7 +2861,8 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   }
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
   const year = Number(lastTradingDate.slice(0, 4));
-  const storedYearPerformance = forceRefresh ? null : readRotationYearPerformance('asset-rotation', year);
+  // A live quote changes the marked-to-market value even when the trading date is unchanged.
+  const storedYearPerformance = forceRefresh || hasRealtimeQuotes ? null : readRotationYearPerformance('asset-rotation', year);
   const yearPerformance = storedYearPerformance?.lastTradingDate === lastTradingDate
     ? storedYearPerformance
     : calculateAssetRotationYearPerformance(fetched);
@@ -2812,7 +2895,9 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
       rank: index + 1,
       signal: market.code === currentHoldingCode ? '持有' : market.aboveMa && index < 2 ? '观察' : '规避',
     }));
-  const provider = forceRefresh ? '腾讯证券公开日线 + 实时行情' : '腾讯证券公开行情';
+  const provider = hasRealtimeQuotes
+    ? '腾讯证券公开前复权日线（信号）+ 腾讯实时原始报价（现价）'
+    : '腾讯证券公开前复权日线（实时行情暂不可用）';
   const fetchedAt = new Date().toISOString();
   const snapshot: RotationSnapshot = {
     markets,
@@ -3581,6 +3666,163 @@ async function buildVolumeSnapshot(storageDate: string): Promise<VolumeSnapshot>
     pullbackCount: signals.filter((signal) => signal.signal === '缩量回踩蓄力').length,
   };
   writeVolumeSnapshot(snapshot);
+  await flushMysqlWrites();
+  return snapshot;
+}
+
+export async function getMa5ResonanceSnapshot(forceRefresh = false, requestedDate?: string): Promise<Ma5ResonanceSnapshot> {
+  const today = dateText(new Date());
+  const currentTradingDate = await latestTradingDateOnOrBefore(today);
+  const storageDate = requestedDate
+    ? await latestTradingDateOnOrBefore(normalizeSnapshotDate(requestedDate))
+    : currentTradingDate;
+  if (!forceRefresh) {
+    const stored = readMa5ResonanceSnapshot(storageDate);
+    if (stored) return requestedDate && storageDate !== currentTradingDate ? withCurrentMa5ResonancePrices(stored) : stored;
+  }
+  const runningScan = ma5ResonanceScansInFlight.get(storageDate);
+  if (runningScan) {
+    const snapshot = await runningScan;
+    return requestedDate && storageDate !== currentTradingDate ? withCurrentMa5ResonancePrices(snapshot) : snapshot;
+  }
+  const scan = buildMa5ResonanceSnapshot(storageDate);
+  ma5ResonanceScansInFlight.set(storageDate, scan);
+  try {
+    const snapshot = await scan;
+    return requestedDate && storageDate !== currentTradingDate ? withCurrentMa5ResonancePrices(snapshot) : snapshot;
+  } finally {
+    ma5ResonanceScansInFlight.delete(storageDate);
+  }
+}
+
+async function buildMa5ResonanceSnapshot(storageDate: string): Promise<Ma5ResonanceSnapshot> {
+  const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  const dailyByCode = new Map<string, PullbackDailyRow[]>();
+  const availableDays = new Set<string>();
+  const excludedByBoard = new Set<string>();
+
+  for (const [index, tradeDate] of queryDays.entries()) {
+    if (index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (rows.length > 0) availableDays.add(tradeDate);
+    for (const row of rows) {
+      const tsCode = String(row.ts_code);
+      const code = tsCode.split('.')[0];
+      if (tsCode.endsWith('.BJ') || code.startsWith('30') || code.startsWith('688') || code.startsWith('689')) {
+        excludedByBoard.add(tsCode);
+        continue;
+      }
+      const values = [row.open, row.high, row.low, row.close, row.pre_close, row.vol].map(Number);
+      if (values.some((value) => !Number.isFinite(value))) continue;
+      const [open, high, low, close, previousClose, volume] = values;
+      const series = dailyByCode.get(tsCode) ?? [];
+      series.push({
+        tsCode,
+        tradeDate: String(row.trade_date),
+        open,
+        high,
+        low,
+        close,
+        previousClose,
+        volume,
+        change: Number(row.pct_chg),
+      });
+      dailyByCode.set(tsCode, series);
+    }
+  }
+
+  const tradingDays = [...availableDays].sort();
+  if (tradingDays.length < 65) throw new Error('Tushare 返回的有效日线不足 65 条，无法计算 5 日线回踩共振');
+  const lastTradingDate = tradingDays.at(-1)!;
+  const candidates: Ma5ResonanceCandidate[] = [];
+  let scannedCount = 0;
+
+  for (const [tsCode, rows] of dailyByCode) {
+    rows.sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
+    if (rows.length < 65) continue;
+    const lastIndex = rows.length - 1;
+    const last = rows[lastIndex];
+    if (last.tradeDate !== lastTradingDate || last.volume <= 0) continue;
+    scannedCount += 1;
+
+    const closes = rows.map((row) => row.close);
+    const volumes = rows.map((row) => row.volume);
+    const ma5 = simpleMovingAverage(closes, 5);
+    const ma10 = simpleMovingAverage(closes, 10);
+    const ma20 = simpleMovingAverage(closes, 20);
+    const currentMa5 = ma5[lastIndex];
+    const currentMa10 = ma10[lastIndex];
+    const currentMa20 = ma20[lastIndex];
+    const previousVolume = volumes.slice(-6, -1).reduce((sum, value) => sum + value, 0) / 5;
+    if (![currentMa5, currentMa10, currentMa20, ma5[lastIndex - 3], ma10[lastIndex - 3], ma20[lastIndex - 3]].every(Number.isFinite) || previousVolume <= 0) continue;
+
+    const supportDistance = ((last.close / currentMa5) - 1) * 100;
+    const recentHigh = Math.max(...rows.slice(-20).map((row) => row.high));
+    const pullback = ((last.close / recentHigh) - 1) * 100;
+    const volumeRatio = last.volume / previousVolume;
+    const aligned = currentMa5 > currentMa10 && currentMa10 > currentMa20;
+    const slopesUp = currentMa5 > ma5[lastIndex - 3]
+      && currentMa10 > ma10[lastIndex - 3]
+      && currentMa20 >= ma20[lastIndex - 3];
+    const touchesMa5 = last.low <= currentMa5 * 1.01 && last.close >= currentMa5;
+    const stableCandle = last.close >= last.open * 0.99 && last.change >= -2.5 && last.change <= 5.5;
+    const inPullbackRange = pullback >= -12 && pullback <= -0.2;
+    if (!aligned || !slopesUp || !touchesMa5 || !stableCandle || !inPullbackRange || last.close < currentMa20) continue;
+
+    const reclaiming = rows[lastIndex - 1].close <= ma5[lastIndex - 1] * 1.008 && last.close > currentMa5;
+    const contracted = volumeRatio >= 0.45 && volumeRatio <= 0.9;
+    const compactAlignment = ((currentMa5 / currentMa20) - 1) * 100 <= 8;
+    const signal = reclaiming && contracted && compactAlignment
+      ? '多均线共振'
+      : contracted
+        ? '5 日线回踩确认'
+        : null;
+    if (!signal) continue;
+
+    const baseScore = signal === '多均线共振' ? 88 : 80;
+    const score = Math.min(100, Math.max(0, baseScore
+      - Math.abs(supportDistance) * 8
+      - Math.abs(pullback + 4) * 1.4
+      - Math.abs(volumeRatio - 0.72) * 14
+      + Math.max(0, last.change) * 1.2));
+    candidates.push({
+      tsCode,
+      code: tsCode.split('.')[0],
+      close: round(last.close),
+      change: round(last.change, 2),
+      ma5: round(currentMa5),
+      ma10: round(currentMa10),
+      ma20: round(currentMa20),
+      supportDistance: round(supportDistance, 2),
+      pullback: round(pullback, 2),
+      volumeRatio: round(volumeRatio, 2),
+      score: round(score, 1),
+      signal,
+    });
+  }
+
+  const signalOrder: Record<Ma5ResonanceSignal['signal'], number> = { '多均线共振': 0, '5 日线回踩确认': 1 };
+  candidates.sort((left, right) => signalOrder[left.signal] - signalOrder[right.signal] || right.score - left.score);
+  const names = await fetchTencentNames(candidates.map((item) => item.tsCode));
+  const namedCandidates = candidates.filter((item) => {
+    const name = names.get(item.code);
+    return Boolean(name) && !name.toUpperCase().includes('ST');
+  });
+  const signals: Ma5ResonanceSignal[] = namedCandidates.map(({ tsCode: _tsCode, ...item }) => ({
+    ...item,
+    name: names.get(item.code)!,
+  }));
+  const snapshot: Ma5ResonanceSnapshot = {
+    signals,
+    storageDate: lastTradingDate,
+    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    fetchedAt: new Date().toISOString(),
+    lastTradingDate,
+    cached: false,
+    scannedCount,
+    excludedCount: excludedByBoard.size + candidates.length - namedCandidates.length,
+  };
+  writeMa5ResonanceSnapshot(snapshot);
   await flushMysqlWrites();
   return snapshot;
 }

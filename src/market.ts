@@ -329,6 +329,34 @@ export type VolumeSnapshot = {
   pullbackCount: number;
 };
 
+export type Ma5ResonanceSignal = {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  currentPrice?: number;
+  changeSinceSignal?: number;
+  ma5: number;
+  ma10: number;
+  ma20: number;
+  supportDistance: number;
+  pullback: number;
+  volumeRatio: number;
+  score: number;
+  signal: '5 日线回踩确认' | '多均线共振';
+};
+
+export type Ma5ResonanceSnapshot = {
+  signals: Ma5ResonanceSignal[];
+  storageDate: string;
+  provider: string;
+  fetchedAt: string;
+  lastTradingDate: string;
+  cached: boolean;
+  scannedCount: number;
+  excludedCount: number;
+};
+
 export type BullPointSignal = {
   code: string;
   name: string;

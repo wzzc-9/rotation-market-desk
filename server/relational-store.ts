@@ -218,6 +218,8 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
       dea_value: { definition: 'DECIMAL(20,8) NULL', comment: 'MACD DEA指标值' },
       histogram_value: { definition: 'DECIMAL(20,8) NULL', comment: 'MACD柱值' },
       histogram_change: { definition: 'DECIMAL(20,8) NULL', comment: 'MACD柱变化值' },
+      ma5: { definition: 'DECIMAL(20,8) NULL', comment: '5日均价' },
+      ma10: { definition: 'DECIMAL(20,8) NULL', comment: '10日均价' },
       ma20: { definition: 'DECIMAL(20,8) NULL', comment: '20日均价' },
       ma25: { definition: 'DECIMAL(20,8) NULL', comment: '25日均价' },
       support_distance: { definition: 'DECIMAL(20,8) NULL', comment: '价格到均线支撑的距离，单位百分比' },
@@ -253,6 +255,7 @@ const strategyDefinitions = [
   ['macd-pullback', 'MACD零轴回踩', 'stock_scan', 'MACD趋势后的回踩买点扫描'],
   ['macd-kdj', 'MACD与KDJ共振', 'stock_scan', 'MACD和KDJ低位双金叉扫描'],
   ['volume', '量价三信号', 'stock_scan', '量价突破、支撑和回踩扫描'],
+  ['ma5-resonance', '5日线回踩共振', 'stock_scan', 'MA5回踩、MA5/10/20多头排列和缩量确认扫描'],
   ['bull-point', '多空趋势多点', 'stock_scan', '同花顺风格多空趋势多点扫描'],
 ] as const;
 
@@ -450,7 +453,7 @@ export async function createRelationalSchema(db: Database) {
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '扫描结果主键', run_id BIGINT UNSIGNED NOT NULL COMMENT '所属扫描批次主键', result_order INT UNSIGNED NOT NULL COMMENT '结果在页面中的原始顺序',
     security_code CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '股票六位交易代码', security_name VARCHAR(100) NOT NULL COMMENT '股票名称', close_price DECIMAL(20,8) NOT NULL COMMENT '信号日收盘价', change_rate DECIMAL(20,8) NOT NULL COMMENT '信号日涨跌幅，单位百分比',
     current_price DECIMAL(20,8) NULL COMMENT '历史查询时补充的当前价格', change_since_signal DECIMAL(20,8) NULL COMMENT '信号日至今涨跌幅，单位百分比', dif_value DECIMAL(20,8) NULL COMMENT 'MACD DIF指标值', dea_value DECIMAL(20,8) NULL COMMENT 'MACD DEA指标值',
-    histogram_value DECIMAL(20,8) NULL COMMENT 'MACD柱值', histogram_change DECIMAL(20,8) NULL COMMENT 'MACD柱变化值', ma20 DECIMAL(20,8) NULL COMMENT '20日均价', ma25 DECIMAL(20,8) NULL COMMENT '25日均价',
+    histogram_value DECIMAL(20,8) NULL COMMENT 'MACD柱值', histogram_change DECIMAL(20,8) NULL COMMENT 'MACD柱变化值', ma5 DECIMAL(20,8) NULL COMMENT '5日均价', ma10 DECIMAL(20,8) NULL COMMENT '10日均价', ma20 DECIMAL(20,8) NULL COMMENT '20日均价', ma25 DECIMAL(20,8) NULL COMMENT '25日均价',
     support_distance DECIMAL(20,8) NULL COMMENT '价格到均线支撑的距离，单位百分比', pullback_rate DECIMAL(20,8) NULL COMMENT '阶段回踩幅度，单位百分比', volume_ratio DECIMAL(20,8) NULL COMMENT '成交量比例', cross_days_ago SMALLINT NULL COMMENT 'MACD交叉距信号日的交易日数',
     score DECIMAL(20,8) NULL COMMENT '策略内部评分', k_value DECIMAL(20,8) NULL COMMENT 'KDJ K值', d_value DECIMAL(20,8) NULL COMMENT 'KDJ D值', j_value DECIMAL(20,8) NULL COMMENT 'KDJ J值', kdj_cross_days_ago SMALLINT NULL COMMENT 'KDJ交叉距信号日的交易日数', divergence TINYINT(1) NULL COMMENT '是否出现底背离',
     volume_ma5 DECIMAL(24,4) NULL COMMENT '5日成交量均值', volume_ma60 DECIMAL(24,4) NULL COMMENT '60日成交量均值', price_cross_days_ago SMALLINT NULL COMMENT '价格突破距信号日的交易日数', volume_cross_days_ago SMALLINT NULL COMMENT '量能突破距信号日的交易日数',
@@ -458,6 +461,12 @@ export async function createRelationalSchema(db: Database) {
     cross_spread DECIMAL(20,8) NULL COMMENT '多空指标交叉后的差值', signal_type VARCHAR(40) NOT NULL COMMENT '策略产生的信号类型', PRIMARY KEY (id), UNIQUE KEY uk_scan_result_order (run_id, result_order), KEY idx_scan_security (run_id, security_code),
     CONSTRAINT fk_scan_result_run FOREIGN KEY (run_id) REFERENCES stock_scan_runs(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个股策略扫描结果明细表'`);
+  if (!(await schemaColumnExists(db, 'stock_scan_results', 'ma5'))) {
+    await db.query("ALTER TABLE stock_scan_results ADD COLUMN ma5 DECIMAL(20,8) NULL COMMENT '5日均价' AFTER histogram_change");
+  }
+  if (!(await schemaColumnExists(db, 'stock_scan_results', 'ma10'))) {
+    await db.query("ALTER TABLE stock_scan_results ADD COLUMN ma10 DECIMAL(20,8) NULL COMMENT '10日均价' AFTER ma5");
+  }
   for (const definition of strategyDefinitions) {
     await db.execute(`INSERT INTO strategies (strategy_code, strategy_name, strategy_type, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, NOW(3), NOW(3)) ON DUPLICATE KEY UPDATE strategy_name=VALUES(strategy_name), strategy_type=VALUES(strategy_type), description=VALUES(description), updated_at=NOW(3)`, [...definition]);
@@ -514,6 +523,7 @@ const scanFolders: Record<string, string> = {
   'macd-pullback-snapshots': 'macd-pullback',
   'macd-kdj-snapshots': 'macd-kdj',
   'volume-snapshots': 'volume',
+  'ma5-resonance-snapshots': 'ma5-resonance',
   'bull-point-snapshots': 'bull-point',
 };
 
@@ -604,7 +614,7 @@ async function saveYearPerformance(db: Database, key: string, value: any) {
 }
 
 const signalFields = [
-  'code', 'name', 'close', 'change', 'currentPrice', 'changeSinceSignal', 'dif', 'dea', 'histogram', 'histogramChange', 'ma20', 'ma25', 'supportDistance', 'pullback', 'volumeRatio', 'crossDaysAgo',
+  'code', 'name', 'close', 'change', 'currentPrice', 'changeSinceSignal', 'dif', 'dea', 'histogram', 'histogramChange', 'ma5', 'ma10', 'ma20', 'ma25', 'supportDistance', 'pullback', 'volumeRatio', 'crossDaysAgo',
   'score', 'k', 'd', 'j', 'kdjCrossDaysAgo', 'divergence', 'volumeMa5', 'volumeMa60', 'priceCrossDaysAgo', 'volumeCrossDaysAgo', 'var1', 'trendLine', 'previousVar1', 'previousTrendLine', 'crossSpread', 'signal',
 ] as const;
 
@@ -617,8 +627,8 @@ async function saveScan(db: Database, key: string, value: any) {
   const [rows] = await db.query<Array<RowDataPacket & { id: number }>>('SELECT id FROM stock_scan_runs WHERE strategy_code=? AND storage_date=?', [path.strategy, path.date]);
   const id = rows[0].id;
   await db.execute('DELETE FROM stock_scan_results WHERE run_id=?', [id]);
-  const columns = `run_id, result_order, security_code, security_name, close_price, change_rate, current_price, change_since_signal, dif_value, dea_value, histogram_value, histogram_change, ma20, ma25, support_distance, pullback_rate, volume_ratio, cross_days_ago, score, k_value, d_value, j_value, kdj_cross_days_ago, divergence, volume_ma5, volume_ma60, price_cross_days_ago, volume_cross_days_ago, var1_value, trend_line, previous_var1, previous_trend_line, cross_spread, signal_type`;
-  await insertRows(db, `INSERT INTO stock_scan_results (${columns}) VALUES`, 34, (value.signals ?? []).map((signal: any, index: number) => [
+  const columns = `run_id, result_order, security_code, security_name, close_price, change_rate, current_price, change_since_signal, dif_value, dea_value, histogram_value, histogram_change, ma5, ma10, ma20, ma25, support_distance, pullback_rate, volume_ratio, cross_days_ago, score, k_value, d_value, j_value, kdj_cross_days_ago, divergence, volume_ma5, volume_ma60, price_cross_days_ago, volume_cross_days_ago, var1_value, trend_line, previous_var1, previous_trend_line, cross_spread, signal_type`;
+  await insertRows(db, `INSERT INTO stock_scan_results (${columns}) VALUES`, 36, (value.signals ?? []).map((signal: any, index: number) => [
     id, index, ...signalFields.map((field) => field === 'divergence' ? (signal[field] == null ? null : signal[field] ? 1 : 0) : signal[field] ?? null),
   ]), 300);
 }
@@ -717,7 +727,7 @@ export async function loadRelationalObjects(db: Database) {
   for (const row of runs) {
     const [signals] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM stock_scan_results WHERE run_id=? ORDER BY result_order', [row.id]);
     const mappedSignals = signals.map((item) => {
-      const source = [item.security_code, item.security_name, item.close_price, item.change_rate, item.current_price, item.change_since_signal, item.dif_value, item.dea_value, item.histogram_value, item.histogram_change, item.ma20, item.ma25, item.support_distance, item.pullback_rate, item.volume_ratio, item.cross_days_ago, item.score, item.k_value, item.d_value, item.j_value, item.kdj_cross_days_ago, item.divergence, item.volume_ma5, item.volume_ma60, item.price_cross_days_ago, item.volume_cross_days_ago, item.var1_value, item.trend_line, item.previous_var1, item.previous_trend_line, item.cross_spread, item.signal_type];
+      const source = [item.security_code, item.security_name, item.close_price, item.change_rate, item.current_price, item.change_since_signal, item.dif_value, item.dea_value, item.histogram_value, item.histogram_change, item.ma5, item.ma10, item.ma20, item.ma25, item.support_distance, item.pullback_rate, item.volume_ratio, item.cross_days_ago, item.score, item.k_value, item.d_value, item.j_value, item.kdj_cross_days_ago, item.divergence, item.volume_ma5, item.volume_ma60, item.price_cross_days_ago, item.volume_cross_days_ago, item.var1_value, item.trend_line, item.previous_var1, item.previous_trend_line, item.cross_spread, item.signal_type];
       return Object.fromEntries(signalFields.map((field, index) => [field, source[index]]).filter(([, value]) => value !== null).map(([field, value]) => [field, field === 'divergence' ? Boolean(value) : typeof value === 'number' ? Number(value) : value]));
     });
     const value: Record<string, unknown> = { signals: mappedSignals, storageDate: dateValue(row.storage_date).replace(/-/g, ''), provider: row.provider, fetchedAt: dateTimeValue(row.fetched_at), lastTradingDate: dateValue(row.last_trading_date), cached: Boolean(row.cached), scannedCount: Number(row.scanned_count), excludedCount: Number(row.excluded_count) };

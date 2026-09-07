@@ -39,10 +39,10 @@ import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
 import { assetRotationVideoBenchmark, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
-import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type SavedRotationPool, type VolumeSnapshot } from './market';
+import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type Ma5ResonanceSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type SavedRotationPool, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
-type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'bull-points';
+type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'ma5-resonance' | 'bull-points';
 type StrategyId = 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20' | 'intersection' | ScreeningStrategyId;
 type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
@@ -53,6 +53,7 @@ const intersectionStrategyOptions: Array<{ id: ScreeningStrategyId; label: strin
   { id: 'macd-pullback', label: 'MACD 零轴回踩', detail: '5 / 34 / 5', endpoint: '/api/strategy/macd-pullback' },
   { id: 'macd-kdj', label: 'MACD + KDJ 共振', detail: '低位双金叉', endpoint: '/api/strategy/macd-kdj' },
   { id: 'volume-signals', label: '量价三信号', detail: 'MA25 · 量均 5 / 60', endpoint: '/api/strategy/volume-signals' },
+  { id: 'ma5-resonance', label: '5 日线回踩共振', detail: 'MA5 / MA10 / MA20', endpoint: '/api/strategy/ma5-resonance' },
   { id: 'bull-points', label: '多空趋势多点', detail: 'HHV 21 / 6 · MA 34 / 6', endpoint: '/api/strategy/bull-points' },
 ];
 
@@ -83,6 +84,7 @@ const strategyWorkspaceTabs: Record<StrategyId, WorkspaceTab> = {
   'macd-pullback': { id: 'strategy:macd-pullback', label: 'MACD 零轴回踩', view: 'strategy', strategyId: 'macd-pullback', icon: Target, closable: true },
   'macd-kdj': { id: 'strategy:macd-kdj', label: 'MACD + KDJ 共振', view: 'strategy', strategyId: 'macd-kdj', icon: BarChart3, closable: true },
   'volume-signals': { id: 'strategy:volume-signals', label: '量价三信号', view: 'strategy', strategyId: 'volume-signals', icon: Activity, closable: true },
+  'ma5-resonance': { id: 'strategy:ma5-resonance', label: '5 日线回踩共振', view: 'strategy', strategyId: 'ma5-resonance', icon: TrendingUp, closable: true },
   'bull-points': { id: 'strategy:bull-points', label: '多空趋势多点', view: 'strategy', strategyId: 'bull-points', icon: TrendingUp, closable: true },
 };
 
@@ -1943,7 +1945,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
               </div>
               <div><span className="eyebrow">{performanceRange} {isAssetRotation ? 'RULE REPLAY' : 'BACKTEST'}</span><h3>{performanceTitle}</h3></div>
             </div>
-            <span className="source-note">前复权日线 · {isAssetRotation ? '周度' : '每日'}收盘信号 · 未计费用</span>
+            <span className="source-note">{isAssetRotation ? '前复权日线计算信号 · 现价使用实时原始报价' : '前复权日线'} · {isAssetRotation ? '周度' : '每日'}收盘信号 · 未计费用</span>
           </div>
           <div className="backtest-summary">
             <div><span>{performanceRange} 年累计收益</span><strong className={performanceSummary.cumulativeReturn >= 0 ? 'up' : 'down'}>{formatPct(performanceSummary.cumulativeReturn)}</strong></div>
@@ -2905,6 +2907,186 @@ function VolumeSignalStrategy() {
   </div>;
 }
 
+type Ma5ResonanceSortKey = 'change' | 'changeSinceSignal' | 'score' | 'volumeRatio';
+
+function Ma5ResonanceTable({ snapshot, historical = false }: { snapshot: Ma5ResonanceSnapshot; historical?: boolean }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [sort, setSort] = useState<{ key: Ma5ResonanceSortKey; direction: 'asc' | 'desc' } | null>(null);
+  const sortedSignals = useMemo(() => {
+    if (!sort) return snapshot.signals;
+    return [...snapshot.signals].sort((left, right) => {
+      const leftValue = left[sort.key];
+      const rightValue = right[sort.key];
+      if (leftValue === undefined) return rightValue === undefined ? 0 : 1;
+      if (rightValue === undefined) return -1;
+      return sort.direction === 'asc' ? leftValue - rightValue : rightValue - leftValue;
+    });
+  }, [snapshot.signals, sort]);
+  const totalPages = Math.max(1, Math.ceil(snapshot.signals.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = sortedSignals.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const toggleSort = (key: Ma5ResonanceSortKey) => {
+    setSort((current) => {
+      if (!current || current.key !== key) return { key, direction: 'desc' };
+      if (current.direction === 'desc') return { key, direction: 'asc' };
+      return null;
+    });
+    setPage(1);
+  };
+  const sortButton = (key: Ma5ResonanceSortKey, label: string) => {
+    const activeSort = sort?.key === key ? sort : null;
+    const nextDirection = !activeSort ? '降序' : activeSort.direction === 'desc' ? '升序' : '原始顺序';
+    return <button className={`table-sort-button${activeSort ? ' active' : ''}`} type="button" title={`按${label}${nextDirection}排列`} onClick={() => toggleSort(key)}>{label}{!activeSort ? <ArrowUpDown size={13} /> : activeSort.direction === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />}</button>;
+  };
+  return <>
+    <div className="table-scroll"><table className={`volume-signal-table${historical ? ' is-history' : ''}`}>
+      <thead><tr><th>序号</th><th>股票</th><th>{historical ? '当时价格' : '现价'}</th><th>{sortButton('change', historical ? '当日涨幅' : '涨跌幅')}</th>{historical && <><th>当前价格</th><th>{sortButton('changeSinceSignal', '至今涨幅')}</th></>}<th>MA5</th><th>MA10</th><th>MA20</th><th>距 MA5</th><th>高点回撤</th><th>{sortButton('volumeRatio', '缩量比')}</th><th>{sortButton('score', '评分')}</th><th>信号</th></tr></thead>
+      <tbody>{pageRows.map((item, index) => <tr key={item.code}>
+        <td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, '0')}</td>
+        <td><StockKlineCell name={item.name} code={item.code} /></td>
+        <td>{item.close.toFixed(2)}</td>
+        <td><Change value={item.change} /></td>
+        {historical && <><td>{item.currentPrice === undefined ? '--' : item.currentPrice.toFixed(2)}</td><td>{item.changeSinceSignal === undefined ? '--' : <Change value={item.changeSinceSignal} />}</td></>}
+        <td>{item.ma5.toFixed(2)}</td>
+        <td>{item.ma10.toFixed(2)}</td>
+        <td>{item.ma20.toFixed(2)}</td>
+        <td><Change value={item.supportDistance} /></td>
+        <td><Change value={item.pullback} /></td>
+        <td>{item.volumeRatio.toFixed(2)}</td>
+        <td><strong className="pullback-score">{item.score.toFixed(1)}</strong></td>
+        <td><span className={`volume-signal-badge ${item.signal === '多均线共振' ? 'support' : 'pullback'}`}>{item.signal}</span></td>
+      </tr>)}</tbody>
+    </table></div>
+    <div className="macd-pagination">
+      <span>共 {snapshot.signals.length} 条</span>
+      <label>每页<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option></select></label>
+      <span>第 {currentPage} / {totalPages} 页</span>
+      <button className="icon-button" type="button" title="上一页" aria-label="上一页" disabled={currentPage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={16} /></button>
+      <button className="icon-button" type="button" title="下一页" aria-label="下一页" disabled={currentPage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}><ChevronRight size={16} /></button>
+    </div>
+  </>;
+}
+
+function Ma5ResonanceStrategy() {
+  const [snapshot, setSnapshot] = useState<Ma5ResonanceSnapshot | null>(null);
+  const [historySnapshot, setHistorySnapshot] = useState<Ma5ResonanceSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [storedDates, setStoredDates] = useState<string[]>([]);
+  const loadStoredDates = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/strategy/ma5-resonance/dates', { cache: 'no-store' });
+      const payload = await response.json() as { dates?: string[] };
+      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
+    } catch {
+      // The current scan remains usable when the local date list cannot be loaded.
+    }
+  }, []);
+  const loadLatestSignals = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/strategy/ma5-resonance', { cache: 'no-store' });
+      const payload = await response.json() as Ma5ResonanceSnapshot & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `5 日线回踩共振扫描返回 HTTP ${response.status}`);
+      setSnapshot(payload);
+      setSelectedDate((current) => current || toInputDate(payload.storageDate));
+      void loadStoredDates();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '5 日线回踩共振扫描失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadStoredDates]);
+  const loadHistoricalSignals = useCallback(async (date: string) => {
+    setSelectedDate(date);
+    setHistoryError('');
+    if (!date || date.replaceAll('-', '') === snapshot?.storageDate) {
+      setHistorySnapshot(null);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistorySnapshot(null);
+    try {
+      const response = await apiFetch(`/api/strategy/ma5-resonance?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const payload = await response.json() as Ma5ResonanceSnapshot & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `历史 5 日线回踩共振结果返回 HTTP ${response.status}`);
+      setHistorySnapshot(payload);
+      setSelectedDate(toInputDate(payload.storageDate));
+      void loadStoredDates();
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : '历史 5 日线回踩共振结果读取失败');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [loadStoredDates, snapshot?.storageDate]);
+  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  const lead = snapshot?.signals[0];
+  const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
+    if (signal.changeSinceSignal === undefined) return counts;
+    if (signal.changeSinceSignal > 0) counts.up += 1;
+    else if (signal.changeSinceSignal < 0) counts.down += 1;
+    else counts.flat += 1;
+    counts.total += 1;
+    return counts;
+  }, { up: 0, down: 0, flat: 0, total: 0 });
+  const rules = [
+    { title: '短趋势向上', copy: 'MA5、MA10、MA20 按顺序多头排列，三条均线近 3 日不走弱。', icon: TrendingUp },
+    { title: '回踩 5 日线', copy: '当日低点回到 MA5 附近，收盘重新站上 MA5；收盘仍在 MA20 上方。', icon: Target },
+    { title: '缩量不破位', copy: '当日成交量不高于此前 5 日均量的 90%，且阴阳线实体保持稳定。', icon: BarChart3 },
+    { title: '阶段强势过滤', copy: '价格距离近 20 日高点不超过 12%，避免下跌趋势中的均线反弹。', icon: Activity },
+    { title: '进阶共振', copy: '前一日贴近 MA5、当日重新收回，且 MA5 至 MA20 的发散不超过 8%，标记为多均线共振。', icon: GitMerge },
+  ];
+  return <div className="workspace-view strategy-view">
+    <section className="view-heading strategy-heading">
+      <div><span className="eyebrow">STRATEGY / MA5 PULLBACK RESONANCE</span><h1>5 日线回踩共振</h1><p>将 5 日均线操作思路量化为短趋势、缩量回踩与均线共振的个股扫描。</p></div>
+      <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
+    </section>
+
+    <section className="macd-date-toolbar" aria-label="5 日线回踩共振历史记录日期">
+      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
+      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
+    </section>
+
+    <section className="strategy-hero macd-hero">
+      <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待短趋势、回踩和缩量同时确认'}</p></div>
+      <div className="signal-stat"><span>核心均线</span><strong>5 / 10 / 20</strong><small>短趋势 · 回踩支撑 · 中期过滤</small></div>
+      <div className="signal-stat"><span>共振候选</span><strong>{snapshot?.signals.length ?? '--'}</strong><small>缩量回踩后收回 MA5</small></div>
+      <div className="signal-stat"><span>结果交易日</span><strong>{snapshot ? formatTradingDate(snapshot.lastTradingDate) : '--'}</strong><small>{snapshot?.cached ? '本地扫描记录' : '本次计算结果'}</small></div>
+    </section>
+
+    <div className="macd-pullback-layout">
+      <section className="panel rules-panel">
+        <div className="panel-title-row"><div><span className="eyebrow">MA5 RULES</span><h3>5 日线共振规则</h3></div></div>
+        <div className="rule-flow volume-rule-flow">{rules.map((rule, index) => { const Icon = rule.icon; return <div className="rule-step" key={rule.title}><div className="rule-index">{String(index + 1).padStart(2, '0')}</div><div className="rule-icon"><Icon size={18} /></div><div><strong>{rule.title}</strong><p>{rule.copy}</p></div></div>; })}</div>
+      </section>
+      <section className="panel macd-results-panel">
+        <div className="panel-title-row"><div><span className="eyebrow">MA5 RESONANCE CANDIDATES</span><h3>短趋势回踩候选</h3></div>{snapshot && <span className="source-note">排除板块 / ST 等 {snapshot.excludedCount.toLocaleString()} 只 · 进入计算 {snapshot.scannedCount.toLocaleString()} 只 · 候选 {snapshot.signals.length.toLocaleString()} 只</span>}</div>
+        {loading && <div className="macd-state"><RefreshCw className="spin-icon" size={20} />正在读取全市场日线并计算 MA5 / MA10 / MA20 共振</div>}
+        {!loading && error && <div className="macd-state error"><AlertTriangle size={19} />{error}</div>}
+        {!loading && !error && snapshot && snapshot.signals.length === 0 && <div className="macd-state">当前交易日没有同时满足多头排列、缩量回踩和收回 MA5 的标的</div>}
+        {!loading && !error && snapshot && snapshot.signals.length > 0 && <Ma5ResonanceTable snapshot={snapshot} />}
+      </section>
+    </div>
+    {(historyLoading || historyError || historySnapshot) && <section className="panel macd-history-panel">
+      <div className="panel-title-row">
+        <div><span className="eyebrow">HISTORICAL MA5 RESONANCE</span><h3>{historySnapshot ? `${formatTradingDate(historySnapshot.lastTradingDate)} 历史回踩候选` : '历史筛选结果'}</h3></div>
+        {historyMovement && historyMovement.total > 0 && <div className="history-movement-summary" aria-label="历史 5 日线候选至今涨跌统计"><span className="up">上涨 <strong>{historyMovement.up}</strong> 只</span><span className="down">下跌 <strong>{historyMovement.down}</strong> 只</span><span>持平 <strong>{historyMovement.flat}</strong> 只</span></div>}
+        {historySnapshot && <span className="source-note">排除板块 / ST 等 {historySnapshot.excludedCount.toLocaleString()} 只 · 进入计算 {historySnapshot.scannedCount.toLocaleString()} 只 · 候选 {historySnapshot.signals.length.toLocaleString()} 只</span>}
+      </div>
+      {historyLoading && <div className="macd-state macd-history-state"><RefreshCw className="spin-icon" size={20} />正在读取或计算截至 {formatTradingDate(selectedDate)} 的历史筛选结果</div>}
+      {!historyLoading && historyError && <div className="macd-state macd-history-state error"><AlertTriangle size={19} />{historyError}</div>}
+      {!historyLoading && !historyError && historySnapshot && historySnapshot.signals.length === 0 && <div className="macd-state macd-history-state">该交易日没有符合 5 日线回踩共振条件的标的</div>}
+      {!historyLoading && !historyError && historySnapshot && historySnapshot.signals.length > 0 && <Ma5ResonanceTable snapshot={historySnapshot} historical />}
+    </section>}
+    <div className="risk-note macd-risk-note"><CircleDollarSign size={18} /><p>候选仅表示均线与量能条件在收盘后同时满足，不构成买入建议。板块强度、指数环境、公告、流动性、仓位与止损需在执行前另行核对。</p></div>
+  </div>;
+}
+
 type BullPointSortKey = 'change' | 'changeSinceSignal' | 'var1' | 'crossSpread';
 
 function BullPointTable({ snapshot, historical = false }: { snapshot: BullPointSnapshot; historical?: boolean }) {
@@ -3738,7 +3920,7 @@ export default function App() {
           </section>
           <section className="strategy-group">
             <button className="strategy-group-toggle" type="button" aria-expanded={expandedStrategyGroups.has('stock')} aria-controls="stock-strategy-menu" onClick={() => toggleStrategyGroup('stock')}>
-              <span><TrendingUp size={15} /><strong>个股策略</strong><small>6</small></span>
+              <span><TrendingUp size={15} /><strong>个股策略</strong><small>7</small></span>
               <ChevronRight className={expandedStrategyGroups.has('stock') ? 'is-open' : ''} size={15} />
             </button>
             <div id="stock-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('stock')}>
@@ -3765,6 +3947,11 @@ export default function App() {
               <button className={view === 'strategy' && strategyId === 'volume-signals' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('volume-signals')}>
                 <span className="strategy-icon"><Activity size={16} /></span>
                 <span><strong>量价三信号</strong><small>MA25 · 量均 5 / 60</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'ma5-resonance' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('ma5-resonance')}>
+                <span className="strategy-icon"><TrendingUp size={16} /></span>
+                <span><strong>5 日线回踩共振</strong><small>MA5 / MA10 / MA20 · 缩量回踩</small></span>
                 <span className="live-dot" />
               </button>
               <button className={view === 'strategy' && strategyId === 'bull-points' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('bull-points')}>
@@ -3839,6 +4026,7 @@ export default function App() {
           {tab.id === 'strategy:macd-pullback' && <MacdPullbackStrategy />}
           {tab.id === 'strategy:macd-kdj' && <MacdKdjStrategy />}
           {tab.id === 'strategy:volume-signals' && <VolumeSignalStrategy />}
+          {tab.id === 'strategy:ma5-resonance' && <Ma5ResonanceStrategy />}
           {tab.id === 'strategy:bull-points' && <BullPointStrategy />}
           {tab.id === 'strategy:intersection' && <StrategyIntersection latestTradingDate={marketMeta?.lastTradingDate} />}
         </div>)}
