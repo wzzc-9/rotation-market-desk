@@ -455,6 +455,7 @@ let rotationPoolUpdateInFlight = false;
 let rotationCombinationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
 let assetCombinationPoolUpdateInFlight = false;
+let assetCombinationPoolRecalculationInFlight: Promise<AssetRotationPoolDraft> | null = null;
 let dualEtfPoolUpdateInFlight = false;
 let industryMa20PoolUpdateInFlight = false;
 let industryMa20CombinationPoolUpdateInFlight = false;
@@ -2614,8 +2615,22 @@ async function prepareCombinationHistory(config: AssetRotationConfig, workspaceR
   return { historyRevised };
 }
 
-export async function recalculateAssetCombinationPool() {
+export function recalculateAssetCombinationPool(): Promise<AssetRotationPoolDraft> {
+  // Multiple browser tabs can submit the same long-running calculation. Reuse it
+  // so callers receive its final result instead of a misleading conflict error.
+  if (assetCombinationPoolRecalculationInFlight) return assetCombinationPoolRecalculationInFlight;
   if (assetCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+
+  const calculation = calculateAssetCombinationPool();
+  assetCombinationPoolRecalculationInFlight = calculation;
+  const clearCalculation = () => {
+    if (assetCombinationPoolRecalculationInFlight === calculation) assetCombinationPoolRecalculationInFlight = null;
+  };
+  void calculation.then(clearCalculation, clearCalculation);
+  return calculation;
+}
+
+async function calculateAssetCombinationPool(): Promise<AssetRotationPoolDraft> {
   const pending = readAssetCombinationPendingConfig();
   const config = pending && !sameSymbolSet(readAssetCombinationConfig().symbols, pending.symbols)
     ? pending
