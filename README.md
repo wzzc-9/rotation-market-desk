@@ -45,7 +45,24 @@ pnpm run db:check
 
 服务使用 MySQL 作为唯一运行数据源；未配置数据库时会拒绝启动。数据库不再保存整段 JSON 文档，`app_documents` 会在结构化迁移验证成功后自动删除。行情下载、回测和组合优化仅在系统临时目录使用 JSON 作为脚本交换格式，成功后解析写入对应领域表，不会改动项目文件。组合排名接口直接查询 MySQL 关系表。
 
-生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理；GitHub Pages 构建已配置为请求 `https://rotation-market-desk.onrender.com`。Render 后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
+生产环境可通过 `VITE_API_BASE_URL` 指定独立后端地址。本地开发不设置该变量时继续使用 Vite 的 `/api` 代理。GitHub Pages 构建读取 GitHub Actions 变量 `API_BASE_URL`；未配置时才临时使用 Render 地址。后端默认允许 `https://wzzc-9.github.io` 跨域访问，其他前端域名可通过后端环境变量 `CORS_ORIGINS` 追加，多个地址使用英文逗号分隔。
+
+## 自建服务器部署
+
+GitHub Pages 必须通过 HTTPS 访问 API，因此请为服务器准备一个已解析到服务器公网 IP 的域名，例如 `api.example.com`。
+
+1. 将仓库部署到服务器，复制 `.env.server.example` 为 `.env.server`，填写 MySQL 连接参数和 `CORS_ORIGINS`。
+2. 在服务器项目目录运行 `docker compose -f docker-compose.server.yml up -d --build`。API 仅监听本机 `127.0.0.1:3001`。
+3. 将 `deploy/nginx/rotation-market-desk-api.conf` 中的 `api.example.com` 改为实际 API 域名，启用 Nginx 站点并签发 TLS 证书。该配置将组合重算的反向代理超时设为 20 分钟。
+4. 在 GitHub 仓库的 **Settings > Secrets and variables > Actions > Variables** 添加 `API_BASE_URL=https://你的 API 域名`，推送到 `main` 后 GitHub Pages 会重建为请求该服务器，不再访问 Render。
+
+部署后访问 `https://你的 API 域名/api/health` 应返回 `status: ok`。MySQL 需要允许服务器公网 IP 访问；不要将 `.env.server` 或数据库密码提交到 Git。
+
+### 无域名部署
+
+服务器已有其他服务占用 80 端口且暂时没有域名时，可使用 `docker-compose.server.yml` 以前后端同源方式部署在 `http://服务器公网IP:8080`。前端由 `web` 容器提供，`/api` 自动代理至 `api` 容器，因此不需要 Render、GitHub Pages 或 CORS 配置。请在云服务器安全组和本机防火墙中放行 TCP 8080。
+
+无域名地址只能使用 HTTP，不能作为 HTTPS GitHub Pages 的 API 地址；应直接访问服务器上的前端地址。将来配置域名和 TLS 后，可将前端重新切回 GitHub Pages 或继续使用服务器前端。
 
 ## 接口
 

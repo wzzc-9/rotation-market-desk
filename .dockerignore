@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.github
+.idea
+data
+.env.local
+.env.mysql.local
+.env.server
+*.tsbuildinfo
