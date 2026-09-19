@@ -39,10 +39,10 @@ import type { EChartsCoreOption } from 'echarts/core';
 import EChart from './EChart';
 import { apiFetch } from './api';
 import { assetRotationVideoBenchmark, dualEtfVideoBenchmark, type AnnualReturn } from './backtest';
-import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type Ma5ResonanceSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type SavedRotationPool, type VolumeSnapshot } from './market';
+import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsResponse, type BullPointSnapshot, type EtfSearchResult, type HistoryPeriod, type KdjTurningPointSnapshot, type MacdKdjSnapshot, type MacdPullbackSnapshot, type MacdSnapshot, type Ma5ResonanceSnapshot, type MarketHistoryResponse, type RankedMarket, type RotationBacktestResponse, type RotationResponse, type RotationYearPerformance, type SavedRotationPool, type VolumeSnapshot } from './market';
 
 type View = 'dashboard' | 'screener' | 'strategy';
-type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'ma5-resonance' | 'bull-points';
+type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'kdj-turning-point' | 'volume-signals' | 'ma5-resonance' | 'bull-points';
 type StrategyId = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'dual-etf' | 'industry-ma20' | 'intersection' | ScreeningStrategyId;
 type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
@@ -52,6 +52,7 @@ const intersectionStrategyOptions: Array<{ id: ScreeningStrategyId; label: strin
   { id: 'macd', label: 'MACD 金叉共振', detail: '10 / 20 / 7', endpoint: '/api/strategy/macd-confluence' },
   { id: 'macd-pullback', label: 'MACD 零轴回踩', detail: '5 / 34 / 5', endpoint: '/api/strategy/macd-pullback' },
   { id: 'macd-kdj', label: 'MACD + KDJ 共振', detail: '低位双金叉', endpoint: '/api/strategy/macd-kdj' },
+  { id: 'kdj-turning-point', label: 'KDJ 低位拐点', detail: '9 / 3 / 3 · 超卖金叉', endpoint: '/api/strategy/kdj-turning-point' },
   { id: 'volume-signals', label: '量价三信号', detail: 'MA25 · 量均 5 / 60', endpoint: '/api/strategy/volume-signals' },
   { id: 'ma5-resonance', label: '5 日线回踩共振', detail: 'MA5 / MA10 / MA20', endpoint: '/api/strategy/ma5-resonance' },
   { id: 'bull-points', label: '多空趋势多点', detail: 'HHV 21 / 6 · MA 34 / 6', endpoint: '/api/strategy/bull-points' },
@@ -84,6 +85,7 @@ const strategyWorkspaceTabs: Record<StrategyId, WorkspaceTab> = {
   macd: { id: 'strategy:macd', label: 'MACD 金叉共振', view: 'strategy', strategyId: 'macd', icon: TrendingUp, closable: true },
   'macd-pullback': { id: 'strategy:macd-pullback', label: 'MACD 零轴回踩', view: 'strategy', strategyId: 'macd-pullback', icon: Target, closable: true },
   'macd-kdj': { id: 'strategy:macd-kdj', label: 'MACD + KDJ 共振', view: 'strategy', strategyId: 'macd-kdj', icon: BarChart3, closable: true },
+  'kdj-turning-point': { id: 'strategy:kdj-turning-point', label: 'KDJ 低位拐点', view: 'strategy', strategyId: 'kdj-turning-point', icon: BarChart3, closable: true },
   'volume-signals': { id: 'strategy:volume-signals', label: '量价三信号', view: 'strategy', strategyId: 'volume-signals', icon: Activity, closable: true },
   'ma5-resonance': { id: 'strategy:ma5-resonance', label: '5 日线回踩共振', view: 'strategy', strategyId: 'ma5-resonance', icon: TrendingUp, closable: true },
   'bull-points': { id: 'strategy:bull-points', label: '多空趋势多点', view: 'strategy', strategyId: 'bull-points', icon: TrendingUp, closable: true },
@@ -2729,6 +2731,183 @@ function MacdKdjStrategy() {
   </div>;
 }
 
+type KdjTurningPointSortKey = 'change' | 'changeSinceSignal' | 'score';
+
+function KdjTurningPointTable({ snapshot, historical = false }: { snapshot: KdjTurningPointSnapshot; historical?: boolean }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [sort, setSort] = useState<{ key: KdjTurningPointSortKey; direction: 'asc' | 'desc' } | null>(null);
+  const sortedSignals = useMemo(() => {
+    if (!sort) return snapshot.signals;
+    return [...snapshot.signals].sort((left, right) => {
+      const leftValue = left[sort.key];
+      const rightValue = right[sort.key];
+      if (leftValue === undefined) return rightValue === undefined ? 0 : 1;
+      if (rightValue === undefined) return -1;
+      return sort.direction === 'asc' ? leftValue - rightValue : rightValue - leftValue;
+    });
+  }, [snapshot.signals, sort]);
+  const totalPages = Math.max(1, Math.ceil(snapshot.signals.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = sortedSignals.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const toggleSort = (key: KdjTurningPointSortKey) => {
+    setSort((current) => {
+      if (!current || current.key !== key) return { key, direction: 'desc' };
+      if (current.direction === 'desc') return { key, direction: 'asc' };
+      return null;
+    });
+    setPage(1);
+  };
+  const sortButton = (key: KdjTurningPointSortKey, label: string) => {
+    const activeSort = sort?.key === key ? sort : null;
+    const nextDirection = !activeSort ? '降序' : activeSort.direction === 'desc' ? '升序' : '原始顺序';
+    return <button className={`table-sort-button${activeSort ? ' active' : ''}`} type="button" title={`按${label}${nextDirection}排列`} onClick={() => toggleSort(key)}>{label}{!activeSort ? <ArrowUpDown size={13} /> : activeSort.direction === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />}</button>;
+  };
+  return <>
+    <div className="table-scroll"><table className={`macd-kdj-table${historical ? ' is-history' : ''}`}>
+      <thead><tr><th>序号</th><th>股票</th><th>{historical ? '当时价格' : '现价'}</th><th>{sortButton('change', historical ? '当日涨幅' : '涨跌幅')}</th>{historical && <><th>当前价格</th><th>{sortButton('changeSinceSignal', '至今涨幅')}</th></>}<th>K</th><th>D</th><th>J</th><th>{sortButton('score', '评分')}</th><th>信号</th></tr></thead>
+      <tbody>{pageRows.map((item, index) => <tr key={item.code}>
+        <td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, '0')}</td>
+        <td><StockKlineCell name={item.name} code={item.code} /></td>
+        <td>{item.close.toFixed(2)}</td>
+        <td><Change value={item.change} /></td>
+        {historical && <><td>{item.currentPrice === undefined ? '--' : item.currentPrice.toFixed(2)}</td><td>{item.changeSinceSignal === undefined ? '--' : <Change value={item.changeSinceSignal} />}</td></>}
+        <td>{item.k.toFixed(2)}</td>
+        <td>{item.d.toFixed(2)}</td>
+        <td>{item.j.toFixed(2)}</td>
+        <td><strong className="pullback-score">{item.score.toFixed(1)}</strong></td>
+        <td><span className="macd-signal kdj">{item.signal}</span></td>
+      </tr>)}</tbody>
+    </table></div>
+    <div className="macd-pagination">
+      <span>共 {snapshot.signals.length} 条</span>
+      <label>每页<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option></select></label>
+      <span>第 {currentPage} / {totalPages} 页</span>
+      <button className="icon-button" type="button" title="上一页" aria-label="上一页" disabled={currentPage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={16} /></button>
+      <button className="icon-button" type="button" title="下一页" aria-label="下一页" disabled={currentPage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}><ChevronRight size={16} /></button>
+    </div>
+  </>;
+}
+
+function KdjTurningPointStrategy() {
+  const [snapshot, setSnapshot] = useState<KdjTurningPointSnapshot | null>(null);
+  const [historySnapshot, setHistorySnapshot] = useState<KdjTurningPointSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [storedDates, setStoredDates] = useState<string[]>([]);
+  const loadStoredDates = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/strategy/kdj-turning-point/dates', { cache: 'no-store' });
+      const payload = await response.json() as { dates?: string[] };
+      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
+    } catch {
+      // The latest result remains usable if the local date list cannot be loaded.
+    }
+  }, []);
+  const loadLatestSignals = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/strategy/kdj-turning-point', { cache: 'no-store' });
+      const payload = await response.json() as KdjTurningPointSnapshot & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `KDJ 低位拐点扫描返回 HTTP ${response.status}`);
+      setSnapshot(payload);
+      setSelectedDate((current) => current || toInputDate(payload.storageDate));
+      void loadStoredDates();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'KDJ 低位拐点扫描失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadStoredDates]);
+  const loadHistoricalSignals = useCallback(async (date: string) => {
+    setSelectedDate(date);
+    setHistoryError('');
+    if (!date || date.replaceAll('-', '') === snapshot?.storageDate) {
+      setHistorySnapshot(null);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistorySnapshot(null);
+    try {
+      const response = await apiFetch(`/api/strategy/kdj-turning-point?date=${date.replaceAll('-', '')}`, { cache: 'no-store' });
+      const payload = await response.json() as KdjTurningPointSnapshot & { message?: string };
+      if (!response.ok) throw new Error(payload.message || `历史 KDJ 低位拐点返回 HTTP ${response.status}`);
+      setHistorySnapshot(payload);
+      setSelectedDate(toInputDate(payload.storageDate));
+      void loadStoredDates();
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : '历史 KDJ 低位拐点读取失败');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [loadStoredDates, snapshot?.storageDate]);
+  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  const lead = snapshot?.signals[0];
+  const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
+    if (signal.changeSinceSignal === undefined) return counts;
+    if (signal.changeSinceSignal > 0) counts.up += 1;
+    else if (signal.changeSinceSignal < 0) counts.down += 1;
+    else counts.flat += 1;
+    counts.total += 1;
+    return counts;
+  }, { up: 0, down: 0, flat: 0, total: 0 });
+  const rules = [
+    { title: '标准参数', copy: '短线扫描采用 KDJ（9，3，3），以日线收盘数据确认信号。', icon: Settings2 },
+    { title: '低位金叉买点', copy: '当日 K 上穿 D，且 K、D 均不高于 25，识别超卖区的向上拐点。', icon: TrendingUp },
+    { title: '超卖强化', copy: '本日或前一日 J 不高于 0，标记为超卖金叉买点并优先排序。', icon: Target },
+    { title: '超买死叉卖点', copy: '持仓后 K 下穿 D，且 K、D 处于 80 上方或 J 高于 100，作为卖出参考。', icon: TrendingDown },
+    { title: '信号失效', copy: '低位金叉后 K 再次下穿 D 时，取消该次买入观察，收盘后确认。', icon: Activity },
+  ];
+  return <div className="workspace-view strategy-view">
+    <section className="view-heading strategy-heading">
+      <div><span className="eyebrow">STRATEGY / KDJ TURNING POINT</span><h1>KDJ 低位拐点</h1><p>依据 KDJ 超卖金叉与超买死叉逻辑，扫描短线买入观察候选。</p></div>
+      <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
+    </section>
+
+    <section className="macd-date-toolbar" aria-label="KDJ 低位拐点历史记录日期">
+      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
+      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
+    </section>
+
+    <section className="strategy-hero macd-hero">
+      <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待 KDJ 在低位形成金叉拐点'}</p></div>
+      <div className="signal-stat"><span>指标参数</span><strong>9 / 3 / 3</strong><small>KDJ 日线参数</small></div>
+      <div className="signal-stat"><span>低位金叉</span><strong>{snapshot?.signals.length ?? '--'}</strong><small>超卖强化 {snapshot?.oversoldCrossCount ?? '--'} 只</small></div>
+      <div className="signal-stat"><span>结果交易日</span><strong>{snapshot ? formatTradingDate(snapshot.lastTradingDate) : '--'}</strong><small>{snapshot?.cached ? '最新本地记录' : '本次计算结果'}</small></div>
+    </section>
+
+    <div className="macd-pullback-layout">
+      <section className="panel rules-panel">
+        <div className="panel-title-row"><div><span className="eyebrow">KDJ BUY / SELL RULES</span><h3>KDJ 拐点买卖规则</h3></div></div>
+        <div className="rule-flow kdj-rule-flow">{rules.map((rule, index) => { const Icon = rule.icon; return <div className="rule-step" key={rule.title}><div className="rule-index">{String(index + 1).padStart(2, '0')}</div><div className="rule-icon"><Icon size={18} /></div><div><strong>{rule.title}</strong><p>{rule.copy}</p></div></div>; })}</div>
+      </section>
+      <section className="panel macd-results-panel">
+        <div className="panel-title-row"><div><span className="eyebrow">TURNING-POINT CANDIDATES</span><h3>KDJ 低位金叉候选</h3></div>{snapshot && <span className="source-note">排除板块 / ST 等 {snapshot.excludedCount.toLocaleString()} 只 · 进入计算 {snapshot.scannedCount.toLocaleString()} 只 · 候选 {snapshot.signals.length.toLocaleString()} 只</span>}</div>
+        {loading && <div className="macd-state"><RefreshCw className="spin-icon" size={20} />正在读取全市场日线并计算 KDJ 低位拐点</div>}
+        {!loading && error && <div className="macd-state error"><AlertTriangle size={19} />{error}</div>}
+        {!loading && !error && snapshot && snapshot.signals.length === 0 && <div className="macd-state">当前交易日没有形成符合条件的 KDJ 低位金叉</div>}
+        {!loading && !error && snapshot && snapshot.signals.length > 0 && <KdjTurningPointTable snapshot={snapshot} />}
+      </section>
+    </div>
+    {(historyLoading || historyError || historySnapshot) && <section className="panel macd-history-panel">
+      <div className="panel-title-row">
+        <div><span className="eyebrow">HISTORICAL KDJ TURNING POINT</span><h3>{historySnapshot ? `${formatTradingDate(historySnapshot.lastTradingDate)} 历史 KDJ 拐点候选` : '历史筛选结果'}</h3></div>
+        {historyMovement && historyMovement.total > 0 && <div className="history-movement-summary" aria-label="历史 KDJ 拐点候选至今涨跌统计"><span className="up">上涨 <strong>{historyMovement.up}</strong> 只</span><span className="down">下跌 <strong>{historyMovement.down}</strong> 只</span><span>持平 <strong>{historyMovement.flat}</strong> 只</span></div>}
+        {historySnapshot && <span className="source-note">排除板块 / ST 等 {historySnapshot.excludedCount.toLocaleString()} 只 · 进入计算 {historySnapshot.scannedCount.toLocaleString()} 只 · 候选 {historySnapshot.signals.length.toLocaleString()} 只</span>}
+      </div>
+      {historyLoading && <div className="macd-state macd-history-state"><RefreshCw className="spin-icon" size={20} />正在读取或计算截至 {formatTradingDate(selectedDate)} 的历史筛选结果</div>}
+      {!historyLoading && historyError && <div className="macd-state macd-history-state error"><AlertTriangle size={19} />{historyError}</div>}
+      {!historyLoading && !historyError && historySnapshot && historySnapshot.signals.length === 0 && <div className="macd-state">该交易日没有符合 KDJ 低位金叉条件的标的</div>}
+      {!historyLoading && !historyError && historySnapshot && historySnapshot.signals.length > 0 && <KdjTurningPointTable snapshot={historySnapshot} historical />}
+    </section>}
+    <div className="risk-note macd-risk-note"><CircleDollarSign size={18} /><p>候选仅表示 KDJ 条件的量化触发，不构成买卖建议。执行前仍需核对趋势、流动性、仓位、止损、手续费和滑点。</p></div>
+  </div>;
+}
+
 type VolumeSortKey = 'change' | 'changeSinceSignal' | 'score' | 'volumeRatio';
 
 function VolumeSignalTable({ snapshot, historical = false }: { snapshot: VolumeSnapshot; historical?: boolean }) {
@@ -3955,6 +4134,11 @@ export default function App() {
                 <span><strong>MACD + KDJ 共振</strong><small>12 / 26 / 9 · 低位双金叉</small></span>
                 <span className="live-dot" />
               </button>
+              <button className={view === 'strategy' && strategyId === 'kdj-turning-point' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('kdj-turning-point')}>
+                <span className="strategy-icon"><BarChart3 size={16} /></span>
+                <span><strong>KDJ 低位拐点</strong><small>9 / 3 / 3 · 超卖金叉</small></span>
+                <span className="live-dot" />
+              </button>
               <button className={view === 'strategy' && strategyId === 'volume-signals' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('volume-signals')}>
                 <span className="strategy-icon"><Activity size={16} /></span>
                 <span><strong>量价三信号</strong><small>MA25 · 量均 5 / 60</small></span>
@@ -4037,6 +4221,7 @@ export default function App() {
           {tab.id === 'strategy:macd' && <MacdConfluenceStrategy />}
           {tab.id === 'strategy:macd-pullback' && <MacdPullbackStrategy />}
           {tab.id === 'strategy:macd-kdj' && <MacdKdjStrategy />}
+          {tab.id === 'strategy:kdj-turning-point' && <KdjTurningPointStrategy />}
           {tab.id === 'strategy:volume-signals' && <VolumeSignalStrategy />}
           {tab.id === 'strategy:ma5-resonance' && <Ma5ResonanceStrategy />}
           {tab.id === 'strategy:bull-points' && <BullPointStrategy />}

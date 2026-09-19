@@ -91,6 +91,9 @@ GitHub Pages 必须通过 HTTPS 访问 API，因此请为服务器准备一个�
 - `GET /api/strategy/macd-kdj`：读取 MACD（12，26，9）+ KDJ（9，3，3）低位双金叉共振候选
 - `GET /api/strategy/macd-kdj?date=YYYYMMDD`：读取指定日期的本地共振快照
 - `GET /api/strategy/macd-kdj/dates`：列出已保存的共振快照日期
+- `GET /api/strategy/kdj-turning-point`：读取 KDJ（9，3，3）低位金叉与超卖拐点候选
+- `GET /api/strategy/kdj-turning-point?date=YYYYMMDD`：读取指定日期的 KDJ 拐点快照
+- `GET /api/strategy/kdj-turning-point/dates`：列出已保存的 KDJ 拐点快照日期
 - `GET /api/strategy/volume-signals`：读取 MA25 与量均线 5 / 60 的量价三信号候选
 - `GET /api/strategy/volume-signals?date=YYYYMMDD`：读取或计算指定日期的量价三信号快照
 - `GET /api/strategy/volume-signals/dates`：列出已保存的量价三信号快照日期

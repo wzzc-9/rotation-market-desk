@@ -296,6 +296,33 @@ export type MacdKdjSnapshot = {
   divergenceCount: number;
 };
 
+export type KdjTurningPointSignal = {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  currentPrice?: number;
+  changeSinceSignal?: number;
+  k: number;
+  d: number;
+  j: number;
+  score: number;
+  signal: '低位金叉买点' | '超卖金叉买点';
+};
+
+export type KdjTurningPointSnapshot = {
+  signals: KdjTurningPointSignal[];
+  storageDate: string;
+  provider: string;
+  fetchedAt: string;
+  lastTradingDate: string;
+  cached: boolean;
+  scannedCount: number;
+  excludedCount: number;
+  lowCrossCount: number;
+  oversoldCrossCount: number;
+};
+
 export type VolumeSignal = {
   code: string;
   name: string;

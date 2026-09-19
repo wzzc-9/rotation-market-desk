@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getKdjTurningPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listKdjTurningPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
@@ -651,6 +651,26 @@ app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/mac
 app.get('/api/strategy/macd-kdj/dates', async (_request, reply) => {
   reply.header('Cache-Control', 'no-store');
   return { dates: listMacdKdjSnapshotDates() };
+});
+
+app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/kdj-turning-point', async (request, reply) => {
+  try {
+    const snapshot = await getKdjTurningPointSnapshot(request.query.refresh === '1', request.query.date);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'KDJ 低位拐点扫描暂时不可用';
+    return reply.code(message.startsWith('本地快照不存在') ? 404 : 502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message,
+    });
+  }
+});
+
+app.get('/api/strategy/kdj-turning-point/dates', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  return { dates: listKdjTurningPointSnapshotDates() };
 });
 
 app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/volume-signals', async (request, reply) => {

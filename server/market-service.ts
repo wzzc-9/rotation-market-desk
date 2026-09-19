@@ -310,6 +310,33 @@ export type MacdKdjSnapshot = {
   divergenceCount: number;
 };
 
+export type KdjTurningPointSignal = {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  currentPrice?: number;
+  changeSinceSignal?: number;
+  k: number;
+  d: number;
+  j: number;
+  score: number;
+  signal: '低位金叉买点' | '超卖金叉买点';
+};
+
+export type KdjTurningPointSnapshot = {
+  signals: KdjTurningPointSignal[];
+  storageDate: string;
+  provider: string;
+  fetchedAt: string;
+  lastTradingDate: string;
+  cached: boolean;
+  scannedCount: number;
+  excludedCount: number;
+  lowCrossCount: number;
+  oversoldCrossCount: number;
+};
+
 export type VolumeSignal = {
   code: string;
   name: string;
@@ -443,6 +470,8 @@ const macdPullbackSnapshotVersion = 'macd-5-34-5-zero-axis-pullback-v1';
 const macdPullbackSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-pullback-snapshots');
 const macdKdjSnapshotVersion = 'macd-12-26-9-kdj-9-3-3-resonance-v1';
 const macdKdjSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-kdj-snapshots');
+const kdjTurningPointSnapshotVersion = 'kdj-9-3-3-low-turning-point-v1';
+const kdjTurningPointSnapshotDirectory = resolve(process.cwd(), 'data', 'kdj-turning-point-snapshots');
 const volumeSnapshotVersion = 'volume-ma25-volume-ma5-60-three-signals-v2';
 const volumeSnapshotDirectory = resolve(process.cwd(), 'data', 'volume-snapshots');
 const ma5ResonanceSnapshotVersion = 'ma5-ma10-ma20-pullback-resonance-v1';
@@ -476,6 +505,7 @@ let industryMa20CombinationPoolUpdateInFlight = false;
 const macdScansInFlight = new Map<string, Promise<MacdSnapshot>>();
 const macdPullbackScansInFlight = new Map<string, Promise<MacdPullbackSnapshot>>();
 const macdKdjScansInFlight = new Map<string, Promise<MacdKdjSnapshot>>();
+const kdjTurningPointScansInFlight = new Map<string, Promise<KdjTurningPointSnapshot>>();
 const volumeScansInFlight = new Map<string, Promise<VolumeSnapshot>>();
 const ma5ResonanceScansInFlight = new Map<string, Promise<Ma5ResonanceSnapshot>>();
 const bullPointScansInFlight = new Map<string, Promise<BullPointSnapshot>>();
@@ -1238,6 +1268,34 @@ export function listMacdKdjSnapshotDates() {
     .sort((left, right) => right.localeCompare(left));
 }
 
+function kdjTurningPointSnapshotPath(date: string) {
+  return resolve(kdjTurningPointSnapshotDirectory, `${date}.json`);
+}
+
+function readKdjTurningPointSnapshot(date: string): KdjTurningPointSnapshot | null {
+  const path = kdjTurningPointSnapshotPath(date);
+  if (!storedFileExists(path)) return null;
+  try {
+    const snapshot = JSON.parse(readStoredText(path)) as KdjTurningPointSnapshot & { version?: string };
+    if (snapshot.version !== kdjTurningPointSnapshotVersion || !Array.isArray(snapshot.signals) || !snapshot.lastTradingDate) return null;
+    return { ...snapshot, storageDate: date, cached: true };
+  } catch {
+    return null;
+  }
+}
+
+function writeKdjTurningPointSnapshot(snapshot: KdjTurningPointSnapshot) {
+  const path = kdjTurningPointSnapshotPath(snapshot.storageDate);
+  writeTextAtomic(path, `${JSON.stringify({ ...snapshot, version: kdjTurningPointSnapshotVersion, cached: false }, null, 2)}\n`);
+}
+
+export function listKdjTurningPointSnapshotDates() {
+  return storedJsonNames(kdjTurningPointSnapshotDirectory)
+    .map((file) => /^(\d{8})\.json$/.exec(file)?.[1])
+    .filter((date): date is string => Boolean(date))
+    .sort((left, right) => right.localeCompare(left));
+}
+
 function volumeSnapshotPath(date: string) {
   return resolve(volumeSnapshotDirectory, `${date}.json`);
 }
@@ -1487,6 +1545,28 @@ async function withCurrentPullbackPrices(snapshot: MacdPullbackSnapshot) {
 }
 
 async function withCurrentMacdKdjPrices(snapshot: MacdKdjSnapshot) {
+  try {
+    const tsCodes = snapshot.signals.map((item) => `${item.code}.${item.code.startsWith('6') ? 'SH' : 'SZ'}`);
+    const quotes = await fetchTencentQuotes(tsCodes);
+    return {
+      ...snapshot,
+      signals: snapshot.signals.map((signal) => {
+        const currentPrice = quotes.get(signal.code)?.price;
+        return {
+          ...signal,
+          currentPrice: currentPrice === undefined ? undefined : round(currentPrice),
+          changeSinceSignal: currentPrice === undefined || signal.close <= 0
+            ? undefined
+            : round(((currentPrice / signal.close) - 1) * 100, 2),
+        };
+      }),
+    };
+  } catch {
+    return snapshot;
+  }
+}
+
+async function withCurrentKdjTurningPointPrices(snapshot: KdjTurningPointSnapshot) {
   try {
     const tsCodes = snapshot.signals.map((item) => `${item.code}.${item.code.startsWith('6') ? 'SH' : 'SZ'}`);
     const quotes = await fetchTencentQuotes(tsCodes);
@@ -3768,6 +3848,130 @@ async function buildMacdKdjSnapshot(storageDate: string): Promise<MacdKdjSnapsho
     divergenceCount: signals.filter((signal) => signal.signal === '底背离共振').length,
   };
   writeMacdKdjSnapshot(snapshot);
+  await flushMysqlWrites();
+  return snapshot;
+}
+
+export async function getKdjTurningPointSnapshot(forceRefresh = false, requestedDate?: string): Promise<KdjTurningPointSnapshot> {
+  const today = dateText(new Date());
+  const currentTradingDate = await latestTradingDateOnOrBefore(today);
+  const storageDate = requestedDate
+    ? await latestTradingDateOnOrBefore(normalizeSnapshotDate(requestedDate))
+    : currentTradingDate;
+  if (!forceRefresh) {
+    const stored = readKdjTurningPointSnapshot(storageDate);
+    if (stored) return requestedDate && storageDate !== currentTradingDate ? withCurrentKdjTurningPointPrices(stored) : stored;
+  }
+  const runningScan = kdjTurningPointScansInFlight.get(storageDate);
+  if (runningScan) {
+    const snapshot = await runningScan;
+    return requestedDate && storageDate !== currentTradingDate ? withCurrentKdjTurningPointPrices(snapshot) : snapshot;
+  }
+  const scan = buildKdjTurningPointSnapshot(storageDate);
+  kdjTurningPointScansInFlight.set(storageDate, scan);
+  try {
+    const snapshot = await scan;
+    return requestedDate && storageDate !== currentTradingDate ? withCurrentKdjTurningPointPrices(snapshot) : snapshot;
+  } finally {
+    kdjTurningPointScansInFlight.delete(storageDate);
+  }
+}
+
+async function buildKdjTurningPointSnapshot(storageDate: string): Promise<KdjTurningPointSnapshot> {
+  const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  const dailyByCode = new Map<string, PullbackDailyRow[]>();
+  const availableDays = new Set<string>();
+  const excludedByBoard = new Set<string>();
+
+  for (const [index, tradeDate] of queryDays.entries()) {
+    if (index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (rows.length > 0) availableDays.add(tradeDate);
+    for (const row of rows) {
+      const tsCode = String(row.ts_code);
+      const code = tsCode.split('.')[0];
+      if (tsCode.endsWith('.BJ') || code.startsWith('30') || code.startsWith('688') || code.startsWith('689')) {
+        excludedByBoard.add(tsCode);
+        continue;
+      }
+      const values = [row.open, row.high, row.low, row.close, row.pre_close, row.vol].map(Number);
+      if (values.some((value) => !Number.isFinite(value))) continue;
+      const [open, high, low, close, previousClose, volume] = values;
+      const series = dailyByCode.get(tsCode) ?? [];
+      series.push({
+        tsCode,
+        tradeDate: String(row.trade_date),
+        open,
+        high,
+        low,
+        close,
+        previousClose,
+        volume,
+        change: Number(row.pct_chg),
+      });
+      dailyByCode.set(tsCode, series);
+    }
+  }
+
+  const tradingDays = [...availableDays].sort();
+  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算 KDJ 低位拐点');
+
+  const candidates: Array<Omit<KdjTurningPointSignal, 'name'> & { tsCode: string }> = [];
+  let scannedCount = 0;
+  for (const [tsCode, rows] of dailyByCode) {
+    rows.sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
+    if (rows.length < 100) continue;
+    scannedCount += 1;
+    const { k, d, j } = calculateKdj(rows, 9);
+    const lastIndex = rows.length - 1;
+    const last = rows[lastIndex];
+    const goldenCross = k[lastIndex] > d[lastIndex] && k[lastIndex - 1] <= d[lastIndex - 1];
+    const lowCross = goldenCross && Math.max(k[lastIndex], d[lastIndex]) <= 25;
+    if (!lowCross) continue;
+
+    const oversold = Math.min(j[lastIndex], j[lastIndex - 1]) <= 0;
+    const lowLevel = Math.max(k[lastIndex], d[lastIndex]);
+    const score = Math.min(100, 72
+      + Math.max(0, 25 - lowLevel) * 0.8
+      + Math.max(0, -Math.min(j[lastIndex], j[lastIndex - 1])) * 0.2
+      + (oversold ? 10 : 0)
+      + Math.max(0, last.change) * 1.2);
+    candidates.push({
+      tsCode,
+      code: tsCode.split('.')[0],
+      close: round(last.close),
+      change: round(last.change, 2),
+      k: round(k[lastIndex], 2),
+      d: round(d[lastIndex], 2),
+      j: round(j[lastIndex], 2),
+      score: round(score, 1),
+      signal: oversold ? '超卖金叉买点' : '低位金叉买点',
+    });
+  }
+
+  candidates.sort((left, right) => Number(right.signal === '超卖金叉买点') - Number(left.signal === '超卖金叉买点') || right.score - left.score);
+  const names = await fetchTencentNames(candidates.map((item) => item.tsCode));
+  const namedCandidates = candidates.filter((item) => {
+    const name = names.get(item.code);
+    return Boolean(name) && !name.toUpperCase().includes('ST');
+  });
+  const signals: KdjTurningPointSignal[] = namedCandidates.map(({ tsCode: _tsCode, ...item }) => ({
+    ...item,
+    name: names.get(item.code)!,
+  }));
+  const snapshot: KdjTurningPointSnapshot = {
+    signals,
+    storageDate: tradingDays.at(-1)!,
+    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    fetchedAt: new Date().toISOString(),
+    lastTradingDate: tradingDays.at(-1)!,
+    cached: false,
+    scannedCount,
+    excludedCount: excludedByBoard.size + candidates.length - namedCandidates.length,
+    lowCrossCount: signals.filter((signal) => signal.signal === '低位金叉买点').length,
+    oversoldCrossCount: signals.filter((signal) => signal.signal === '超卖金叉买点').length,
+  };
+  writeKdjTurningPointSnapshot(snapshot);
   await flushMysqlWrites();
   return snapshot;
 }
