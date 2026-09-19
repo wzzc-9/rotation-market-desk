@@ -9,7 +9,7 @@ export type EtfSearchResult = {
 
 export type SavedRotationPool = {
   id: number;
-  strategy: 'rotation' | 'asset-rotation' | 'industry-ma20';
+  strategy: 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20';
   name: string;
   createdAt: string;
   updatedAt: string;
@@ -23,7 +23,7 @@ export type SavedRotationPool = {
 
 export type RotationBacktestResponse = {
   version: string;
-  strategy: 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20';
+  strategy: 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'dual-etf' | 'industry-ma20';
   configVersion: number;
   generatedAt: string;
   period: { start: string; end: string };

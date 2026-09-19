@@ -3,7 +3,11 @@ const path = require('path');
 
 if (!process.env.ROTATION_CALCULATION_ROOT) throw new Error('缺少 ROTATION_CALCULATION_ROOT，请通过后端计算任务运行');
 const projectRoot = path.resolve(process.env.ROTATION_CALCULATION_ROOT);
-const strategyDirectory = path.join(projectRoot, 'data', 'asset-rotation');
+const strategyDirectoryName = process.env.ASSET_ROTATION_DIRECTORY || 'asset-rotation';
+const strategy = process.env.ASSET_ROTATION_STRATEGY || 'asset-rotation';
+const holdRankLimit = Math.max(1, Number(process.env.ASSET_ROTATION_HOLD_RANK_LIMIT || 2));
+const combinationsVersion = process.env.ASSET_ROTATION_COMBINATIONS_VERSION || 'asset-rotation-combinations-weekly-v7';
+const strategyDirectory = path.join(projectRoot, 'data', strategyDirectoryName);
 const historyDirectory = path.join(strategyDirectory, 'history');
 const configPath = path.join(strategyDirectory, 'combination-config.json');
 const outputPath = path.join(strategyDirectory, 'combinations.json');
@@ -157,7 +161,7 @@ function nextPositionFor(codes, date, current) {
     .sort((left, right) => right.return20 - left.return20);
   if (current) {
     const holdingRank = ranked.findIndex((item) => item.code === current);
-    if (holdingRank >= 0 && holdingRank < 2 && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
+    if (holdingRank >= 0 && holdingRank < holdRankLimit && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
   }
   const leader = ranked[0];
   return leader && leader.close >= leader.ma28 ? leader.code : null;
@@ -319,15 +323,15 @@ compositeOrder.forEach((item, index) => { item.compositeRank = index + 1; });
 
 const result = {
   _comment: '页面“全组合收益排名”表格的数据，包括每个 ETF 组合的近10年、近5年、2026年收益、回撤、综合得分和排名。',
-  version: 'asset-rotation-combinations-weekly-v7',
-  strategy: 'asset-rotation',
+  version: combinationsVersion,
+  strategy,
   generatedAt: new Date().toISOString(),
   rule: {
     frequency: 'weekly',
     initialPosition: 'previous-year-end-signal',
     momentumPeriod: 20,
     movingAveragePeriod: 28,
-    holdRankLimit: 2,
+    holdRankLimit,
     minimumPoolSize: 3,
   },
   periods: {

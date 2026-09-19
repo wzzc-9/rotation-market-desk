@@ -5,9 +5,9 @@ import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql
 import { createRelationalSchema, deleteRelationalObject, loadRelationalObjects, loadStrategyPoolResultObjects, migrateLegacyDocuments, persistRelationalObject, relationalSchemaComments } from './relational-store.js';
 import { strategyPoolHash } from './pool-cache.js';
 
-type CombinationStrategy = 'rotation' | 'asset-rotation' | 'industry-ma20';
+type CombinationStrategy = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20';
 
-export type MysqlSavedPoolStrategy = 'rotation' | 'asset-rotation' | 'industry-ma20';
+export type MysqlSavedPoolStrategy = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20';
 
 export type MysqlSavedRotationPool = {
   id: number;
@@ -500,6 +500,28 @@ async function ensureIndustryMa20Defaults(connection: Pool) {
   if (!kinds.has('combination_pool')) await persistRelationalObject(connection, 'data/industry-ma20/combination-config.json', config);
 }
 
+async function ensureAssetRotationTop1Defaults(connection: Pool, objects: Map<string, string>) {
+  const cloneConfig = async (sourceKey: string, targetKey: string, label: string) => {
+    if (objects.has(targetKey)) return false;
+    const source = objects.get(sourceKey);
+    if (!source) throw new Error(`无法初始化${label}：缺少 ${sourceKey}`);
+    const parsed = JSON.parse(source) as { version?: number; updatedAt?: string; symbols?: unknown[] };
+    if (!Number.isInteger(parsed.version) || !Array.isArray(parsed.symbols)) throw new Error(`无法初始化${label}：源标的池配置无效`);
+    const content = `${JSON.stringify({
+      _comment: `${label}独立标的池；持仓跌出涨幅第 1 名或跌破 MA28 时轮换。`,
+      ...parsed,
+    }, null, 2)}\n`;
+    await persistRelationalObject(connection, targetKey, content);
+    return true;
+  };
+
+  const [rotationPoolCreated, combinationPoolCreated] = await Promise.all([
+    cloneConfig('data/asset-rotation/config.json', 'data/asset-rotation-top1/config.json', '全球大类资产 ETF 轮动（只持第 1 名）'),
+    cloneConfig('data/asset-rotation/combination-config.json', 'data/asset-rotation-top1/combination-config.json', '全球大类资产 ETF 轮动（只持第 1 名）全组合收益排名'),
+  ]);
+  return rotationPoolCreated || combinationPoolCreated;
+}
+
 export async function initializeMysqlStore() {
   if (initialized) return Boolean(pool);
   initialized = true;
@@ -526,7 +548,8 @@ export async function initializeMysqlStore() {
   await createSchema(pool);
   await migrateLegacyDocuments(pool);
   await ensureIndustryMa20Defaults(pool);
-  const objects = await loadRelationalObjects(pool);
+  let objects = await loadRelationalObjects(pool);
+  if (await ensureAssetRotationTop1Defaults(pool, objects)) objects = await loadRelationalObjects(pool);
   for (const [key, content] of objects) objectCache.set(key, content);
   return true;
 }
@@ -715,7 +738,7 @@ export async function replaceMysqlObjects(objects: Array<{ path: string; content
 }
 
 export async function activateMysqlStrategyPoolCache(
-  strategy: 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20',
+  strategy: 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'dual-etf' | 'industry-ma20',
   symbols: Array<{ code: string }>,
   configPath: string,
   configContent: string,
@@ -770,7 +793,7 @@ export async function flushMysqlWrites() {
 }
 
 function normalizeSavedPoolStrategy(strategy: string): MysqlSavedPoolStrategy {
-  if (strategy === 'rotation' || strategy === 'asset-rotation' || strategy === 'industry-ma20') return strategy;
+  if (strategy === 'rotation' || strategy === 'asset-rotation' || strategy === 'asset-rotation-top1' || strategy === 'industry-ma20') return strategy;
   throw new Error('该策略不支持保存轮动标的池');
 }
 

@@ -249,6 +249,7 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
 const strategyDefinitions = [
   ['rotation', '宽基20日动量轮动', 'index_rotation', '宽基、海外、商品ETF日频轮动'],
   ['asset-rotation', '全球大类资产ETF轮动', 'index_rotation', 'A股、港股、美股、黄金和国债ETF周频轮动'],
+  ['asset-rotation-top1', '全球大类资产ETF轮动（只持第1名）', 'index_rotation', 'A股、港股、美股、黄金和国债ETF周频轮动，持仓跌出第1名即轮换'],
   ['dual-etf', '双ETF动量轮动', 'index_rotation', '双ETF二十日动量日频轮动'],
   ['industry-ma20', '行业ETF二十日均线', 'index_rotation', '行业ETF放量突破MA20后持有、跌破MA20退出'],
   ['macd', 'MACD共振', 'stock_scan', 'MACD首次金叉与多头延续扫描'],
@@ -494,7 +495,7 @@ function jsonText(value: unknown) {
 }
 
 function configPath(key: string) {
-  const match = /^data\/(rotation|asset-rotation|dual-etf|industry-ma20)\/(config|pending-config|combination-config|combination-pending-config)\.json$/.exec(key);
+  const match = /^data\/(rotation|asset-rotation|asset-rotation-top1|dual-etf|industry-ma20)\/(config|pending-config|combination-config|combination-pending-config)\.json$/.exec(key);
   if (!match) return null;
   return {
     strategy: match[1],
@@ -504,17 +505,17 @@ function configPath(key: string) {
 }
 
 function historyPath(key: string) {
-  const match = /^data\/(rotation|asset-rotation|dual-etf|industry-ma20)\/history\/(\d{6})\.json$/.exec(key);
+  const match = /^data\/(rotation|asset-rotation|asset-rotation-top1|dual-etf|industry-ma20)\/history\/(\d{6})\.json$/.exec(key);
   return match ? { strategy: match[1], code: match[2] } : null;
 }
 
 function backtestPath(key: string) {
-  const match = /^data\/(rotation|asset-rotation|dual-etf|industry-ma20)\/backtest\.json$/.exec(key);
+  const match = /^data\/(rotation|asset-rotation|asset-rotation-top1|dual-etf|industry-ma20)\/backtest\.json$/.exec(key);
   return match?.[1] ?? null;
 }
 
 function yearPath(key: string) {
-  const match = /^data\/(rotation|asset-rotation|dual-etf|industry-ma20)\/year-performance\/(\d{4})\.json$/.exec(key);
+  const match = /^data\/(rotation|asset-rotation|asset-rotation-top1|dual-etf|industry-ma20)\/year-performance\/(\d{4})\.json$/.exec(key);
   return match ? { strategy: match[1], year: Number(match[2]) } : null;
 }
 

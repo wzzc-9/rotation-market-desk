@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationCombinations, getAssetRotationSnapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
+import { getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
@@ -22,7 +22,7 @@ const combinationFilters = (query: CombinationQuery) => ({
   codes: String(query.codes ?? '').split(',').map((code) => code.trim()).filter(Boolean),
 });
 const savedPoolStrategy = (strategy: string): MysqlSavedPoolStrategy => {
-  if (strategy === 'rotation' || strategy === 'asset-rotation' || strategy === 'industry-ma20') return strategy;
+  if (strategy === 'rotation' || strategy === 'asset-rotation' || strategy === 'asset-rotation-top1' || strategy === 'industry-ma20') return strategy;
   throw new Error('该策略不支持保存轮动标的池');
 };
 const allowedCorsOrigins = new Set([
@@ -144,6 +144,20 @@ app.get<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combina
   }
 });
 
+app.get<{ Querystring: { refresh?: string } }>('/api/strategy/asset-rotation-top1', async (request, reply) => {
+  try {
+    const snapshot = await getAssetRotationTop1Snapshot(request.query.refresh === '1');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message: error instanceof Error ? error.message : '大类资产只持第 1 名轮动行情暂时不可用',
+    });
+  }
+});
+
 app.post<{ Body: { code?: string } }>('/api/strategy/asset-rotation/combinations/symbols', async (request, reply) => {
   try {
     const draft = await updateAssetCombinationPool('add', request.body?.code ?? '');
@@ -180,6 +194,61 @@ app.post<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation/combin
     request.log.error(error);
     const message = error instanceof Error ? error.message : '全组合收益排名重新计算失败';
     return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_COMBINATION_RECALCULATE_ERROR', message });
+  }
+});
+
+app.get<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation-top1/combinations', async (request, reply) => {
+  try {
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
+    const result = await getAssetRotationTop1Combinations(sort, direction, Number(request.query.page ?? 1), Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    reply.header('Cache-Control', 'no-store');
+    return result;
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(500).send({
+      error: 'ASSET_TOP1_COMBINATIONS_ERROR',
+      message: error instanceof Error ? error.message : '只持第 1 名策略组合回测数据读取失败',
+    });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/asset-rotation-top1/combinations/symbols', async (request, reply) => {
+  try {
+    const draft = await updateAssetRotationTop1CombinationPool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入组合池失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_COMBINATION_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation-top1/combinations/symbols/:code', async (request, reply) => {
+  try {
+    const draft = await updateAssetRotationTop1CombinationPool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移出组合池失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_COMBINATION_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.post<{ Querystring: CombinationQuery }>('/api/strategy/asset-rotation-top1/combinations/recalculate', async (request, reply) => {
+  try {
+    await recalculateAssetRotationTop1CombinationPool();
+    const sort = ['score', 'ten-year', 'five-year', 'current-year'].includes(request.query.sort ?? '') ? request.query.sort! : 'score';
+    const direction = request.query.direction === 'asc' ? 'asc' : 'desc';
+    const result = await getAssetRotationTop1Combinations(sort, direction, 1, Number(request.query.pageSize ?? 25), combinationFilters(request.query));
+    reply.header('Cache-Control', 'no-store');
+    return result;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '只持第 1 名策略组合排名重新计算失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_COMBINATION_RECALCULATE_ERROR', message });
   }
 });
 
@@ -401,6 +470,54 @@ app.post('/api/strategy/asset-rotation/recalculate', async (request, reply) => {
     request.log.error(error);
     const message = error instanceof Error ? error.message : '策略 2 重新计算失败';
     return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_POOL_RECALCULATE_ERROR', message });
+  }
+});
+
+app.post<{ Body: { code?: string } }>('/api/strategy/asset-rotation-top1/symbols', async (request, reply) => {
+  try {
+    const snapshot = await updateAssetRotationTop1Pool('add', request.body?.code ?? '');
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 加入失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.delete<{ Params: { code: string } }>('/api/strategy/asset-rotation-top1/symbols/:code', async (request, reply) => {
+  try {
+    const snapshot = await updateAssetRotationTop1Pool('remove', request.params.code);
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : 'ETF 移除失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_POOL_UPDATE_ERROR', message });
+  }
+});
+
+app.put<{ Body: { codes?: string[] } }>('/api/strategy/asset-rotation-top1/symbols', async (request, reply) => {
+  try {
+    const draft = await replaceAssetRotationTop1Pool(Array.isArray(request.body?.codes) ? request.body.codes : []);
+    reply.header('Cache-Control', 'no-store');
+    return draft;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '轮动标的池替换失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_POOL_REPLACE_ERROR', message });
+  }
+});
+
+app.post('/api/strategy/asset-rotation-top1/recalculate', async (request, reply) => {
+  try {
+    const snapshot = await recalculateAssetRotationTop1Pool();
+    reply.header('Cache-Control', 'no-store');
+    return snapshot;
+  } catch (error) {
+    request.log.error(error);
+    const message = error instanceof Error ? error.message : '只持第 1 名策略重新计算失败';
+    return reply.code(message.includes('正在更新') ? 409 : 400).send({ error: 'ASSET_TOP1_POOL_RECALCULATE_ERROR', message });
   }
 });
 

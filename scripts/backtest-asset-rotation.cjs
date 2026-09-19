@@ -3,7 +3,12 @@ const path = require('path');
 
 if (!process.env.ROTATION_CALCULATION_ROOT) throw new Error('缺少 ROTATION_CALCULATION_ROOT，请通过后端计算任务运行');
 const projectRoot = path.resolve(process.env.ROTATION_CALCULATION_ROOT);
-const strategyDirectory = path.join(projectRoot, 'data', 'asset-rotation');
+const strategyDirectoryName = process.env.ASSET_ROTATION_DIRECTORY || 'asset-rotation';
+const strategy = process.env.ASSET_ROTATION_STRATEGY || 'asset-rotation';
+const holdRankLimit = Math.max(1, Number(process.env.ASSET_ROTATION_HOLD_RANK_LIMIT || 2));
+const backtestVersion = process.env.ASSET_ROTATION_BACKTEST_VERSION || 'asset-rotation-return20-ma28-weekly-v2';
+const strategyLabel = process.env.ASSET_ROTATION_LABEL || '全球大类资产 ETF 轮动';
+const strategyDirectory = path.join(projectRoot, 'data', strategyDirectoryName);
 const historyDirectory = path.join(strategyDirectory, 'history');
 const config = JSON.parse(fs.readFileSync(path.join(strategyDirectory, 'config.json'), 'utf8'));
 const codes = config.symbols.map((item) => item.code);
@@ -65,7 +70,7 @@ function run() {
   const positionFor = (ranked, current) => {
     let nextPosition = current;
     const holding = ranked.findIndex((item) => item.code === current);
-    if (current && (holding < 0 || holding > 1 || ranked[holding].close < ranked[holding].ma28)) nextPosition = null;
+    if (current && (holding < 0 || holding >= holdRankLimit || ranked[holding].close < ranked[holding].ma28)) nextPosition = null;
     if (!nextPosition && ranked[0]?.close >= ranked[0]?.ma28) nextPosition = ranked[0].code;
     return nextPosition;
   };
@@ -117,9 +122,9 @@ function run() {
 
 const selected = run();
 const backtest = {
-  _comment: '页面“全球大类资产 ETF 轮动”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。',
-  version: 'asset-rotation-return20-ma28-weekly-v2',
-  strategy: 'asset-rotation',
+  _comment: `页面“${strategyLabel}”中的“近10年年度收益”数据，包括累计收益、年化收益、年度收益和最大回撤。`,
+  version: backtestVersion,
+  strategy,
   configVersion: config.version,
   symbols: config.symbols,
   generatedAt: new Date().toISOString(),

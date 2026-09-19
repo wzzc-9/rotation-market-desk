@@ -43,7 +43,7 @@ import { formatPct, formatVolume, movingAverage, type AssetRotationCombinationsR
 
 type View = 'dashboard' | 'screener' | 'strategy';
 type ScreeningStrategyId = 'macd' | 'macd-pullback' | 'macd-kdj' | 'volume-signals' | 'ma5-resonance' | 'bull-points';
-type StrategyId = 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20' | 'intersection' | ScreeningStrategyId;
+type StrategyId = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'dual-etf' | 'industry-ma20' | 'intersection' | ScreeningStrategyId;
 type StrategyGroupId = 'index' | 'stock';
 type Category = '全部' | RankedMarket['category'];
 type PoolSymbol = Pick<EtfSearchResult, 'code' | 'name' | 'category'>;
@@ -77,6 +77,7 @@ const screenerWorkspaceTab: WorkspaceTab = { id: 'screener', label: '条件选�
 const strategyWorkspaceTabs: Record<StrategyId, WorkspaceTab> = {
   rotation: { id: 'strategy:rotation', label: '宽基动量轮动', view: 'strategy', strategyId: 'rotation', icon: Activity, closable: true },
   'asset-rotation': { id: 'strategy:asset-rotation', label: '全球大类资产轮动', view: 'strategy', strategyId: 'asset-rotation', icon: GitMerge, closable: true },
+  'asset-rotation-top1': { id: 'strategy:asset-rotation-top1', label: '全球大类资产轮动（只持第1名）', view: 'strategy', strategyId: 'asset-rotation-top1', icon: GitMerge, closable: true },
   'dual-etf': { id: 'strategy:dual-etf', label: '双 ETF 动量轮动', view: 'strategy', strategyId: 'dual-etf', icon: ArrowUpDown, closable: true },
   'industry-ma20': { id: 'strategy:industry-ma20', label: '行业 ETF 20 日均线', view: 'strategy', strategyId: 'industry-ma20', icon: TrendingUp, closable: true },
   intersection: { id: 'strategy:intersection', label: '策略交集', view: 'strategy', strategyId: 'intersection', icon: GitMerge, closable: true },
@@ -692,7 +693,7 @@ function StockKlineCell({ code, name }: { code: string; name: string }) {
   </button>;
 }
 
-type SavedPoolStrategy = 'rotation' | 'asset-rotation' | 'industry-ma20';
+type SavedPoolStrategy = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20';
 
 function SavedPoolManager({ strategy, markets, updating, onApply }: { strategy: SavedPoolStrategy; markets: PoolSymbol[]; updating: boolean; onApply: (codes: string[]) => Promise<void> }) {
   const [savedPools, setSavedPools] = useState<SavedRotationPool[]>([]);
@@ -1401,8 +1402,9 @@ function Screener({
   );
 }
 
-function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { strategy: 'rotation' | 'asset-rotation' | 'industry-ma20'; rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
-  const isAssetRotation = strategy === 'asset-rotation';
+function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPoolUpdating = false, onReplaceRotationPool }: { strategy: 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20'; rotationPoolCodes: string[]; rotationPoolUpdating?: boolean; onReplaceRotationPool: (codes: string[]) => Promise<void> }) {
+  const isAssetRotation = strategy === 'asset-rotation' || strategy === 'asset-rotation-top1';
+  const isAssetRotationTop1 = strategy === 'asset-rotation-top1';
   const isIndustryMa20 = strategy === 'industry-ma20';
   const endpointBase = `/api/strategy/${strategy}/combinations`;
   type CombinationSortKey = 'score' | 'ten-year' | 'five-year' | 'current-year';
@@ -1703,7 +1705,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
                       ? <><p><b>分段区间</b>{result.periods.earlyFiveYear.start} 至 {result.periods.earlyFiveYear.end}；{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}，两个区间不重叠。</p><p><b>稳定性</b>近 10 年每日滚动 252 个交易日收益的第 10 百分位，数值越高越好。</p></>
                       : <p><b>近 5 年</b>{result.periods.fiveYear.start} 至 {result.periods.fiveYear.end}。</p>}
                     <p><b>组合范围</b>完整枚举 3—{result.universe.length} 只 ETF，排除仅含 2 只 ETF 的组合。</p>
-                    <p><b>执行规则</b>{isAssetRotation ? '周末收盘信号、20 日涨幅排名、MA28 与前 2 名持有。' : isIndustryMa20 ? '每日收盘信号、放量突破 MA20 且量比不低于 1.5 时入场，跌破 MA20 退出。' : '每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有。'}未计手续费、滑点与冲击成本。</p>
+                    <p><b>执行规则</b>{isAssetRotation ? `周末收盘信号、20 日涨幅排名、MA28 与${isAssetRotationTop1 ? '第 1 名' : '前 2 名'}持有。` : isIndustryMa20 ? '每日收盘信号、放量突破 MA20 且量比不低于 1.5 时入场，跌破 MA20 退出。' : '每日收盘信号、收盘价相对 MA20 的动量排名与第 1 名持有。'}未计手续费、滑点与冲击成本。</p>
                   </div>
                 </div>
               </details>}
@@ -1776,8 +1778,9 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
   );
 }
 
-function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolSymbols, poolUpdating = false, onRemoveMarket, onReplaceCombination, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolSymbols?: PoolSymbol[]; poolUpdating?: boolean; onRemoveMarket?: (market: PoolSymbol) => void; onReplaceCombination?: (codes: string[]) => Promise<void>; variant?: 'broad' | 'asset' | 'dual' | 'industry'; refreshing?: boolean; onRefresh?: () => void }) {
-  const isAssetRotation = variant === 'asset';
+function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor, poolSymbols, poolUpdating = false, onRemoveMarket, onReplaceCombination, variant = 'broad', refreshing = false, onRefresh }: { markets: RankedMarket[]; yearPerformance: RotationYearPerformance; strategyBacktest?: RotationBacktestResponse; poolEditor?: ReactNode; poolSymbols?: PoolSymbol[]; poolUpdating?: boolean; onRemoveMarket?: (market: PoolSymbol) => void; onReplaceCombination?: (codes: string[]) => Promise<void>; variant?: 'broad' | 'asset' | 'asset-top1' | 'dual' | 'industry'; refreshing?: boolean; onRefresh?: () => void }) {
+  const isAssetRotation = variant === 'asset' || variant === 'asset-top1';
+  const isAssetRotationTop1 = variant === 'asset-top1';
   const isDualEtf = variant === 'dual';
   const isIndustryMa20 = variant === 'industry';
   const leader = markets[0];
@@ -1819,8 +1822,8 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
   const rules = isAssetRotation ? [
     { title: '计算涨幅', copy: `每周最后一个交易日收盘后计算标的池内 ${poolSize} 只 ETF 的 20 日涨幅并从高到低排名。`, icon: Activity },
     { title: '执行买入', copy: '20 日涨幅排名第 1，且收盘价站上 MA28，两个条件同时满足才买入。', icon: TrendingUp },
-    { title: '持续持有', copy: '持仓保持在涨幅前 2 名，同时收盘价不低于 MA28，则继续持有。', icon: Check },
-    { title: '卖出避险', copy: '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
+    { title: '持续持有', copy: isAssetRotationTop1 ? '持仓保持在涨幅第 1 名，同时收盘价不低于 MA28，则继续持有。' : '持仓保持在涨幅前 2 名，同时收盘价不低于 MA28，则继续持有。', icon: Check },
+    { title: '卖出避险', copy: isAssetRotationTop1 ? '持仓跌出前 1 或跌破 MA28 即卖出切换；全部不满足时保持空仓。' : '持仓跌出前 2 或跌破 MA28 即卖出切换；全部不满足时保持空仓。', icon: TrendingDown },
   ] : isDualEtf ? [
     { title: '比较强弱', copy: `每日收盘后计算标的池内 ${poolSize} 只 ETF 的近 20 个交易日涨跌幅并排序。`, icon: Activity },
     { title: '执行买入', copy: '只选择 20 日涨幅排名第 1 的 ETF，并要求收盘价不低于 MA20。', icon: TrendingUp },
@@ -1842,9 +1845,9 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
       <section className="view-heading strategy-heading">
         <div>
           <span className="eyebrow">STRATEGY / {isAssetRotation ? 'GLOBAL ASSET ROTATION' : isDualEtf ? 'DUAL ETF MOMENTUM' : isIndustryMa20 ? 'INDUSTRY MA20' : 'ACTIVE'}</span>
-          <h1>{isAssetRotation ? '全球大类资产 ETF 轮动' : isDualEtf ? '双 ETF 20 日动量轮动' : isIndustryMa20 ? '行业 ETF 20 日均线策略' : '宽基 20 日动量轮动'}</h1>
+          <h1>{isAssetRotation ? isAssetRotationTop1 ? '全球大类资产 ETF 轮动（只持第 1 名）' : '全球大类资产 ETF 轮动' : isDualEtf ? '双 ETF 20 日动量轮动' : isIndustryMa20 ? '行业 ETF 20 日均线策略' : '宽基 20 日动量轮动'}</h1>
           <p>{isAssetRotation
-            ? `当前 ${poolSize} 只 ETF 周度轮动，可按名称或代码调整标的池，弱市允许空仓。`
+            ? `当前 ${poolSize} 只 ETF 周度轮动，${isAssetRotationTop1 ? '仅持有 20 日涨幅第 1 名' : '持仓可保留在涨幅前 2 名'}，可按名称或代码调整标的池，弱市允许空仓。`
             : isDualEtf
               ? `默认跟踪创业板与纳指两条成长主线，当前 ${poolSize} 只 ETF 每日强弱轮动，可调整标的池。`
               : isIndustryMa20
@@ -1986,7 +1989,7 @@ function StrategyCenter({ markets, yearPerformance, strategyBacktest, poolEditor
           </div>
         </section>
 
-        {onReplaceCombination && <RotationCombinationExplorer strategy={isAssetRotation ? 'asset-rotation' : isIndustryMa20 ? 'industry-ma20' : 'rotation'} rotationPoolCodes={(poolSymbols ?? markets).map((item) => item.code)} rotationPoolUpdating={poolUpdating} onReplaceRotationPool={onReplaceCombination} />}
+        {onReplaceCombination && <RotationCombinationExplorer strategy={isAssetRotation ? isAssetRotationTop1 ? 'asset-rotation-top1' : 'asset-rotation' : isIndustryMa20 ? 'industry-ma20' : 'rotation'} rotationPoolCodes={(poolSymbols ?? markets).map((item) => item.code)} rotationPoolUpdating={poolUpdating} onReplaceRotationPool={onReplaceCombination} />}
 
         <section className="panel notes-panel">
           <div className="panel-title-row"><div><span className="eyebrow">RISK CONTROL</span><h3>执行约束</h3></div></div>
@@ -2045,7 +2048,10 @@ function PoolRemovalDialog({ market, strategyName, deferred = false, onCancel, o
   );
 }
 
-function AssetRotationStrategy() {
+function AssetRotationStrategy({ top1 = false }: { top1?: boolean }) {
+  const strategy = top1 ? 'asset-rotation-top1' : 'asset-rotation';
+  const strategyName = top1 ? '全球大类资产轮动（只持第 1 名）' : '全球大类资产轮动';
+  const endpoint = `/api/strategy/${strategy}`;
   const [snapshot, setSnapshot] = useState<RotationResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [poolUpdating, setPoolUpdating] = useState(false);
@@ -2058,17 +2064,17 @@ function AssetRotationStrategy() {
     setLoading(true);
     setError('');
     try {
-      const response = await apiFetch(`/api/strategy/asset-rotation${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
+      const response = await apiFetch(`${endpoint}${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });
       const payload = await response.json() as RotationResponse & { message?: string };
-      if (!response.ok) throw new Error(payload.message || `大类资产轮动行情返回 HTTP ${response.status}`);
-      if (!Array.isArray(payload.markets) || payload.markets.length < 2) throw new Error('大类资产轮动行情数据不完整');
+      if (!response.ok) throw new Error(payload.message || `${strategyName}行情返回 HTTP ${response.status}`);
+      if (!Array.isArray(payload.markets) || payload.markets.length < 2) throw new Error(`${strategyName}行情数据不完整`);
       setSnapshot(payload);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '大类资产轮动行情加载失败');
+      setError(reason instanceof Error ? reason.message : `${strategyName}行情加载失败`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [endpoint, strategyName]);
   useEffect(() => {
     if (didLoad.current) return;
     didLoad.current = true;
@@ -2078,7 +2084,7 @@ function AssetRotationStrategy() {
     setPoolUpdating(true);
     setPoolError('');
     try {
-      const response = await apiFetch(action === 'add' ? '/api/strategy/asset-rotation/symbols' : `/api/strategy/asset-rotation/symbols/${encodeURIComponent(item.code)}`, {
+      const response = await apiFetch(action === 'add' ? `${endpoint}/symbols` : `${endpoint}/symbols/${encodeURIComponent(item.code)}`, {
         method: action === 'add' ? 'POST' : 'DELETE',
         headers: action === 'add' ? { 'Content-Type': 'application/json' } : undefined,
         body: action === 'add' ? JSON.stringify({ code: item.code }) : undefined,
@@ -2094,12 +2100,12 @@ function AssetRotationStrategy() {
     } finally {
       setPoolUpdating(false);
     }
-  }, []);
+  }, [endpoint]);
   const recalculatePool = useCallback(async () => {
     setPoolCalculating(true);
     setPoolError('');
     try {
-      const response = await apiFetch('/api/strategy/asset-rotation/recalculate', {
+      const response = await apiFetch(`${endpoint}/recalculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -2113,12 +2119,12 @@ function AssetRotationStrategy() {
     } finally {
       setPoolCalculating(false);
     }
-  }, []);
+  }, [endpoint]);
   const replacePool = useCallback(async (codes: string[]) => {
     setPoolUpdating(true);
     setPoolError('');
     try {
-      const response = await apiFetch('/api/strategy/asset-rotation/symbols', {
+      const response = await apiFetch(`${endpoint}/symbols`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ codes }),
@@ -2134,15 +2140,15 @@ function AssetRotationStrategy() {
     } finally {
       setPoolUpdating(false);
     }
-  }, []);
+  }, [endpoint]);
   const confirmRemoval = useCallback(() => {
     if (!pendingRemoval) return;
     const market = pendingRemoval;
     setPendingRemoval(null);
     void updatePool('remove', market).catch(() => undefined);
   }, [pendingRemoval, updatePool]);
-  if (loading && !snapshot) return <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在计算全球大类资产轮动</strong><span>读取标的池 ETF 前复权日线，计算 20 日涨幅、MA28 与周度持仓。</span></section>;
-  if (error && !snapshot) return <section className="data-state error-state"><AlertTriangle size={26} /><strong>大类资产轮动加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadSnapshot(true)}><RefreshCw size={15} />重新加载</button></section>;
+  if (loading && !snapshot) return <section className="data-state"><RefreshCw className="spin-icon" size={24} /><strong>正在计算{strategyName}</strong><span>读取标的池 ETF 前复权日线，计算 20 日涨幅、MA28 与周度持仓。</span></section>;
+  if (error && !snapshot) return <section className="data-state error-state"><AlertTriangle size={26} /><strong>{strategyName}加载失败</strong><span>{error}</span><button className="text-button" onClick={() => void loadSnapshot(true)}><RefreshCw size={15} />重新加载</button></section>;
   return snapshot ? <>
     {error && <div className="data-warning"><AlertTriangle size={17} /><span>刷新失败，继续显示上次成功数据：{error}</span></div>}
     {poolError && <div className="data-warning"><AlertTriangle size={17} /><span>标的池更新失败，原数据保持不变：{poolError}</span><button type="button" className="icon-button" title="关闭提示" aria-label="关闭提示" onClick={() => setPoolError('')}><X size={14} /></button></div>}
@@ -2154,7 +2160,7 @@ function AssetRotationStrategy() {
         markets={snapshot.poolDraft?.symbols ?? snapshot.markets}
         updating={poolUpdating || poolCalculating}
         deferred
-        savedPoolStrategy="asset-rotation"
+        savedPoolStrategy={strategy}
         onReplaceSavedPool={replacePool}
         statusText={poolCalculating ? '正在更新行情、回测与今年交易节点' : undefined}
         action={<button type="button" className={`pool-recalculate-button${poolCalculating ? ' is-calculating' : ''}`} disabled={poolUpdating || poolCalculating} title={snapshot.poolDraft?.dirty ? '应用标的池变更并更新行情、回测与今年交易节点' : '获取最新行情并按当前标的池重新计算'} onClick={() => void recalculatePool()}><RefreshCw className={poolCalculating ? 'spin-icon' : undefined} size={14} />{poolCalculating ? '正在计算' : '重新计算'}</button>}
@@ -2164,11 +2170,11 @@ function AssetRotationStrategy() {
       poolUpdating={poolUpdating || poolCalculating}
       onRemoveMarket={setPendingRemoval}
       onReplaceCombination={replacePool}
-      variant="asset"
+      variant={top1 ? 'asset-top1' : 'asset'}
       refreshing={loading || poolUpdating || poolCalculating}
       onRefresh={() => void loadSnapshot(true)}
     />
-    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName="全球大类资产轮动" deferred onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
+    {pendingRemoval && <PoolRemovalDialog market={pendingRemoval} strategyName={strategyName} deferred onCancel={() => setPendingRemoval(null)} onConfirm={confirmRemoval} />}
   </> : null;
 }
 
@@ -2196,7 +2202,7 @@ function IndustryMa20Strategy() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [endpoint]);
   useEffect(() => {
     if (didLoad.current) return;
     didLoad.current = true;
@@ -3821,7 +3827,7 @@ export default function App() {
   };
 
   const openStrategy = (next: StrategyId) => {
-    const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' || next === 'dual-etf' || next === 'industry-ma20' ? 'index' : 'stock';
+    const group: StrategyGroupId = next === 'rotation' || next === 'asset-rotation' || next === 'asset-rotation-top1' || next === 'dual-etf' || next === 'industry-ma20' ? 'index' : 'stock';
     setExpandedStrategyGroups((current) => current.has(group) ? current : new Set(current).add(group));
     openWorkspaceTab(strategyWorkspaceTabs[next]);
   };
@@ -3892,7 +3898,7 @@ export default function App() {
           <div className="strategy-menu-title"><span>策略菜单</span><Settings2 size={14} /></div>
           <section className="strategy-group">
             <button className="strategy-group-toggle" type="button" aria-expanded={expandedStrategyGroups.has('index')} aria-controls="index-strategy-menu" onClick={() => toggleStrategyGroup('index')}>
-              <span><BarChart3 size={15} /><strong>指数策略</strong><small>4</small></span>
+              <span><BarChart3 size={15} /><strong>指数策略</strong><small>5</small></span>
               <ChevronRight className={expandedStrategyGroups.has('index') ? 'is-open' : ''} size={15} />
             </button>
             <div id="index-strategy-menu" className="strategy-submenu" hidden={!expandedStrategyGroups.has('index')}>
@@ -3904,6 +3910,11 @@ export default function App() {
               <button className={view === 'strategy' && strategyId === 'asset-rotation' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('asset-rotation')}>
                 <span className="strategy-icon"><GitMerge size={16} /></span>
                 <span><strong>全球大类资产轮动</strong><small>20日涨幅 · MA28 · 动态标的池</small></span>
+                <span className="live-dot" />
+              </button>
+              <button className={view === 'strategy' && strategyId === 'asset-rotation-top1' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('asset-rotation-top1')}>
+                <span className="strategy-icon"><GitMerge size={16} /></span>
+                <span><strong>全球大类资产轮动（只持第1名）</strong><small>20日涨幅 · MA28 · 周度轮换</small></span>
                 <span className="live-dot" />
               </button>
               <button className={view === 'strategy' && strategyId === 'industry-ma20' ? 'strategy-item active' : 'strategy-item'} onClick={() => openStrategy('industry-ma20')}>
@@ -4020,6 +4031,7 @@ export default function App() {
             onRefresh={() => void loadMarkets(true)}
           />}
           {tab.id === 'strategy:asset-rotation' && <AssetRotationStrategy />}
+          {tab.id === 'strategy:asset-rotation-top1' && <AssetRotationStrategy top1 />}
           {tab.id === 'strategy:dual-etf' && <DualEtfStrategy />}
           {tab.id === 'strategy:industry-ma20' && <IndustryMa20Strategy />}
           {tab.id === 'strategy:macd' && <MacdConfluenceStrategy />}

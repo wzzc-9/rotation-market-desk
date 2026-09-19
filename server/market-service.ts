@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { activateMysqlStrategyPoolCache, flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
-type IndexStrategy = 'rotation' | 'asset-rotation' | 'dual-etf' | 'industry-ma20';
+type IndexStrategy = 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'dual-etf' | 'industry-ma20';
 
 type SymbolConfig = {
   marketCode: string;
@@ -105,7 +105,7 @@ type AssetRotationScoring = {
 
 export type AssetRotationCombinations = {
   version: string;
-  strategy: 'rotation' | 'asset-rotation' | 'industry-ma20';
+  strategy: 'rotation' | 'asset-rotation' | 'asset-rotation-top1' | 'industry-ma20';
   generatedAt: string;
   periods: {
     tenYear: { start: string; end: string };
@@ -416,6 +416,14 @@ const assetCombinationConfigPath = resolve(assetRotationDirectory, 'combination-
 const assetCombinationPendingConfigPath = resolve(assetRotationDirectory, 'combination-pending-config.json');
 const assetRotationBacktestPath = resolve(assetRotationDirectory, 'backtest.json');
 const assetRotationCombinationsPath = resolve(assetRotationDirectory, 'combinations.json');
+const assetRotationTop1Directory = resolve(process.cwd(), 'data', 'asset-rotation-top1');
+const assetRotationTop1HistoryDirectory = resolve(assetRotationTop1Directory, 'history');
+const assetRotationTop1ConfigPath = resolve(assetRotationTop1Directory, 'config.json');
+const assetRotationTop1PendingConfigPath = resolve(assetRotationTop1Directory, 'pending-config.json');
+const assetRotationTop1CombinationConfigPath = resolve(assetRotationTop1Directory, 'combination-config.json');
+const assetRotationTop1CombinationPendingConfigPath = resolve(assetRotationTop1Directory, 'combination-pending-config.json');
+const assetRotationTop1BacktestPath = resolve(assetRotationTop1Directory, 'backtest.json');
+const assetRotationTop1CombinationsPath = resolve(assetRotationTop1Directory, 'combinations.json');
 const dualEtfDirectory = resolve(process.cwd(), 'data', 'dual-etf');
 const dualEtfHistoryDirectory = resolve(dualEtfDirectory, 'history');
 const dualEtfConfigPath = resolve(dualEtfDirectory, 'config.json');
@@ -442,11 +450,14 @@ const ma5ResonanceSnapshotDirectory = resolve(process.cwd(), 'data', 'ma5-resona
 const bullPointSnapshotVersion = 'bull-point-hhv21-hhv6-ma34-ma6-v1';
 const bullPointSnapshotDirectory = resolve(process.cwd(), 'data', 'bull-point-snapshots');
 const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'year-performance');
+const assetRotationTop1YearPerformanceDirectory = resolve(assetRotationTop1Directory, 'year-performance');
 const dualEtfYearPerformanceDirectory = resolve(dualEtfDirectory, 'year-performance');
 let cachedSnapshot: RotationSnapshot | null = null;
 let cachedAt = 0;
 let cachedAssetRotationSnapshot: RotationSnapshot | null = null;
 let cachedAssetRotationAt = 0;
+let cachedAssetRotationTop1Snapshot: RotationSnapshot | null = null;
+let cachedAssetRotationTop1At = 0;
 let cachedDualEtfSnapshot: RotationSnapshot | null = null;
 let cachedDualEtfAt = 0;
 let cachedIndustryMa20Snapshot: RotationSnapshot | null = null;
@@ -454,8 +465,11 @@ let cachedIndustryMa20At = 0;
 let rotationPoolUpdateInFlight = false;
 let rotationCombinationPoolUpdateInFlight = false;
 let assetRotationPoolUpdateInFlight = false;
+let assetRotationTop1PoolUpdateInFlight = false;
 let assetCombinationPoolUpdateInFlight = false;
 let assetCombinationPoolRecalculationInFlight: Promise<AssetRotationPoolDraft> | null = null;
+let assetRotationTop1CombinationPoolUpdateInFlight = false;
+let assetRotationTop1CombinationPoolRecalculationInFlight: Promise<AssetRotationPoolDraft> | null = null;
 let dualEtfPoolUpdateInFlight = false;
 let industryMa20PoolUpdateInFlight = false;
 let industryMa20CombinationPoolUpdateInFlight = false;
@@ -594,6 +608,16 @@ function readAssetRotationPendingConfig() {
     : null;
 }
 
+function readAssetRotationTop1Config() {
+  return readStrategyConfig(assetRotationTop1ConfigPath, '大类资产轮动只持第 1 名');
+}
+
+function readAssetRotationTop1PendingConfig() {
+  return storedFileExists(assetRotationTop1PendingConfigPath)
+    ? readStrategyConfig(assetRotationTop1PendingConfigPath, '大类资产轮动只持第 1 名待应用')
+    : null;
+}
+
 function readIndustryMa20Config() {
   return readStrategyConfig(industryMa20ConfigPath, '行业 ETF 20 日均线');
 }
@@ -690,6 +714,30 @@ function writeAssetRotationPoolDraft(config: AssetRotationConfig) {
   return getAssetRotationPoolDraft();
 }
 
+export function getAssetRotationTop1PoolDraft(): AssetRotationPoolDraft {
+  const active = readAssetRotationTop1Config();
+  const pending = readAssetRotationTop1PendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeAssetRotationTop1PoolDraft(config: AssetRotationConfig) {
+  const active = readAssetRotationTop1Config();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (storedFileExists(assetRotationTop1PendingConfigPath)) deleteStoredFile(assetRotationTop1PendingConfigPath);
+  } else {
+    writeStrategyConfig(assetRotationTop1PendingConfigPath, config);
+  }
+  return getAssetRotationTop1PoolDraft();
+}
+
 function readAssetCombinationConfig() {
   return readStrategyConfig(assetCombinationConfigPath, '全组合收益排名');
 }
@@ -722,6 +770,40 @@ function writeAssetCombinationPoolDraft(config: AssetRotationConfig) {
     writeStrategyConfig(assetCombinationPendingConfigPath, config);
   }
   return getAssetCombinationPoolDraft();
+}
+
+function readAssetRotationTop1CombinationConfig() {
+  return readStrategyConfig(assetRotationTop1CombinationConfigPath, '只持第 1 名全组合收益排名');
+}
+
+function readAssetRotationTop1CombinationPendingConfig() {
+  return storedFileExists(assetRotationTop1CombinationPendingConfigPath)
+    ? readStrategyConfig(assetRotationTop1CombinationPendingConfigPath, '只持第 1 名全组合收益排名待应用')
+    : null;
+}
+
+export function getAssetRotationTop1CombinationPoolDraft(): AssetRotationPoolDraft {
+  const active = readAssetRotationTop1CombinationConfig();
+  const pending = readAssetRotationTop1CombinationPendingConfig();
+  const dirty = Boolean(pending && !sameSymbolSet(active.symbols, pending.symbols));
+  const current = dirty ? pending! : active;
+  return {
+    dirty,
+    activeVersion: active.version,
+    version: current.version,
+    updatedAt: current.updatedAt,
+    symbols: current.symbols,
+  };
+}
+
+function writeAssetRotationTop1CombinationPoolDraft(config: AssetRotationConfig) {
+  const active = readAssetRotationTop1CombinationConfig();
+  if (sameSymbolSet(active.symbols, config.symbols)) {
+    if (storedFileExists(assetRotationTop1CombinationPendingConfigPath)) deleteStoredFile(assetRotationTop1CombinationPendingConfigPath);
+  } else {
+    writeStrategyConfig(assetRotationTop1CombinationPendingConfigPath, config);
+  }
+  return getAssetRotationTop1CombinationPoolDraft();
 }
 
 export function getIndustryMa20PoolDraft(): AssetRotationPoolDraft {
@@ -786,6 +868,10 @@ function strategyConfigText(path: string, config: AssetRotationConfig) {
       ? '页面“宽基 20 日动量轮动”的“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
       : path === assetRotationConfigPath || path === assetRotationPendingConfigPath
     ? '页面“全球大类资产 ETF 轮动”中的“轮动标的池”配置；修改后需重新计算，才会更新行情、近10年回测和2026年交易节点。'
+      : path === assetRotationTop1ConfigPath || path === assetRotationTop1PendingConfigPath
+        ? '页面“全球大类资产 ETF 轮动（只持第 1 名）”中的轮动标的池配置；持仓跌出第 1 名或跌破 MA28 时轮换。'
+        : path === assetRotationTop1CombinationConfigPath || path === assetRotationTop1CombinationPendingConfigPath
+          ? '页面“全球大类资产 ETF 轮动（只持第 1 名）”中的全组合收益排名配置。'
       : path === assetCombinationConfigPath || path === assetCombinationPendingConfigPath
       ? '页面“全组合收益排名”中的“组合池”配置；仅这里的 ETF 参与组合枚举和排名计算。'
       : path === industryMa20ConfigPath || path === industryMa20PendingConfigPath
@@ -803,6 +889,8 @@ function writeStrategyConfig(path: string, config: AssetRotationConfig) {
 function strategyBacktestVersion(strategy: IndexStrategy) {
   return strategy === 'asset-rotation'
     ? 'asset-rotation-return20-ma28-weekly-v2'
+    : strategy === 'asset-rotation-top1'
+      ? 'asset-rotation-top1-return20-ma28-weekly-v1'
     : strategy === 'dual-etf'
       ? 'dual-etf-return20-ma20-daily-v1'
       : strategy === 'industry-ma20'
@@ -831,6 +919,10 @@ function readAssetRotationBacktest(config = readAssetRotationConfig()) {
   return readStrategyBacktest(assetRotationBacktestPath, 'asset-rotation', config, '大类资产轮动');
 }
 
+function readAssetRotationTop1Backtest(config = readAssetRotationTop1Config()) {
+  return readStrategyBacktest(assetRotationTop1BacktestPath, 'asset-rotation-top1', config, '大类资产轮动只持第 1 名');
+}
+
 function readIndustryMa20Backtest(config = readIndustryMa20Config()) {
   return readStrategyBacktest(industryMa20BacktestPath, 'industry-ma20', config, '行业 ETF 20 日均线');
 }
@@ -845,6 +937,16 @@ export async function getAssetRotationCombinations(sort: AssetRotationCombinatio
   const databasePage = await getMysqlCombinationPage('asset-rotation', sort, direction, page, pageSize, filters);
   if (!databasePage) throw new Error('MySQL 中缺少策略 2 组合排名数据');
   return { ...databasePage, poolDraft: getAssetCombinationPoolDraft() };
+}
+
+export async function getAssetRotationTop1Combinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
+  let databasePage = await getMysqlCombinationPage('asset-rotation-top1', sort, direction, page, pageSize, filters);
+  if (!databasePage) {
+    await recalculateAssetRotationTop1CombinationPool();
+    databasePage = await getMysqlCombinationPage('asset-rotation-top1', sort, direction, page, pageSize, filters);
+  }
+  if (!databasePage) throw new Error('MySQL 中缺少只持第 1 名策略组合排名数据');
+  return { ...databasePage, poolDraft: getAssetRotationTop1CombinationPoolDraft() };
 }
 
 export async function getIndustryMa20Combinations(sort: AssetRotationCombinationSort, direction: AssetRotationCombinationDirection, page: number, pageSize: number, filters: AssetRotationCombinationFilters = {}) {
@@ -869,6 +971,8 @@ function writeRotationYearPerformance(
 ) {
   const directory = strategy === 'asset-rotation'
     ? assetRotationYearPerformanceDirectory
+    : strategy === 'asset-rotation-top1'
+      ? assetRotationTop1YearPerformanceDirectory
     : strategy === 'dual-etf'
       ? dualEtfYearPerformanceDirectory
       : strategy === 'industry-ma20'
@@ -876,6 +980,8 @@ function writeRotationYearPerformance(
       : rotationYearPerformanceDirectory;
   const strategyConfig = strategy === 'asset-rotation'
     ? readAssetRotationConfig()
+    : strategy === 'asset-rotation-top1'
+      ? readAssetRotationTop1Config()
     : strategy === 'dual-etf'
       ? readDualEtfConfig()
       : strategy === 'industry-ma20'
@@ -885,6 +991,8 @@ function writeRotationYearPerformance(
   const record = {
     version: strategy === 'asset-rotation'
       ? 'asset-rotation-year-performance-v5'
+      : strategy === 'asset-rotation-top1'
+        ? 'asset-rotation-top1-year-performance-v1'
       : strategy === 'dual-etf'
         ? 'dual-etf-year-performance-v2'
         : strategy === 'industry-ma20'
@@ -903,6 +1011,8 @@ function writeRotationYearPerformance(
 function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
   const directory = strategy === 'asset-rotation'
     ? assetRotationYearPerformanceDirectory
+    : strategy === 'asset-rotation-top1'
+      ? assetRotationTop1YearPerformanceDirectory
     : strategy === 'dual-etf'
       ? dualEtfYearPerformanceDirectory
       : strategy === 'industry-ma20'
@@ -914,6 +1024,8 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
     const record = JSON.parse(readStoredText(path)) as RotationYearPerformance & { strategy?: string; version?: string; configVersion?: number; symbols?: SymbolConfig[] };
     const expectedVersion = strategy === 'asset-rotation'
       ? 'asset-rotation-year-performance-v5'
+      : strategy === 'asset-rotation-top1'
+        ? 'asset-rotation-top1-year-performance-v1'
       : strategy === 'dual-etf'
         ? 'dual-etf-year-performance-v2'
         : strategy === 'industry-ma20'
@@ -921,6 +1033,8 @@ function readRotationYearPerformance(strategy: IndexStrategy, year: number) {
         : 'rotation-year-performance-v5';
     const expectedConfig = strategy === 'asset-rotation'
       ? readAssetRotationConfig()
+      : strategy === 'asset-rotation-top1'
+        ? readAssetRotationTop1Config()
       : strategy === 'dual-etf'
         ? readDualEtfConfig()
         : strategy === 'industry-ma20'
@@ -1881,7 +1995,7 @@ function isCompletedTradingDay(quoteDate: string, now = new Date()) {
   return quoteDate === shanghai.date && shanghai.minutes >= 15 * 60 + 5;
 }
 
-function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[]): RotationYearPerformance {
+function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeof fetchSymbol>>[], holdRankLimit = 2): RotationYearPerformance {
   const names = new Map(markets.map((market) => [market.code, market.name]));
   const closes = new Map(markets.map((market) => [
     market.code,
@@ -1925,7 +2039,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
     const ranked = rankingFor(date);
     if (current) {
       const holdingRank = ranked.findIndex((item) => item.code === current);
-      if (holdingRank >= 0 && holdingRank < 2 && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
+      if (holdingRank >= 0 && holdingRank < holdRankLimit && ranked[holdingRank].close >= ranked[holdingRank].ma28) return current;
     }
     const leader = ranked[0];
     return leader && leader.close >= leader.ma28 ? leader.code : null;
@@ -1964,9 +2078,9 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
           toName,
           reason: nextPosition
             ? position
-              ? `${fromName} 跌出涨幅前 2 或跌破 MA28，轮换至排名第 1 的 ${toName}`
+              ? `${fromName} 跌出涨幅前 ${holdRankLimit} 或跌破 MA28，轮换至排名第 1 的 ${toName}`
               : `${toName} 20日涨幅排名第 1 且站上 MA28`
-            : '持仓跌出涨幅前 2 或跌破 MA28，且领先标的不满足入场条件',
+            : `持仓跌出涨幅前 ${holdRankLimit} 或跌破 MA28，且领先标的不满足入场条件`,
           tradeReturn: action === '买入' ? null : round((value / operationStartValue - 1) * 100, 2),
           cumulativeReturn: round((value - 1) * 100, 2),
         });
@@ -1991,7 +2105,7 @@ function calculateAssetRotationYearPerformance(markets: Awaited<ReturnType<typeo
 }
 
 function getSymbol(code: string) {
-  const symbol = [...readRotationConfig().symbols, ...readAssetRotationConfig().symbols, ...readDualEtfConfig().symbols, ...readIndustryMa20Config().symbols].find((item) => item.code === code);
+  const symbol = [...readRotationConfig().symbols, ...readAssetRotationConfig().symbols, ...readAssetRotationTop1Config().symbols, ...readDualEtfConfig().symbols, ...readIndustryMa20Config().symbols].find((item) => item.code === code);
   if (symbol) return symbol;
   if (/^[03]\d{5}$/.test(code)) return { marketCode: `sz${code}`, code, name: code, category: 'A股宽基' as const };
   if (/^6\d{5}$/.test(code)) return { marketCode: `sh${code}`, code, name: code, category: 'A股宽基' as const };
@@ -2124,15 +2238,23 @@ export async function searchEtfs(query: string): Promise<EtfSearchResult[]> {
 }
 
 async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotationConfig): Promise<RotationSnapshot> {
-  const isAsset = strategy === 'asset-rotation';
+  const isAssetTop1 = strategy === 'asset-rotation-top1';
+  const isAsset = strategy === 'asset-rotation' || isAssetTop1;
   const isDual = strategy === 'dual-etf';
   const isIndustry = strategy === 'industry-ma20';
-  const configPath = isAsset ? assetRotationConfigPath : isDual ? dualEtfConfigPath : isIndustry ? industryMa20ConfigPath : rotationConfigPath;
-  const backtestPath = isAsset ? assetRotationBacktestPath : isDual ? dualEtfBacktestPath : isIndustry ? industryMa20BacktestPath : rotationBacktestPath;
-  const historyDirectory = isAsset ? assetRotationHistoryDirectory : isDual ? dualEtfHistoryDirectory : isIndustry ? industryMa20HistoryDirectory : rotationHistoryDirectory;
+  const configPath = isAssetTop1 ? assetRotationTop1ConfigPath : isAsset ? assetRotationConfigPath : isDual ? dualEtfConfigPath : isIndustry ? industryMa20ConfigPath : rotationConfigPath;
+  const backtestPath = isAssetTop1 ? assetRotationTop1BacktestPath : isAsset ? assetRotationBacktestPath : isDual ? dualEtfBacktestPath : isIndustry ? industryMa20BacktestPath : rotationBacktestPath;
+  const historyDirectory = isAssetTop1 ? assetRotationTop1HistoryDirectory : isAsset ? assetRotationHistoryDirectory : isDual ? dualEtfHistoryDirectory : isIndustry ? industryMa20HistoryDirectory : rotationHistoryDirectory;
   const downloadScript = isAsset ? 'download-asset-rotation-history.cjs' : isDual ? 'download-dual-etf-history.cjs' : isIndustry ? 'download-industry-ma20-history.cjs' : 'download-history.cjs';
   const backtestScript = isAsset ? 'backtest-asset-rotation.cjs' : isDual ? 'backtest-dual-etf.cjs' : isIndustry ? 'backtest-industry-ma20.cjs' : 'backtest.cjs';
   const onlyMissingKey = isAsset ? 'ASSET_ROTATION_ONLY_MISSING' : isDual ? 'DUAL_ETF_ONLY_MISSING' : isIndustry ? 'INDUSTRY_MA20_ONLY_MISSING' : 'ROTATION_ONLY_MISSING';
+  const assetTop1Environment = isAssetTop1 ? {
+    ASSET_ROTATION_DIRECTORY: 'asset-rotation-top1',
+    ASSET_ROTATION_STRATEGY: 'asset-rotation-top1',
+    ASSET_ROTATION_HOLD_RANK_LIMIT: '1',
+    ASSET_ROTATION_BACKTEST_VERSION: strategyBacktestVersion(strategy),
+    ASSET_ROTATION_LABEL: '全球大类资产 ETF 轮动（只持第 1 名）',
+  } : {};
   const workspaceRoot = createCalculationWorkspace();
   let artifactsCommitted = false;
   const configContent = strategyConfigText(configPath, config);
@@ -2143,6 +2265,13 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
       artifactsCommitted = true;
       const historyState = await prepareCombinationHistory(config, workspaceRoot, historyDirectory, isIndustry ? 21 : 28);
       if (!historyState.historyRevised) {
+        if (isAssetTop1) {
+          cachedAssetRotationTop1Snapshot = null;
+          cachedAssetRotationTop1At = 0;
+          const snapshot = await getAssetRotationTop1Snapshot(false);
+          await flushMysqlWrites();
+          return snapshot;
+        }
         if (isAsset) {
           cachedAssetRotationSnapshot = null;
           cachedAssetRotationAt = 0;
@@ -2174,18 +2303,26 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     await stageMysqlEtfHistories(workspaceRoot, historyDirectory, config.symbols);
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', downloadScript)], {
       cwd: process.cwd(),
-      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot, [onlyMissingKey]: '1' },
+      env: { ...process.env, ...assetTop1Environment, ROTATION_CALCULATION_ROOT: workspaceRoot, [onlyMissingKey]: '1' },
       timeout: 180_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', backtestScript)], {
       cwd: process.cwd(),
-      env: { ...process.env, ROTATION_CALCULATION_ROOT: workspaceRoot },
+      env: { ...process.env, ...assetTop1Environment, ROTATION_CALCULATION_ROOT: workspaceRoot },
       timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     await syncCalculationArtifacts(workspaceRoot, [configPath, backtestPath, ...calculationJsonFiles(workspaceRoot, historyDirectory)]);
     artifactsCommitted = true;
+    if (isAssetTop1) {
+      readAssetRotationTop1Backtest(config);
+      cachedAssetRotationTop1Snapshot = null;
+      cachedAssetRotationTop1At = 0;
+      const snapshot = await getAssetRotationTop1Snapshot(true);
+      await flushMysqlWrites();
+      return snapshot;
+    }
     if (isAsset) {
       readAssetRotationBacktest(config);
       cachedAssetRotationSnapshot = null;
@@ -2217,7 +2354,10 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     await flushMysqlWrites();
     return snapshot;
   } catch (error) {
-    if (isAsset) {
+    if (isAssetTop1) {
+      cachedAssetRotationTop1Snapshot = null;
+      cachedAssetRotationTop1At = 0;
+    } else if (isAsset) {
       cachedAssetRotationSnapshot = null;
       cachedAssetRotationAt = 0;
     } else if (isDual) {
@@ -2232,8 +2372,10 @@ async function rebuildRotationPool(strategy: IndexStrategy, config: AssetRotatio
     }
     if (artifactsCommitted) {
       try {
-        const recoveredSnapshot = isAsset
-          ? await getAssetRotationSnapshot(false)
+        const recoveredSnapshot = isAssetTop1
+          ? await getAssetRotationTop1Snapshot(false)
+          : isAsset
+            ? await getAssetRotationSnapshot(false)
           : isDual
             ? await getDualEtfSnapshot(false)
             : isIndustry
@@ -2499,6 +2641,58 @@ export async function recalculateAssetRotationPool() {
   }
 }
 
+export async function updateAssetRotationTop1Pool(action: 'add' | 'remove', code: string) {
+  if (assetRotationTop1PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  assetRotationTop1PoolUpdateInFlight = true;
+  try {
+    const current = readAssetRotationTop1PendingConfig() ?? readAssetRotationTop1Config();
+    const draft = writeAssetRotationTop1PoolDraft(await nextRotationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    assetRotationTop1PoolUpdateInFlight = false;
+  }
+}
+
+export async function replaceAssetRotationTop1Pool(codes: string[]) {
+  if (assetRotationTop1PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const normalizedCodes = [...new Set(codes.map((code) => String(code).trim()))];
+  if (normalizedCodes.length < 2 || normalizedCodes.length > 20) throw new Error('轮动标的池需包含 2 至 20 只 ETF');
+  if (normalizedCodes.some((code) => !/^\d{6}$/.test(code))) throw new Error('ETF 代码必须为 6 位数字');
+  const symbols = await resolveRotationPoolSymbols(normalizedCodes);
+  assetRotationTop1PoolUpdateInFlight = true;
+  try {
+    const current = readAssetRotationTop1PendingConfig() ?? readAssetRotationTop1Config();
+    const draft = writeAssetRotationTop1PoolDraft({
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+      symbols,
+    });
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    assetRotationTop1PoolUpdateInFlight = false;
+  }
+}
+
+export async function recalculateAssetRotationTop1Pool() {
+  if (assetRotationTop1PoolUpdateInFlight) throw new Error('标的池正在更新，请稍后再试');
+  const active = readAssetRotationTop1Config();
+  const pending = readAssetRotationTop1PendingConfig();
+  const config = pending && !sameSymbolSet(active.symbols, pending.symbols) ? pending : active;
+  assetRotationTop1PoolUpdateInFlight = true;
+  try {
+    const snapshot = await rebuildRotationPool('asset-rotation-top1', config);
+    if (storedFileExists(assetRotationTop1PendingConfigPath)) deleteStoredFile(assetRotationTop1PendingConfigPath);
+    await flushMysqlWrites();
+    return { ...snapshot, poolDraft: getAssetRotationTop1PoolDraft() };
+  } finally {
+    assetRotationTop1PoolUpdateInFlight = false;
+  }
+}
+
 export async function updateAssetCombinationPool(action: 'add' | 'remove', code: string) {
   if (assetCombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
   const normalizedCode = code.trim();
@@ -2511,6 +2705,21 @@ export async function updateAssetCombinationPool(action: 'add' | 'remove', code:
     return draft;
   } finally {
     assetCombinationPoolUpdateInFlight = false;
+  }
+}
+
+export async function updateAssetRotationTop1CombinationPool(action: 'add' | 'remove', code: string) {
+  if (assetRotationTop1CombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+  const normalizedCode = code.trim();
+  if (!/^\d{6}$/.test(normalizedCode)) throw new Error('ETF 代码必须为 6 位数字');
+  assetRotationTop1CombinationPoolUpdateInFlight = true;
+  try {
+    const current = readAssetRotationTop1CombinationPendingConfig() ?? readAssetRotationTop1CombinationConfig();
+    const draft = writeAssetRotationTop1CombinationPoolDraft(await nextAssetCombinationConfig(current, action, normalizedCode));
+    await flushMysqlWrites();
+    return draft;
+  } finally {
+    assetRotationTop1CombinationPoolUpdateInFlight = false;
   }
 }
 
@@ -2657,6 +2866,57 @@ async function calculateAssetCombinationPool(): Promise<AssetRotationPoolDraft> 
   } finally {
     removeCalculationWorkspace(workspaceRoot);
     assetCombinationPoolUpdateInFlight = false;
+  }
+}
+
+export function recalculateAssetRotationTop1CombinationPool(): Promise<AssetRotationPoolDraft> {
+  if (assetRotationTop1CombinationPoolRecalculationInFlight) return assetRotationTop1CombinationPoolRecalculationInFlight;
+  if (assetRotationTop1CombinationPoolUpdateInFlight) throw new Error('组合池正在更新，请稍后再试');
+
+  const calculation = calculateAssetRotationTop1CombinationPool();
+  assetRotationTop1CombinationPoolRecalculationInFlight = calculation;
+  const clearCalculation = () => {
+    if (assetRotationTop1CombinationPoolRecalculationInFlight === calculation) assetRotationTop1CombinationPoolRecalculationInFlight = null;
+  };
+  void calculation.then(clearCalculation, clearCalculation);
+  return calculation;
+}
+
+async function calculateAssetRotationTop1CombinationPool(): Promise<AssetRotationPoolDraft> {
+  const pending = readAssetRotationTop1CombinationPendingConfig();
+  const config = pending && !sameSymbolSet(readAssetRotationTop1CombinationConfig().symbols, pending.symbols)
+    ? pending
+    : readAssetRotationTop1CombinationConfig();
+  assetRotationTop1CombinationPoolUpdateInFlight = true;
+  const workspaceRoot = createCalculationWorkspace();
+  writeCalculationText(workspaceRoot, assetRotationTop1CombinationConfigPath, strategyConfigText(assetRotationTop1CombinationConfigPath, config));
+  try {
+    await prepareCombinationHistory(config, workspaceRoot, assetRotationTop1HistoryDirectory);
+    await execFileAsync(process.execPath, [resolve(process.cwd(), 'scripts', 'optimize-asset-rotation.cjs')], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ROTATION_CALCULATION_ROOT: workspaceRoot,
+        ASSET_ROTATION_DIRECTORY: 'asset-rotation-top1',
+        ASSET_ROTATION_STRATEGY: 'asset-rotation-top1',
+        ASSET_ROTATION_HOLD_RANK_LIMIT: '1',
+        ASSET_ROTATION_COMBINATIONS_VERSION: 'asset-rotation-top1-combinations-weekly-v1',
+        ASSET_ROTATION_LABEL: '全球大类资产 ETF 轮动（只持第 1 名）',
+      },
+      timeout: 900_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const documents = calculationArtifacts(workspaceRoot, [assetRotationTop1CombinationConfigPath]);
+    await importCombinationFile(calculationPath(workspaceRoot, assetRotationTop1CombinationsPath), 'asset-rotation-top1', undefined, documents);
+    if (storedFileExists(assetRotationTop1CombinationPendingConfigPath)) deleteStoredFile(assetRotationTop1CombinationPendingConfigPath);
+    await flushMysqlWrites();
+    return getAssetRotationTop1CombinationPoolDraft();
+  } catch (error) {
+    await flushMysqlWrites();
+    throw new Error(`组合排名计算失败，数据库未切换：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally {
+    removeCalculationWorkspace(workspaceRoot);
+    assetRotationTop1CombinationPoolUpdateInFlight = false;
   }
 }
 
@@ -2839,10 +3099,16 @@ export async function getRotationSnapshot(forceRefresh = false): Promise<Rotatio
   return snapshot;
 }
 
-export async function getAssetRotationSnapshot(forceRefresh = false): Promise<RotationSnapshot> {
-  const config = readAssetRotationConfig();
-  if (!forceRefresh && cachedAssetRotationSnapshot && Date.now() - cachedAssetRotationAt < cacheTtlMs && snapshotMatchesConfig(cachedAssetRotationSnapshot, config)) {
-    return { ...cachedAssetRotationSnapshot, poolDraft: getAssetRotationPoolDraft(), cached: true };
+async function getAssetRotationSnapshotFor(strategy: 'asset-rotation' | 'asset-rotation-top1', forceRefresh = false): Promise<RotationSnapshot> {
+  const isTop1 = strategy === 'asset-rotation-top1';
+  const config = isTop1 ? readAssetRotationTop1Config() : readAssetRotationConfig();
+  const cachedSnapshotForStrategy = isTop1 ? cachedAssetRotationTop1Snapshot : cachedAssetRotationSnapshot;
+  const cachedAtForStrategy = isTop1 ? cachedAssetRotationTop1At : cachedAssetRotationAt;
+  const poolDraft = isTop1 ? getAssetRotationTop1PoolDraft : getAssetRotationPoolDraft;
+  const backtestPath = isTop1 ? assetRotationTop1BacktestPath : assetRotationBacktestPath;
+  if (!storedFileExists(backtestPath)) return rebuildRotationPool(strategy, config);
+  if (!forceRefresh && cachedSnapshotForStrategy && Date.now() - cachedAtForStrategy < cacheTtlMs && snapshotMatchesConfig(cachedSnapshotForStrategy, config)) {
+    return { ...cachedSnapshotForStrategy, poolDraft: poolDraft(), cached: true };
   }
 
   let quotes = new Map<string, TencentQuote>();
@@ -2877,10 +3143,10 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
   const lastTradingDate = fetched.map((item) => item.rawLastDate).sort().at(-1)!;
   const year = Number(lastTradingDate.slice(0, 4));
   // A live quote changes the marked-to-market value even when the trading date is unchanged.
-  const storedYearPerformance = forceRefresh || hasRealtimeQuotes ? null : readRotationYearPerformance('asset-rotation', year);
+  const storedYearPerformance = forceRefresh || hasRealtimeQuotes ? null : readRotationYearPerformance(strategy, year);
   const yearPerformance = storedYearPerformance?.lastTradingDate === lastTradingDate
     ? storedYearPerformance
-    : calculateAssetRotationYearPerformance(fetched);
+    : calculateAssetRotationYearPerformance(fetched, isTop1 ? 1 : 2);
   const currentHoldingCode = fetched.find((market) => market.name === yearPerformance.currentHolding)?.code ?? null;
   const calculated = fetched.map((market) => {
     const last = market.history.at(-1)!;
@@ -2908,7 +3174,7 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
     .map((market, index) => ({
       ...market,
       rank: index + 1,
-      signal: market.code === currentHoldingCode ? '持有' : market.aboveMa && index < 2 ? '观察' : '规避',
+      signal: market.code === currentHoldingCode ? '持有' : market.aboveMa && index < (isTop1 ? 1 : 2) ? '观察' : '规避',
     }));
   const provider = hasRealtimeQuotes
     ? '腾讯证券公开前复权日线（信号）+ 腾讯实时原始报价（现价）'
@@ -2921,13 +3187,26 @@ export async function getAssetRotationSnapshot(forceRefresh = false): Promise<Ro
     fetchedAt,
     lastTradingDate,
     cached: false,
-    backtest: readAssetRotationBacktest(config),
-    poolDraft: getAssetRotationPoolDraft(),
+    backtest: isTop1 ? readAssetRotationTop1Backtest(config) : readAssetRotationBacktest(config),
+    poolDraft: poolDraft(),
   };
-  if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance('asset-rotation', yearPerformance, provider, fetchedAt);
-  cachedAssetRotationSnapshot = snapshot;
-  cachedAssetRotationAt = Date.now();
+  if (yearPerformance !== storedYearPerformance) writeRotationYearPerformance(strategy, yearPerformance, provider, fetchedAt);
+  if (isTop1) {
+    cachedAssetRotationTop1Snapshot = snapshot;
+    cachedAssetRotationTop1At = Date.now();
+  } else {
+    cachedAssetRotationSnapshot = snapshot;
+    cachedAssetRotationAt = Date.now();
+  }
   return snapshot;
+}
+
+export function getAssetRotationSnapshot(forceRefresh = false) {
+  return getAssetRotationSnapshotFor('asset-rotation', forceRefresh);
+}
+
+export function getAssetRotationTop1Snapshot(forceRefresh = false) {
+  return getAssetRotationSnapshotFor('asset-rotation-top1', forceRefresh);
 }
 
 export async function getIndustryMa20Snapshot(forceRefresh = false): Promise<RotationSnapshot> {
