@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getKdjTurningPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listKdjTurningPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
+import { getAdjacentTradingDate, getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getKdjTurningPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listKdjTurningPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
 const app = Fastify({ logger: true });
@@ -729,6 +729,24 @@ app.get<{ Querystring: { refresh?: string; date?: string } }>('/api/strategy/bul
 app.get('/api/strategy/bull-points/dates', async (_request, reply) => {
   reply.header('Cache-Control', 'no-store');
   return { dates: listBullPointSnapshotDates() };
+});
+
+app.get<{ Querystring: { date?: string; direction?: string } }>('/api/market/trading-date', async (request, reply) => {
+  const { date, direction } = request.query;
+  if (!date || (direction !== 'previous' && direction !== 'next')) {
+    return reply.code(400).send({ error: 'INVALID_TRADING_DATE_QUERY', message: '请提供 YYYYMMDD 日期和 previous 或 next 方向' });
+  }
+  try {
+    const adjacentDate = await getAdjacentTradingDate(date, direction);
+    reply.header('Cache-Control', 'no-store');
+    return { date: adjacentDate };
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(502).send({
+      error: 'UPSTREAM_MARKET_DATA_ERROR',
+      message: error instanceof Error ? error.message : '交易日历服务暂时不可用',
+    });
+  }
 });
 
 app.get<{ Params: { code: string }; Querystring: { period?: HistoryPeriod; refresh?: string } }>('/api/market/:code/history', async (request, reply) => {

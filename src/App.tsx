@@ -127,6 +127,48 @@ function toInputDate(value: string) {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
 }
 
+function TradingDateNavigator({ date, latestDate, disabled, ariaLabel, onSelect }: {
+  date: string;
+  latestDate?: string;
+  disabled: boolean;
+  ariaLabel: string;
+  onSelect: (date: string) => void;
+}) {
+  const [navigating, setNavigating] = useState(false);
+  const [error, setError] = useState('');
+  const activeDate = date || latestDate || '';
+  const latestInputDate = toInputDate(latestDate ?? '');
+  const canMoveNext = Boolean(activeDate && latestInputDate && activeDate < latestInputDate);
+  const changeDate = async (direction: 'previous' | 'next') => {
+    if (!activeDate) return;
+    setNavigating(true);
+    setError('');
+    try {
+      const response = await apiFetch(`/api/market/trading-date?date=${activeDate.replaceAll('-', '')}&direction=${direction}`, { cache: 'no-store' });
+      const payload = await response.json() as { date?: string | null; message?: string };
+      if (!response.ok) throw new Error(payload.message || `交易日查询返回 HTTP ${response.status}`);
+      if (payload.date) onSelect(toInputDate(payload.date));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '交易日查询失败');
+    } finally {
+      setNavigating(false);
+    }
+  };
+  const controlsDisabled = disabled || navigating;
+  const buttonClassName = (unavailable: boolean) => `icon-button${!controlsDisabled && unavailable ? ' is-unavailable' : ''}`;
+  return <section className="macd-date-toolbar" aria-label={ariaLabel}>
+    <div className="trading-date-navigator">
+      <span className="trading-date-label">历史日期</span>
+      <div className="trading-date-controls">
+        <button className={buttonClassName(!activeDate)} type="button" title="前一交易日" aria-label="前一交易日" disabled={controlsDisabled || !activeDate} onClick={() => void changeDate('previous')}><ChevronLeft size={16} /></button>
+        <input aria-label="选择历史日期" type="date" value={date} max={latestInputDate || undefined} disabled={controlsDisabled} onChange={(event) => { if (event.target.value) onSelect(event.target.value); }} />
+        <button className={buttonClassName(!canMoveNext)} type="button" title="后一交易日" aria-label="后一交易日" disabled={controlsDisabled || !canMoveNext} onClick={() => void changeDate('next')}><ChevronRight size={16} /></button>
+      </div>
+    </div>
+    {error && <span className="trading-date-error" role="alert">{error}</span>}
+  </section>;
+}
+
 function Sparkline({ market }: { market: RankedMarket }) {
   const values = market.candles.slice(-22).map((candle) => candle.close);
   const min = Math.min(...values);
@@ -2440,16 +2482,6 @@ function MacdPullbackStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/macd-pullback/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The current scan remains usable when the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -2459,13 +2491,12 @@ function MacdPullbackStrategy() {
       if (!response.ok) throw new Error(payload.message || `MACD 零轴回踩扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'MACD 零轴回踩扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -2481,14 +2512,13 @@ function MacdPullbackStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史 MACD 零轴回踩结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史 MACD 零轴回踩结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -2512,10 +2542,7 @@ function MacdPullbackStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="MACD 零轴回踩历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="MACD 零轴回踩历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · 评分 ${lead.score.toFixed(1)}` : '等待零轴上方金叉后的缩量回踩'}</p></div>
@@ -2620,16 +2647,6 @@ function MacdKdjStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/macd-kdj/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The latest result remains usable if the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -2639,13 +2656,12 @@ function MacdKdjStrategy() {
       if (!response.ok) throw new Error(payload.message || `MACD + KDJ 扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'MACD + KDJ 共振扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -2661,14 +2677,13 @@ function MacdKdjStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史 MACD + KDJ 结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史 MACD + KDJ 结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -2691,10 +2706,7 @@ function MacdKdjStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="MACD KDJ 共振历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="MACD KDJ 共振历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待 KDJ 低位金叉与 MACD 趋势确认'}</p></div>
@@ -2797,16 +2809,6 @@ function KdjTurningPointStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/kdj-turning-point/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The latest result remains usable if the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -2816,13 +2818,12 @@ function KdjTurningPointStrategy() {
       if (!response.ok) throw new Error(payload.message || `KDJ 低位拐点扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'KDJ 低位拐点扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -2838,14 +2839,13 @@ function KdjTurningPointStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史 KDJ 低位拐点返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史 KDJ 低位拐点读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -2868,10 +2868,7 @@ function KdjTurningPointStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="KDJ 低位拐点历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="KDJ 低位拐点历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待 KDJ 在低位形成金叉拐点'}</p></div>
@@ -2981,16 +2978,6 @@ function VolumeSignalStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/volume-signals/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The latest result remains usable if the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -3000,13 +2987,12 @@ function VolumeSignalStrategy() {
       if (!response.ok) throw new Error(payload.message || `量价三信号扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '量价三信号扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -3022,14 +3008,13 @@ function VolumeSignalStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史量价三信号结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史量价三信号结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -3052,10 +3037,7 @@ function VolumeSignalStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="量价三信号历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="量价三信号历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待趋势线与量能结构共同确认'}</p></div>
@@ -3161,16 +3143,6 @@ function Ma5ResonanceStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/ma5-resonance/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The current scan remains usable when the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -3180,13 +3152,12 @@ function Ma5ResonanceStrategy() {
       if (!response.ok) throw new Error(payload.message || `5 日线回踩共振扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '5 日线回踩共振扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -3202,14 +3173,13 @@ function Ma5ResonanceStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史 5 日线回踩共振结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史 5 日线回踩共振结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -3232,10 +3202,7 @@ function Ma5ResonanceStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="5 日线回踩共振历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="5 日线回踩共振历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>优先观察</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无候选'}</strong><p>{lead ? `${lead.code} · ${lead.signal} · 评分 ${lead.score.toFixed(1)}` : '等待短趋势、回踩和缩量同时确认'}</p></div>
@@ -3339,16 +3306,6 @@ function BullPointStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/bull-points/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The latest result remains usable if the local date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -3358,13 +3315,12 @@ function BullPointStrategy() {
       if (!response.ok) throw new Error(payload.message || `多空趋势多点扫描返回 HTTP ${response.status}`);
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '多空趋势多点扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -3380,14 +3336,13 @@ function BullPointStrategy() {
       if (!response.ok) throw new Error(payload.message || `历史多点结果返回 HTTP ${response.status}`);
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史多点结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
   const lead = snapshot?.signals[0];
   const historyMovement = historySnapshot?.signals.reduce((counts, signal) => {
     if (signal.changeSinceSignal === undefined) return counts;
@@ -3410,10 +3365,7 @@ function BullPointStrategy() {
       <button className={`text-button macd-refresh ${loading ? 'is-spinning' : ''}`} type="button" disabled={loading} onClick={() => void loadLatestSignals()}><RefreshCw size={14} />读取最新</button>
     </section>
 
-    <section className="macd-date-toolbar" aria-label="多空趋势多点历史记录日期">
-      <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-      <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-    </section>
+    <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="多空趋势多点历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
     <section className="strategy-hero macd-hero">
       <div className="signal-block"><span>上穿幅度领先</span><strong>{lead ? lead.name : loading ? '正在扫描' : '暂无多点'}</strong><p>{lead ? `${lead.code} · VAR1 ${lead.var1.toFixed(2)} / 趋势线 ${lead.trendLine.toFixed(2)}` : '等待 VAR1 从下方向上穿越趋势线'}</p></div>
@@ -3530,20 +3482,10 @@ function MacdConfluenceStrategy() {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [storedDates, setStoredDates] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(10);
-  const loadStoredDates = useCallback(async () => {
-    try {
-      const response = await apiFetch('/api/strategy/macd-confluence/dates', { cache: 'no-store' });
-      const payload = await response.json() as { dates?: string[] };
-      if (response.ok && Array.isArray(payload.dates)) setStoredDates(payload.dates);
-    } catch {
-      // The scan result remains usable even when the local-date list cannot be loaded.
-    }
-  }, []);
   const loadLatestSignals = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -3554,13 +3496,12 @@ function MacdConfluenceStrategy() {
       setSnapshot(payload);
       setSelectedDate((current) => current || toInputDate(payload.storageDate));
       setPage(1);
-      void loadStoredDates();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'MACD 扫描失败');
     } finally {
       setLoading(false);
     }
-  }, [loadStoredDates]);
+  }, []);
   const loadHistoricalSignals = useCallback(async (date: string) => {
     setSelectedDate(date);
     setHistoryError('');
@@ -3578,14 +3519,13 @@ function MacdConfluenceStrategy() {
       setHistorySnapshot(payload);
       setSelectedDate(toInputDate(payload.storageDate));
       setHistoryPage(1);
-      void loadStoredDates();
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : '历史 MACD 结果读取失败');
     } finally {
       setHistoryLoading(false);
     }
-  }, [loadStoredDates, snapshot?.storageDate]);
-  useEffect(() => { void loadStoredDates(); void loadLatestSignals(); }, [loadLatestSignals, loadStoredDates]);
+  }, [snapshot?.storageDate]);
+  useEffect(() => { void loadLatestSignals(); }, [loadLatestSignals]);
 
   const rules = [
     { title: '扫描范围', copy: '沪深 A 股；排除北交所、创业板（30 开头）、科创板（688 / 689）与名称含 ST 的股票。', icon: Filter },
@@ -3615,10 +3555,7 @@ function MacdConfluenceStrategy() {
         </button>
       </section>
 
-      <section className="macd-date-toolbar" aria-label="MACD 历史记录日期">
-        <label>历史日期<input type="date" value={selectedDate} max={snapshot ? toInputDate(snapshot.storageDate) : undefined} disabled={loading || historyLoading} onChange={(event) => { if (event.target.value) void loadHistoricalSignals(event.target.value); }} /></label>
-        <div className="macd-date-list">{storedDates.slice(0, 12).map((date) => <button type="button" key={date} disabled={loading || historyLoading} className={toInputDate(date) === selectedDate ? 'active' : ''} onClick={() => void loadHistoricalSignals(toInputDate(date))}>{formatTradingDate(date)}</button>)}</div>
-      </section>
+      <TradingDateNavigator date={selectedDate} latestDate={snapshot?.storageDate} disabled={loading || historyLoading} ariaLabel="MACD 历史记录日期" onSelect={(date) => void loadHistoricalSignals(date)} />
 
       <section className="strategy-hero macd-hero">
         <div className="signal-block">

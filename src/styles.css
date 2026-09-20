@@ -338,12 +338,15 @@ input[type="range"] { width: 100%; height: 3px; accent-color: #c85454; cursor: p
 .intersection-table th:last-child { width: 360px; }
 .intersection-hit-list { display: flex; gap: 5px; overflow-x: auto; }
 .intersection-hit-list span { flex: 0 0 auto; padding: 3px 6px; color: #a74c4c; background: #fff2f2; border: 1px solid #ecd3d3; border-radius: 3px; font: 10px "Microsoft YaHei", sans-serif; }
-.macd-date-toolbar { display: flex; align-items: center; gap: 12px; min-height: 54px; margin-bottom: 12px; padding: 9px 12px; background: #ffffff; border: 1px solid var(--line); }
-.macd-date-toolbar label { display: flex; align-items: center; gap: 9px; color: #647380; font-size: 12px; white-space: nowrap; }
-.macd-date-toolbar input { height: 31px; padding: 0 8px; color: #34434f; background: #f7f9fa; border: 1px solid #d6dfe5; border-radius: 3px; font-size: 12px; }
-.macd-date-list { display: flex; min-width: 0; gap: 5px; overflow-x: auto; }
-.macd-date-list button { height: 29px; flex: 0 0 auto; padding: 0 8px; color: #667581; background: #f5f7f9; border: 1px solid #dfe6eb; border-radius: 3px; font-size: 11px; cursor: pointer; }
-.macd-date-list button:hover, .macd-date-list button.active { color: #a84848; background: #fff4f4; border-color: #e8c9c9; }
+.macd-date-toolbar { width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 12px; min-height: 31px; margin-bottom: 12px; padding: 0; background: transparent; border: 0; }
+.trading-date-navigator { display: flex; align-items: center; gap: 12px; }
+.trading-date-label { color: #647380; font-size: 12px; white-space: nowrap; }
+.trading-date-controls { display: grid; grid-template-columns: 31px 108px 31px; align-items: center; overflow: hidden; border: 1px solid #d6dfe5; border-radius: 3px; background: #f7f9fa; }
+.trading-date-controls .icon-button { width: 31px; height: 31px; min-width: 31px; border: 0; border-radius: 0; color: #5d6d79; background: transparent; }
+.trading-date-controls .icon-button:hover:not(:disabled) { color: #a84848; background: #fff1f1; }
+.trading-date-controls .icon-button.is-unavailable:disabled { cursor: not-allowed; }
+.trading-date-controls input { width: 100%; height: 31px; min-width: 0; padding: 0 7px; color: #34434f; background: #ffffff; border: solid #d6dfe5; border-width: 0 1px; font-size: 12px; }
+.trading-date-error { color: #b45252; font-size: 12px; }
 .macd-state { min-height: 360px; display: flex; align-items: center; justify-content: center; gap: 9px; color: #6f7d89; font-size: 14px; }
 .macd-state.error { color: #b45252; }
 .macd-table { width: 100%; min-width: 840px; border-collapse: collapse; table-layout: fixed; }

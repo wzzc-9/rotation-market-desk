@@ -1157,6 +1157,12 @@ function normalizeSnapshotDate(value: string | undefined) {
   return date;
 }
 
+function shiftCalendarDate(date: string, days: number) {
+  const value = new Date(`${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return `${value.getUTCFullYear()}${String(value.getUTCMonth() + 1).padStart(2, '0')}${String(value.getUTCDate()).padStart(2, '0')}`;
+}
+
 async function latestTradingDateOnOrBefore(date: string) {
   const cached = tradingDateCache.get(date);
   if (cached) return cached;
@@ -1177,6 +1183,34 @@ async function latestTradingDateOnOrBefore(date: string) {
   if (!latest) throw new Error(`无法确定 ${date} 之前的最近交易日`);
   tradingDateCache.set(date, latest);
   return latest;
+}
+
+export async function getAdjacentTradingDate(date: string, direction: 'previous' | 'next') {
+  const requestedDate = normalizeSnapshotDate(date);
+  const actualDate = await latestTradingDateOnOrBefore(requestedDate);
+  if (direction === 'previous') return latestTradingDateOnOrBefore(shiftCalendarDate(actualDate, -1));
+
+  const latestDate = await latestTradingDateOnOrBefore(dateText(new Date()));
+  if (actualDate >= latestDate) return null;
+
+  const startDate = shiftCalendarDate(actualDate, 1);
+  const endDate = shiftCalendarDate(actualDate, 40) < latestDate ? shiftCalendarDate(actualDate, 40) : latestDate;
+  const formattedStart = `${startDate.slice(0, 4)}-${startDate.slice(4, 6)}-${startDate.slice(6)}`;
+  const formattedEnd = `${endDate.slice(0, 4)}-${endDate.slice(4, 6)}-${endDate.slice(6)}`;
+  const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000001,day,${formattedStart},${formattedEnd},40,qfq`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 rotation-market-desk/1.0' },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`交易日查询接口返回 HTTP ${response.status}`);
+  const payload = await response.json() as { data?: Record<string, { qfqday?: TencentRow[]; day?: TencentRow[] }> };
+  const block = payload.data?.sh000001;
+  const next = (block?.qfqday ?? block?.day ?? [])
+    .map((row) => row[0].replaceAll('-', ''))
+    .filter((value) => value > actualDate && value <= latestDate)
+    .sort()
+    .at(0);
+  if (!next) throw new Error(`无法确定 ${actualDate} 之后的最近交易日`);
+  return next;
 }
 
 function macdSnapshotPath(date: string) {
