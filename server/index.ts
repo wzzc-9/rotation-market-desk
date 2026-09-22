@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { getAfterCloseSchedulerStatus, startAfterCloseScheduler } from './after-close-scheduler.js';
 import { getAdjacentTradingDate, getAssetRotationCombinations, getAssetRotationSnapshot, getAssetRotationTop1Combinations, getAssetRotationTop1Snapshot, getBullPointSnapshot, getDualEtfSnapshot, getIndustryMa20Combinations, getIndustryMa20Snapshot, getKdjTurningPointSnapshot, getMacdConfluenceSnapshot, getMacdKdjSnapshot, getMacdPullbackSnapshot, getMa5ResonanceSnapshot, getMarketHistory, getRotationCombinations, getRotationSnapshot, getVolumeSnapshot, listBullPointSnapshotDates, listKdjTurningPointSnapshotDates, listMacdKdjSnapshotDates, listMacdPullbackSnapshotDates, listMa5ResonanceSnapshotDates, listMacdSnapshotDates, listVolumeSnapshotDates, recalculateAssetCombinationPool, recalculateAssetRotationPool, recalculateAssetRotationTop1CombinationPool, recalculateAssetRotationTop1Pool, recalculateIndustryMa20CombinationPool, recalculateIndustryMa20Pool, recalculateRotationCombinationPool, recalculateRotationPool, replaceAssetRotationPool, replaceAssetRotationTop1Pool, replaceIndustryMa20Pool, replaceRotationPool, searchEtfs, updateAssetCombinationPool, updateAssetRotationPool, updateAssetRotationTop1CombinationPool, updateAssetRotationTop1Pool, updateDualEtfPool, updateIndustryMa20CombinationPool, updateIndustryMa20Pool, updateRotationCombinationPool, updateRotationPool, type AssetRotationCombinationDirection, type AssetRotationCombinationSort, type HistoryPeriod } from './market-service.js';
 import { closeMysqlStore, deleteMysqlSavedRotationPool, initializeMysqlStore, listMysqlSavedRotationPools, mysqlStoreStats, saveMysqlRotationPool, type MysqlSavedPoolStrategy } from './mysql-store.js';
 
@@ -47,6 +48,11 @@ app.addHook('onRequest', async (request, reply) => {
 app.get('/', async () => ({ status: 'ok', service: 'rotation-market-desk-api' }));
 
 app.get('/api/health', async () => ({ status: 'ok', time: new Date().toISOString(), database: await mysqlStoreStats() }));
+
+app.get('/api/automation/after-close', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  return getAfterCloseSchedulerStatus();
+});
 
 app.get<{ Querystring: { refresh?: string } }>('/api/strategy/rotation', async (request, reply) => {
   try {
@@ -772,5 +778,12 @@ const host = process.env.HOST ?? '0.0.0.0';
 const databaseEnabled = await initializeMysqlStore();
 if (!databaseEnabled) throw new Error('缺少 MySQL 配置，纯数据库模式无法启动');
 app.log.info('MySQL persistence enabled');
-app.addHook('onClose', async () => closeMysqlStore());
+const afterCloseScheduler = await startAfterCloseScheduler({
+  info: (message, details) => app.log.info(details ?? {}, message),
+  error: (message, details) => app.log.error(details ?? {}, message),
+});
+app.addHook('onClose', async () => {
+  afterCloseScheduler.stop();
+  await closeMysqlStore();
+});
 await app.listen({ port, host });

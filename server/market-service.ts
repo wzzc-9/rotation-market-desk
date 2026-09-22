@@ -1448,6 +1448,11 @@ export async function getAdjacentTradingDate(date: string, direction: 'previous'
   return next;
 }
 
+export async function isChinaTradingDay(date: string) {
+  const requestedDate = normalizeSnapshotDate(date);
+  return (await latestTradingDateOnOrBefore(requestedDate)) === requestedDate;
+}
+
 function macdSnapshotPath(date: string) {
   return resolve(macdSnapshotDirectory, `${date}.json`);
 }
