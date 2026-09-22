@@ -100,7 +100,6 @@ function loadEnvironmentFile(path: string) {
 
 function databaseConfig(): MysqlConfig | null {
   loadEnvironmentFile(resolve(process.cwd(), '.env.local'));
-  loadEnvironmentFile(resolve(process.cwd(), '.env.mysql.local'));
   const host = String(process.env.DB_HOST ?? '').trim();
   const user = String(process.env.DB_USER ?? '').trim();
   if (!host || !user) return null;

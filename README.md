@@ -16,7 +16,7 @@ npm run dev
 
 ## MySQL 5.7
 
-后端使用 MySQL 作为唯一运行数据源，必须配置 `DB_*` 环境变量。复制 `.env.example` 中的变量到本机 `.env.mysql.local`，线上则配置到 Render 环境变量：
+后端使用 MySQL 作为唯一运行数据源，必须配置 `DB_*` 环境变量。项目只使用一份私密配置：复制 `.env.example` 为 `.env.local`，在其中填写服务、数据库和行情数据源配置。
 
 ```text
 DB_HOST=数据库地址
@@ -51,12 +51,12 @@ pnpm run db:check
 
 GitHub Pages 必须通过 HTTPS 访问 API，因此请为服务器准备一个已解析到服务器公网 IP 的域名，例如 `api.example.com`。
 
-1. 将仓库部署到服务器，复制 `.env.server.example` 为 `.env.server`，填写 MySQL 连接参数和 `CORS_ORIGINS`。
+1. 将仓库部署到服务器，复制 `.env.example` 为 `.env.local`，填写服务、MySQL、跨域和行情数据源配置。
 2. 在服务器项目目录运行 `docker compose -f docker-compose.server.yml up -d --build`。API 仅监听本机 `127.0.0.1:3001`。
 3. 将 `deploy/nginx/rotation-market-desk-api.conf` 中的 `api.example.com` 改为实际 API 域名，启用 Nginx 站点并签发 TLS 证书。该配置将组合重算的反向代理超时设为 20 分钟。
 4. 在 GitHub 仓库的 **Settings > Secrets and variables > Actions > Variables** 添加 `API_BASE_URL=https://你的 API 域名`，推送到 `main` 后 GitHub Pages 会重建为请求该服务器，不再访问 Render。
 
-部署后访问 `https://你的 API 域名/api/health` 应返回 `status: ok`。MySQL 需要允许服务器公网 IP 访问；不要将 `.env.server` 或数据库密码提交到 Git。
+部署后访问 `https://你的 API 域名/api/health` 应返回 `status: ok`。MySQL 需要允许服务器公网 IP 访问；不要将 `.env.local` 或数据库密码提交到 Git。
 
 ### 无域名部署
 
@@ -116,7 +116,11 @@ GitHub Pages 必须通过 HTTPS 访问 API，因此请为服务器准备一个�
 - 宽基 20 日动量轮动策略的动态标的池、独立组合池、历史行情、回测和年度操作节点均存储在 MySQL；运行 `pnpm run optimize:rotation` 可重新计算全组合排名
 - 双 ETF 20 日动量轮动规则：每日比较标的近 20 个交易日涨跌幅，只持有排名第 1 且收盘价站上 MA20 的 ETF；第 1 名变化时切换，领先 ETF 跌破 MA20 时空仓；收盘产生信号，下一交易日承接收益
 - 双 ETF 策略的标的池、历史行情、近 10 年回测和年度操作节点均存储在 MySQL；可运行 `pnpm run history:dual:download` 更新历史，运行 `pnpm run backtest:dual` 复算
-- MACD 策略扫描数据源：Tushare 日线接口；需要在 `.env.local` 配置 `TUSHARE_TOKEN`
+- 个股策略（日线扫描）可通过 `STOCK_DAILY_DATA_SOURCE` 选择 `tushare` 或 `hithink`，默认 `tushare`；Tushare 需要 `TUSHARE_TOKEN`，同花顺需要 `HITHINK_FINANCE_API_KEY`
+- 同花顺模式使用官方全市场日线数据包：首次扫描下载 10 年原始日线 Parquet 到本地 `data/hithink-finance/`，后续按最近 10 个交易日增量更新；`HITHINK_DAILY_K_REFRESH_HOURS` 可调整更新间隔，默认 6 小时
+- 使用 `docker-compose.server.yml` 部署时，日线缓存保存在命名卷 `hithink-data`，重建 API 容器不会重新下载完整数据包
+- Hithink 的全市场数据包为原始日线，和现有 Tushare 扫描口径一致；成交量单位不同，但本项目只比较量比，计算结果不受单位影响
+- ETF 轮动、实时价格和分时图继续使用原有腾讯证券公开行情，不受个股日线数据源切换影响
 - MACD 系列策略快照存储在 MySQL；指定历史交易日记录不存在时自动计算并保存
 - 量价三信号、5 日线回踩共振和多空趋势多点快照均存储在 MySQL
 - 快照日期始终使用实际交易日；周末或节假日访问时自动读取上一个交易日，不生成非交易日 JSON

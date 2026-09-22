@@ -6,6 +6,5 @@ vite.config.d.ts
 vite.log
 vite-error.log
 .env.local
-.env.mysql.local
-.env.server
+data/hithink-finance/
 /.idea

@@ -1,8 +1,11 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
+import { DuckDBInstance } from '@duckdb/node-api';
 import { activateMysqlStrategyPoolCache, flushMysqlWrites, getMysqlCombinationPage, getMysqlEtfDailyPriceHistories, getMysqlEtfs, importCombinationFile, isMysqlEnabled, listMysqlObjects, queueMysqlObjectDelete, queueMysqlObjectWrite, readMysqlObject, replaceMysqlObjects, upsertMysqlEtfDailyPrices } from './mysql-store.js';
 
 export type MarketCategory = 'A股宽基' | '海外指数' | '商品' | '债券';
@@ -464,19 +467,20 @@ const industryMa20CombinationPendingConfigPath = resolve(industryMa20Directory, 
 const industryMa20BacktestPath = resolve(industryMa20Directory, 'backtest.json');
 const industryMa20CombinationsPath = resolve(industryMa20Directory, 'combinations.json');
 const industryMa20YearPerformanceDirectory = resolve(industryMa20Directory, 'year-performance');
-const macdSnapshotVersion = 'macd-10-20-7-first-cross-full-v1';
+const stockDailyDataSource = configuredStockDailyDataSource();
+const macdSnapshotVersion = `macd-10-20-7-first-cross-full-v1-${stockDailyDataSource}`;
 const macdSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-snapshots');
-const macdPullbackSnapshotVersion = 'macd-5-34-5-zero-axis-pullback-v1';
+const macdPullbackSnapshotVersion = `macd-5-34-5-zero-axis-pullback-v1-${stockDailyDataSource}`;
 const macdPullbackSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-pullback-snapshots');
-const macdKdjSnapshotVersion = 'macd-12-26-9-kdj-9-3-3-resonance-v1';
+const macdKdjSnapshotVersion = `macd-12-26-9-kdj-9-3-3-resonance-v1-${stockDailyDataSource}`;
 const macdKdjSnapshotDirectory = resolve(process.cwd(), 'data', 'macd-kdj-snapshots');
-const kdjTurningPointSnapshotVersion = 'kdj-9-3-3-low-turning-point-v1';
+const kdjTurningPointSnapshotVersion = `kdj-9-3-3-low-turning-point-v1-${stockDailyDataSource}`;
 const kdjTurningPointSnapshotDirectory = resolve(process.cwd(), 'data', 'kdj-turning-point-snapshots');
-const volumeSnapshotVersion = 'volume-ma25-volume-ma5-60-three-signals-v2';
+const volumeSnapshotVersion = `volume-ma25-volume-ma5-60-three-signals-v2-${stockDailyDataSource}`;
 const volumeSnapshotDirectory = resolve(process.cwd(), 'data', 'volume-snapshots');
-const ma5ResonanceSnapshotVersion = 'ma5-ma10-ma20-pullback-resonance-v1';
+const ma5ResonanceSnapshotVersion = `ma5-ma10-ma20-pullback-resonance-v1-${stockDailyDataSource}`;
 const ma5ResonanceSnapshotDirectory = resolve(process.cwd(), 'data', 'ma5-resonance-snapshots');
-const bullPointSnapshotVersion = 'bull-point-hhv21-hhv6-ma34-ma6-v1';
+const bullPointSnapshotVersion = `bull-point-hhv21-hhv6-ma34-ma6-v1-${stockDailyDataSource}`;
 const bullPointSnapshotDirectory = resolve(process.cwd(), 'data', 'bull-point-snapshots');
 const assetRotationYearPerformanceDirectory = resolve(assetRotationDirectory, 'year-performance');
 const assetRotationTop1YearPerformanceDirectory = resolve(assetRotationTop1Directory, 'year-performance');
@@ -1098,6 +1102,31 @@ type TushareResponse = {
   data?: { fields?: string[]; items?: Array<Array<string | number | null>> };
 };
 
+type HithinkResponse<T> = {
+  code: number;
+  message?: string;
+  request_id?: string;
+  data?: T;
+};
+
+type StockDailyDataSource = 'tushare' | 'hithink';
+
+type HithinkDailyDumpUrl = {
+  presigned_url?: string;
+};
+
+type HithinkDailyRow = {
+  ts_code: string;
+  trade_date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  pre_close: number;
+  pct_chg: number;
+  vol: number;
+};
+
 type DailyRow = { tsCode: string; tradeDate: string; close: number; previousClose: number; change: number };
 type PullbackDailyRow = DailyRow & { open: number; high: number; low: number; volume: number };
 type CandidateSignal = Omit<MacdSignal, 'name'> & { tsCode: string };
@@ -1107,16 +1136,44 @@ type VolumeCandidate = Omit<VolumeSignal, 'name'> & { tsCode: string };
 type Ma5ResonanceCandidate = Omit<Ma5ResonanceSignal, 'name'> & { tsCode: string };
 type BullPointCandidate = Omit<BullPointSignal, 'name'> & { tsCode: string };
 
-function tushareToken() {
-  if (process.env.TUSHARE_TOKEN) return process.env.TUSHARE_TOKEN;
+function environmentValue(name: string) {
+  if (process.env[name] !== undefined) return process.env[name]?.trim();
   try {
     const entry = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8')
       .split(/\r?\n/)
-      .find((line) => line.startsWith('TUSHARE_TOKEN='));
-    return entry?.slice('TUSHARE_TOKEN='.length).trim();
+      .find((line) => line.startsWith(`${name}=`));
+    return entry?.slice(name.length + 1).trim();
   } catch {
     return undefined;
   }
+}
+
+function configuredStockDailyDataSource(): StockDailyDataSource {
+  const source = (environmentValue('STOCK_DAILY_DATA_SOURCE') ?? 'tushare').toLowerCase();
+  if (source === 'tushare' || source === 'hithink') return source;
+  throw new Error('STOCK_DAILY_DATA_SOURCE 只能设置为 tushare 或 hithink');
+}
+
+const hithinkDataDirectory = resolve(process.cwd(), 'data', 'hithink-finance');
+const hithinkFullDailyDumpConfig = environmentValue('HITHINK_DAILY_K_CACHE_PATH');
+const hithinkIncrementalDailyDumpConfig = environmentValue('HITHINK_DAILY_K_INCREMENTAL_PATH');
+const hithinkFullDailyDumpPath = hithinkFullDailyDumpConfig
+  ? resolve(process.cwd(), hithinkFullDailyDumpConfig)
+  : resolve(hithinkDataDirectory, 'daily-k.parquet');
+const hithinkIncrementalDailyDumpPath = hithinkIncrementalDailyDumpConfig
+  ? resolve(process.cwd(), hithinkIncrementalDailyDumpConfig)
+  : resolve(hithinkDataDirectory, 'daily-k-10d.parquet');
+const configuredHithinkRefreshHours = Number(environmentValue('HITHINK_DAILY_K_REFRESH_HOURS') ?? 6);
+const hithinkRefreshHours = Number.isFinite(configuredHithinkRefreshHours)
+  ? Math.max(1, configuredHithinkRefreshHours)
+  : 6;
+let hithinkDatabase: DuckDBInstance | null = null;
+let hithinkDumpSyncInFlight: Promise<void> | null = null;
+let hithinkWindowLoadInFlight: Promise<void> | null = null;
+let hithinkWindow: { start: string; end: string; rowsByDate: Map<string, HithinkDailyRow[]> } | null = null;
+
+function tushareToken() {
+  return environmentValue('TUSHARE_TOKEN');
 }
 
 async function callTushare(apiName: string, params: Record<string, string | number>, requestedFields = '') {
@@ -1142,6 +1199,184 @@ async function callTushare(apiName: string, params: Record<string, string | numb
     throw new Error(payload.msg || `Tushare ${apiName} 请求失败`);
   }
   throw new Error(`Tushare ${apiName} 请求失败`);
+}
+
+function stockDailyProviderLabel() {
+  return stockDailyDataSource === 'hithink'
+    ? '同花顺金融数据服务全市场日线 + 腾讯证券公开行情'
+    : 'Tushare 日线 + 腾讯证券公开行情';
+}
+
+function hithinkApiKey() {
+  return environmentValue('HITHINK_FINANCE_API_KEY');
+}
+
+function hithinkDateMilliseconds(date: string) {
+  return Date.parse(`${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}T00:00:00+08:00`);
+}
+
+function hithinkTradeDateText(milliseconds: number) {
+  return new Date(milliseconds + 8 * 60 * 60 * 1_000).toISOString().slice(0, 10).replaceAll('-', '');
+}
+
+function sqlPath(path: string) {
+  return `'${path.replaceAll("'", "''")}'`;
+}
+
+function hithinkDumpNeedsRefresh() {
+  if (!existsSync(hithinkIncrementalDailyDumpPath)) return true;
+  return Date.now() - statSync(hithinkIncrementalDailyDumpPath).mtimeMs >= hithinkRefreshHours * 60 * 60 * 1_000;
+}
+
+async function requestHithinkDumpUrl(endpoint: string) {
+  const apiKey = hithinkApiKey();
+  if (!apiKey) throw new Error('未配置 HITHINK_FINANCE_API_KEY，无法下载同花顺全市场日线数据');
+  const response = await fetch(`https://fuyao.aicubes.cn${endpoint}`, {
+    headers: { 'X-api-key': apiKey, 'User-Agent': 'rotation-market-desk/1.0' },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`同花顺数据包签名接口返回 HTTP ${response.status}`);
+  const payload = await response.json() as HithinkResponse<HithinkDailyDumpUrl>;
+  if (payload.code !== 0 || !payload.data?.presigned_url) {
+    const suffix = payload.request_id ? `（请求标识：${payload.request_id}）` : '';
+    throw new Error(`${payload.message || '同花顺数据包签名失败'}${suffix}`);
+  }
+  return payload.data.presigned_url;
+}
+
+async function downloadHithinkDump(endpoint: string, targetPath: string) {
+  const url = await requestHithinkDumpUrl(endpoint);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.part`;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(20 * 60_000) });
+    if (!response.ok || !response.body) throw new Error(`同花顺数据包下载返回 HTTP ${response.status}`);
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(temporaryPath));
+    renameSync(temporaryPath, targetPath);
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+async function ensureHithinkDailyDumps() {
+  if (hithinkDumpSyncInFlight) return hithinkDumpSyncInFlight;
+  hithinkDumpSyncInFlight = (async () => {
+    if (!existsSync(hithinkFullDailyDumpPath)) {
+      await downloadHithinkDump('/api/dump/market-dumps/daily-k/download-url', hithinkFullDailyDumpPath);
+    }
+    if (hithinkDumpNeedsRefresh()) {
+      await downloadHithinkDump('/api/dump/market-dumps/daily-k-10d/download-url', hithinkIncrementalDailyDumpPath);
+    }
+  })();
+  try {
+    await hithinkDumpSyncInFlight;
+  } finally {
+    hithinkDumpSyncInFlight = null;
+  }
+}
+
+async function getHithinkDatabase() {
+  if (!hithinkDatabase) hithinkDatabase = await DuckDBInstance.create(':memory:', { threads: '4' });
+  return hithinkDatabase;
+}
+
+async function loadHithinkDailyWindow(start: string, end: string) {
+  if (hithinkWindow && start >= hithinkWindow.start && end <= hithinkWindow.end) return;
+  if (hithinkWindowLoadInFlight) {
+    await hithinkWindowLoadInFlight;
+    if (hithinkWindow && start >= hithinkWindow.start && end <= hithinkWindow.end) return;
+  }
+  hithinkWindowLoadInFlight = (async () => {
+    await ensureHithinkDailyDumps();
+    const sourcePaths = [hithinkFullDailyDumpPath, hithinkIncrementalDailyDumpPath].filter(existsSync);
+    const windowStart = shiftCalendarDate(start, -14);
+    const startMilliseconds = hithinkDateMilliseconds(windowStart);
+    const endMilliseconds = hithinkDateMilliseconds(end);
+    const sources = sourcePaths.map((path, priority) => `
+      SELECT *, ${priority} AS source_priority
+      FROM read_parquet(${sqlPath(path)})
+      WHERE date_ms >= ${startMilliseconds} AND date_ms <= ${endMilliseconds}
+    `).join('\nUNION ALL\n');
+    const database = await getHithinkDatabase();
+    const connection = await database.connect();
+    try {
+      const result = await connection.runAndReadAll(`
+        WITH raw AS (${sources}),
+        deduplicated AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY thscode, date_ms ORDER BY source_priority DESC) AS row_rank
+          FROM raw
+        ),
+        daily AS (
+          SELECT
+            thscode,
+            date_ms,
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            volume,
+            LAG(close_price) OVER (PARTITION BY thscode ORDER BY date_ms) AS pre_close
+          FROM deduplicated
+          WHERE row_rank = 1
+        )
+        SELECT
+          thscode,
+          date_ms,
+          open_price,
+          high_price,
+          low_price,
+          close_price,
+          volume,
+          pre_close
+        FROM daily
+        WHERE date_ms >= ${hithinkDateMilliseconds(start)} AND date_ms <= ${endMilliseconds}
+        ORDER BY date_ms, thscode
+      `);
+      const rowsByDate = new Map<string, HithinkDailyRow[]>();
+      for (const row of result.getRowObjectsJS()) {
+        const close = Number(row.close_price);
+        const previousClose = row.pre_close === null || row.pre_close === undefined ? Number.NaN : Number(row.pre_close);
+        const item: HithinkDailyRow = {
+          ts_code: String(row.thscode),
+          trade_date: hithinkTradeDateText(Number(row.date_ms)),
+          open: Number(row.open_price),
+          high: Number(row.high_price),
+          low: Number(row.low_price),
+          close,
+          pre_close: previousClose,
+          pct_chg: Number.isFinite(previousClose) && previousClose !== 0 ? ((close / previousClose) - 1) * 100 : Number.NaN,
+          vol: Number(row.volume),
+        };
+        const dailyRows = rowsByDate.get(item.trade_date) ?? [];
+        dailyRows.push(item);
+        rowsByDate.set(item.trade_date, dailyRows);
+      }
+      hithinkWindow = { start, end, rowsByDate };
+    } finally {
+      connection.closeSync();
+    }
+  })();
+  try {
+    await hithinkWindowLoadInFlight;
+  } finally {
+    hithinkWindowLoadInFlight = null;
+  }
+}
+
+async function prepareStockDailyData(queryDays: string[]) {
+  if (stockDailyDataSource !== 'hithink' || queryDays.length === 0) return;
+  await loadHithinkDailyWindow(queryDays[0], queryDays.at(-1)!);
+}
+
+async function callDailyMarket(apiName: string, params: Record<string, string | number>, requestedFields = '') {
+  if (stockDailyDataSource === 'tushare') return callTushare(apiName, params, requestedFields);
+  if (apiName !== 'daily' || typeof params.trade_date !== 'string') {
+    throw new Error('同花顺全市场日线适配器仅支持按交易日读取 daily 数据');
+  }
+  const tradeDate = params.trade_date;
+  await loadHithinkDailyWindow(tradeDate, tradeDate);
+  return hithinkWindow?.rowsByDate.get(tradeDate) ?? [];
 }
 
 function dateText(date: Date) {
@@ -3502,13 +3737,14 @@ async function buildMacdConfluenceSnapshot(storageDate: string): Promise<MacdSna
   // Empty daily responses are naturally skipped for weekends and public holidays.
   // 115 weekdays yields at least 100 open-market sessions around public holidays.
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
 
   const dailyByCode = new Map<string, DailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,close,pre_close,pct_chg');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,close,pre_close,pct_chg');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -3533,7 +3769,7 @@ async function buildMacdConfluenceSnapshot(storageDate: string): Promise<MacdSna
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算 MACD（10,20,7）');
+  if (tradingDays.length < 100) throw new Error('当前日线数据源返回的有效日线不足 100 条，无法计算 MACD（10,20,7）');
 
   const candidates: CandidateSignal[] = [];
   let scannedCount = 0;
@@ -3575,7 +3811,7 @@ async function buildMacdConfluenceSnapshot(storageDate: string): Promise<MacdSna
     signals,
     firstCrossCount: signals.length,
     storageDate: tradingDays.at(-1)!,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate: tradingDays.at(-1)!,
     cached: false,
@@ -3614,13 +3850,14 @@ export async function getMacdPullbackSnapshot(forceRefresh = false, requestedDat
 
 async function buildMacdPullbackSnapshot(storageDate: string): Promise<MacdPullbackSnapshot> {
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -3649,7 +3886,7 @@ async function buildMacdPullbackSnapshot(storageDate: string): Promise<MacdPullb
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算 MACD（5,34,5）');
+  if (tradingDays.length < 100) throw new Error('当前日线数据源返回的有效日线不足 100 条，无法计算 MACD（5,34,5）');
 
   const candidates: PullbackCandidate[] = [];
   let scannedCount = 0;
@@ -3724,7 +3961,7 @@ async function buildMacdPullbackSnapshot(storageDate: string): Promise<MacdPullb
   const snapshot: MacdPullbackSnapshot = {
     signals,
     storageDate: tradingDays.at(-1)!,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate: tradingDays.at(-1)!,
     cached: false,
@@ -3763,13 +4000,14 @@ export async function getMacdKdjSnapshot(forceRefresh = false, requestedDate?: s
 
 async function buildMacdKdjSnapshot(storageDate: string): Promise<MacdKdjSnapshot> {
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -3798,7 +4036,7 @@ async function buildMacdKdjSnapshot(storageDate: string): Promise<MacdKdjSnapsho
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算 MACD + KDJ');
+  if (tradingDays.length < 100) throw new Error('当前日线数据源返回的有效日线不足 100 条，无法计算 MACD + KDJ');
 
   const candidates: MacdKdjCandidate[] = [];
   let scannedCount = 0;
@@ -3872,7 +4110,7 @@ async function buildMacdKdjSnapshot(storageDate: string): Promise<MacdKdjSnapsho
   const snapshot: MacdKdjSnapshot = {
     signals,
     storageDate: tradingDays.at(-1)!,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate: tradingDays.at(-1)!,
     cached: false,
@@ -3913,13 +4151,14 @@ export async function getKdjTurningPointSnapshot(forceRefresh = false, requested
 
 async function buildKdjTurningPointSnapshot(storageDate: string): Promise<KdjTurningPointSnapshot> {
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -3948,7 +4187,7 @@ async function buildKdjTurningPointSnapshot(storageDate: string): Promise<KdjTur
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算 KDJ 低位拐点');
+  if (tradingDays.length < 100) throw new Error('当前日线数据源返回的有效日线不足 100 条，无法计算 KDJ 低位拐点');
 
   const candidates: Array<Omit<KdjTurningPointSignal, 'name'> & { tsCode: string }> = [];
   let scannedCount = 0;
@@ -3996,7 +4235,7 @@ async function buildKdjTurningPointSnapshot(storageDate: string): Promise<KdjTur
   const snapshot: KdjTurningPointSnapshot = {
     signals,
     storageDate: tradingDays.at(-1)!,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate: tradingDays.at(-1)!,
     cached: false,
@@ -4037,13 +4276,14 @@ export async function getVolumeSnapshot(forceRefresh = false, requestedDate?: st
 
 async function buildVolumeSnapshot(storageDate: string): Promise<VolumeSnapshot> {
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -4072,7 +4312,7 @@ async function buildVolumeSnapshot(storageDate: string): Promise<VolumeSnapshot>
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 100) throw new Error('Tushare 返回的有效日线不足 100 条，无法计算量能三信号');
+  if (tradingDays.length < 100) throw new Error('当前日线数据源返回的有效日线不足 100 条，无法计算量能三信号');
   const lastTradingDate = tradingDays.at(-1)!;
   const candidates: VolumeCandidate[] = [];
   let scannedCount = 0;
@@ -4187,7 +4427,7 @@ async function buildVolumeSnapshot(storageDate: string): Promise<VolumeSnapshot>
   const snapshot: VolumeSnapshot = {
     signals,
     storageDate: lastTradingDate,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate,
     cached: false,
@@ -4229,13 +4469,14 @@ export async function getMa5ResonanceSnapshot(forceRefresh = false, requestedDat
 
 async function buildMa5ResonanceSnapshot(storageDate: string): Promise<Ma5ResonanceSnapshot> {
   const queryDays = recentWeekdays(115, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -4264,7 +4505,7 @@ async function buildMa5ResonanceSnapshot(storageDate: string): Promise<Ma5Resona
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 65) throw new Error('Tushare 返回的有效日线不足 65 条，无法计算 5 日线回踩共振');
+  if (tradingDays.length < 65) throw new Error('当前日线数据源返回的有效日线不足 65 条，无法计算 5 日线回踩共振');
   const lastTradingDate = tradingDays.at(-1)!;
   const candidates: Ma5ResonanceCandidate[] = [];
   let scannedCount = 0;
@@ -4347,7 +4588,7 @@ async function buildMa5ResonanceSnapshot(storageDate: string): Promise<Ma5Resona
   const snapshot: Ma5ResonanceSnapshot = {
     signals,
     storageDate: lastTradingDate,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate,
     cached: false,
@@ -4386,13 +4627,14 @@ export async function getBullPointSnapshot(forceRefresh = false, requestedDate?:
 
 async function buildBullPointSnapshot(storageDate: string): Promise<BullPointSnapshot> {
   const queryDays = recentWeekdays(70, new Date(`${storageDate.slice(0, 4)}-${storageDate.slice(4, 6)}-${storageDate.slice(6)}T12:00:00`));
+  await prepareStockDailyData(queryDays);
   const dailyByCode = new Map<string, PullbackDailyRow[]>();
   const availableDays = new Set<string>();
   const excludedByBoard = new Set<string>();
 
   for (const [index, tradeDate] of queryDays.entries()) {
-    if (index > 0 && index % 45 === 0) await wait(61_000);
-    const rows = await callTushare('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
+    if (stockDailyDataSource === 'tushare' && index > 0 && index % 45 === 0) await wait(61_000);
+    const rows = await callDailyMarket('daily', { trade_date: tradeDate }, 'ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol');
     if (rows.length > 0) availableDays.add(tradeDate);
     for (const row of rows) {
       const tsCode = String(row.ts_code);
@@ -4421,7 +4663,7 @@ async function buildBullPointSnapshot(storageDate: string): Promise<BullPointSna
   }
 
   const tradingDays = [...availableDays].sort();
-  if (tradingDays.length < 45) throw new Error('Tushare 返回的有效日线不足 45 条，无法计算多空趋势多点');
+  if (tradingDays.length < 45) throw new Error('当前日线数据源返回的有效日线不足 45 条，无法计算多空趋势多点');
   const lastTradingDate = tradingDays.at(-1)!;
   const candidates: BullPointCandidate[] = [];
   let scannedCount = 0;
@@ -4485,7 +4727,7 @@ async function buildBullPointSnapshot(storageDate: string): Promise<BullPointSna
   const snapshot: BullPointSnapshot = {
     signals,
     storageDate: lastTradingDate,
-    provider: 'Tushare 日线 + 腾讯证券公开行情',
+    provider: stockDailyProviderLabel(),
     fetchedAt: new Date().toISOString(),
     lastTradingDate,
     cached: false,

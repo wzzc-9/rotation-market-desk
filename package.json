@@ -24,6 +24,7 @@
     "optimize:industry": "tsx server/run-calculation.ts industry-optimize"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.5-r.5",
     "echarts": "^5.6.0",
     "fastify": "^5.2.1",
     "lucide-react": "^0.468.0",
