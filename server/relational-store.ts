@@ -244,6 +244,30 @@ export const relationalSchemaComments: Record<string, RelationalSchemaComment> =
       signal_type: { definition: 'VARCHAR(40) NOT NULL', comment: '策略产生的信号类型' },
     },
   },
+  after_close_scheduler_status: {
+    table: '收盘后自动计算任务状态表',
+    columns: {
+      status_id: { definition: 'TINYINT UNSIGNED NOT NULL', comment: '固定状态记录编号' },
+      enabled: { definition: 'TINYINT(1) NOT NULL', comment: '是否启用自动计算' },
+      scheduled_time: { definition: 'CHAR(5) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '每日计划执行时间（北京时间）' },
+      time_zone: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '计划任务使用的时区' },
+      state: { definition: 'VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '最近一次任务状态' },
+      trading_date: { definition: 'DATE NULL', comment: '最近一次任务对应的交易日期' },
+      reason: { definition: 'TEXT NULL', comment: '跳过或失败原因' },
+      updated_at: { definition: 'DATETIME(3) NOT NULL', comment: '状态最近更新时间' },
+    },
+  },
+  after_close_scheduler_tasks: {
+    table: '收盘后自动计算任务明细表',
+    columns: {
+      status_id: { definition: 'TINYINT UNSIGNED NOT NULL', comment: '所属任务状态记录编号' },
+      task_code: { definition: 'VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '计算任务编码' },
+      task_label: { definition: 'VARCHAR(100) NOT NULL', comment: '计算任务名称' },
+      task_state: { definition: 'VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL', comment: '任务执行状态：completed或failed' },
+      finished_at: { definition: 'DATETIME(3) NOT NULL', comment: '任务最近完成或失败时间' },
+      error_message: { definition: 'TEXT NULL', comment: '失败时的错误信息' },
+    },
+  },
 };
 
 const strategyDefinitions = [
@@ -469,6 +493,18 @@ export async function createRelationalSchema(db: Database) {
   if (!(await schemaColumnExists(db, 'stock_scan_results', 'ma10'))) {
     await db.query("ALTER TABLE stock_scan_results ADD COLUMN ma10 DECIMAL(20,8) NULL COMMENT '10日均价' AFTER ma5");
   }
+  await db.query(`CREATE TABLE IF NOT EXISTS after_close_scheduler_status (
+    status_id TINYINT UNSIGNED NOT NULL COMMENT '固定状态记录编号', enabled TINYINT(1) NOT NULL COMMENT '是否启用自动计算',
+    scheduled_time CHAR(5) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '每日计划执行时间（北京时间）', time_zone VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '计划任务使用的时区',
+    state VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '最近一次任务状态', trading_date DATE NULL COMMENT '最近一次任务对应的交易日期',
+    reason TEXT NULL COMMENT '跳过或失败原因', updated_at DATETIME(3) NOT NULL COMMENT '状态最近更新时间', PRIMARY KEY (status_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收盘后自动计算任务状态表'`);
+  await db.query(`CREATE TABLE IF NOT EXISTS after_close_scheduler_tasks (
+    status_id TINYINT UNSIGNED NOT NULL COMMENT '所属任务状态记录编号', task_code VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '计算任务编码',
+    task_label VARCHAR(100) NOT NULL COMMENT '计算任务名称', task_state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '任务执行状态：completed或failed',
+    finished_at DATETIME(3) NOT NULL COMMENT '任务最近完成或失败时间', error_message TEXT NULL COMMENT '失败时的错误信息', PRIMARY KEY (status_id, task_code),
+    CONSTRAINT fk_after_close_task_status FOREIGN KEY (status_id) REFERENCES after_close_scheduler_status(status_id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收盘后自动计算任务明细表'`);
   for (const definition of strategyDefinitions) {
     await db.execute(`INSERT INTO strategies (strategy_code, strategy_name, strategy_type, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, NOW(3), NOW(3)) ON DUPLICATE KEY UPDATE strategy_name=VALUES(strategy_name), strategy_type=VALUES(strategy_type), description=VALUES(description), updated_at=NOW(3)`, [...definition]);
@@ -534,6 +570,10 @@ function scanPath(key: string) {
   const match = /^data\/([^/]+)\/(\d{4})(\d{2})(\d{2})\.json$/.exec(key);
   const strategy = match ? scanFolders[match[1]] : null;
   return match && strategy ? { strategy, date: `${match[2]}-${match[3]}-${match[4]}` } : null;
+}
+
+function afterCloseStatusPath(key: string) {
+  return key === 'data/automation/after-close-status.json';
 }
 
 async function upsertEtf(db: Database, symbol: Record<string, unknown>) {
@@ -636,6 +676,39 @@ async function saveScan(db: Database, key: string, value: any) {
   ]), 300);
 }
 
+function sqlDateFromCompactDate(value: unknown) {
+  const date = String(value ?? '');
+  return /^\d{8}$/.test(date) ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}` : null;
+}
+
+async function saveAfterCloseStatus(db: Database, value: any) {
+  const tasks = Array.isArray(value.tasks) ? value.tasks : [];
+  await db.execute(`INSERT INTO after_close_scheduler_status
+    (status_id, enabled, scheduled_time, time_zone, state, trading_date, reason, updated_at)
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), scheduled_time=VALUES(scheduled_time), time_zone=VALUES(time_zone), state=VALUES(state),
+      trading_date=VALUES(trading_date), reason=VALUES(reason), updated_at=VALUES(updated_at)`, [
+    value.enabled ? 1 : 0,
+    String(value.scheduledTime ?? '15:15'),
+    String(value.timeZone ?? 'Asia/Shanghai'),
+    String(value.state ?? 'waiting'),
+    sqlDateFromCompactDate(value.tradingDate),
+    value.reason == null ? null : String(value.reason),
+    new Date(dateTimeValue(value.updatedAt)),
+  ]);
+  await db.execute('DELETE FROM after_close_scheduler_tasks WHERE status_id=1');
+  await insertRows(db, `INSERT INTO after_close_scheduler_tasks
+    (status_id, task_code, task_label, task_state, finished_at, error_message) VALUES`, 6,
+  tasks.filter((task: unknown) => task && typeof task === 'object').map((task: any) => [
+    1,
+    String(task.id ?? ''),
+    String(task.label ?? ''),
+    String(task.status ?? 'failed'),
+    new Date(dateTimeValue(task.finishedAt)),
+    task.error == null ? null : String(task.error),
+  ]));
+}
+
 export async function persistRelationalObject(db: Database, key: string, content: string) {
   const value = JSON.parse(content);
   if (configPath(key)) return saveConfig(db, key, value);
@@ -643,6 +716,7 @@ export async function persistRelationalObject(db: Database, key: string, content
   if (backtestPath(key)) return saveBacktest(db, key, value);
   if (yearPath(key)) return saveYearPerformance(db, key, value);
   if (scanPath(key)) return saveScan(db, key, value);
+  if (afterCloseStatusPath(key)) return saveAfterCloseStatus(db, value);
   throw new Error(`没有对应关系表的数据类型：${key}`);
 }
 
@@ -657,6 +731,7 @@ export async function deleteRelationalObject(db: Database, key: string) {
   if (year) return db.execute('DELETE FROM strategy_year_performance WHERE strategy_code=? AND performance_year=?', [year.strategy, year.year]);
   const scan = scanPath(key);
   if (scan) return db.execute('DELETE FROM stock_scan_runs WHERE strategy_code=? AND storage_date=?', [scan.strategy, scan.date]);
+  if (afterCloseStatusPath(key)) return db.execute('DELETE FROM after_close_scheduler_status WHERE status_id=1');
   throw new Error(`没有对应关系表的数据类型：${key}`);
 }
 
@@ -738,6 +813,28 @@ export async function loadRelationalObjects(db: Database) {
     value.version = row.scan_version;
     const compactDate = dateValue(row.storage_date).replace(/-/g, '');
     objects.set(`data/${folderByStrategy[row.strategy_code]}/${compactDate}.json`, jsonText(value));
+  }
+  const [schedulerStatuses] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM after_close_scheduler_status WHERE status_id=1');
+  const schedulerStatus = schedulerStatuses[0];
+  if (schedulerStatus) {
+    const [schedulerTasks] = await db.query<Array<RowDataPacket & Record<string, any>>>('SELECT * FROM after_close_scheduler_tasks WHERE status_id=1 ORDER BY task_code');
+    const value: Record<string, unknown> = {
+      enabled: Boolean(schedulerStatus.enabled),
+      scheduledTime: schedulerStatus.scheduled_time,
+      timeZone: schedulerStatus.time_zone,
+      state: schedulerStatus.state,
+      updatedAt: dateTimeValue(schedulerStatus.updated_at),
+      tasks: schedulerTasks.map((task) => ({
+        id: task.task_code,
+        label: task.task_label,
+        status: task.task_state,
+        finishedAt: dateTimeValue(task.finished_at),
+        ...(task.error_message == null ? {} : { error: task.error_message }),
+      })),
+    };
+    if (schedulerStatus.trading_date) value.tradingDate = dateValue(schedulerStatus.trading_date).replaceAll('-', '');
+    if (schedulerStatus.reason != null) value.reason = schedulerStatus.reason;
+    objects.set('data/automation/after-close-status.json', jsonText(value));
   }
   return objects;
 }

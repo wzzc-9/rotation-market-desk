@@ -571,7 +571,10 @@ function storageKey(path: string) {
 
 function trackWrite<T>(promise: Promise<T>) {
   pendingWrites.add(promise);
-  void promise.finally(() => pendingWrites.delete(promise));
+  void promise.then(
+    () => pendingWrites.delete(promise),
+    () => pendingWrites.delete(promise),
+  );
   return promise;
 }
 
