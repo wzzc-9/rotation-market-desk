@@ -1669,7 +1669,7 @@ function RotationCombinationExplorer({ strategy, rotationPoolCodes, rotationPool
       <div className="panel-title-row combination-title-row">
         <div><span className="eyebrow">{isAssetRotation ? 'ASSET COMBINATION REPLAY' : isIndustryMa20 ? 'INDUSTRY COMBINATION REPLAY' : 'INDEX COMBINATION REPLAY'}</span><h3>全组合收益排名</h3></div>
         <div className="combination-toolbar">
-          {result && <span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {!filterQuery ? result.totalCombinations.toLocaleString() : `${result.totalCombinations.toLocaleString()} / ${result.allCombinations.toLocaleString()}`} 个组合</span>}
+          {result && <><span>{poolSymbols.length} 只候选{result.poolDraft.dirty ? '（待计算）' : ''} · {!filterQuery ? result.totalCombinations.toLocaleString() : `${result.totalCombinations.toLocaleString()} / ${result.allCombinations.toLocaleString()}`} 个组合</span><span className="combination-ranking-date">排名截至 {formatTradingDate(result.periods.currentYear.end)}</span></>}
         </div>
       </div>
       {result && <>
